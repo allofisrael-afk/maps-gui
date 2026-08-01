@@ -1,0 +1,780 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
+import '../models/grid_point.dart';
+import '../state/map_state.dart';
+import '../widgets/controls_panel.dart';
+
+class MapScreen extends StatefulWidget {
+  const MapScreen({super.key});
+  @override
+  State<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends State<MapScreen> {
+  final _mapController = MapController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _mapKey = GlobalKey();
+  bool _selectMode = false;
+  bool _isDragging = false;
+  int? _draggingHandleIdx;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapController.mapEventStream.listen((_) {
+        if (mounted) setState(() {});
+      });
+    });
+  }
+
+  LatLng? _screenToLatLng(Offset local) {
+    try {
+      return _mapController.camera.pointToLatLng(Point(local.dx, local.dy));
+    } catch (_) { return null; }
+  }
+
+  LatLng? _globalToLatLng(Offset globalPos) {
+    final rb = _mapKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rb == null) return null;
+    return _screenToLatLng(rb.globalToLocal(globalPos));
+  }
+
+  Future<bool> _confirmNewSelection(MapState state) async {
+    if (state.elevPoints.isEmpty && state.tempPoints.isEmpty) return true;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('בחירה חדשה', textDirection: TextDirection.rtl),
+        content: const Text('נתונים טעונים לאזור הנוכחי.\nלאפס ולבחור אזור חדש?', textDirection: TextDirection.rtl),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('אפס')),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _dragHandle(int handleIdx, Offset globalPos, MapState state) {
+    final pt = _globalToLatLng(globalPos);
+    if (pt == null) return;
+    final bounds = state.selectionBounds;
+    if (bounds == null) return;
+    double n = bounds.north, s = bounds.south, e = bounds.east, w = bounds.west;
+    switch (handleIdx) {
+      case 0: s = pt.latitude;  w = pt.longitude; // SW
+      case 1: s = pt.latitude;  e = pt.longitude; // SE
+      case 2: n = pt.latitude;  e = pt.longitude; // NE
+      case 3: n = pt.latitude;  w = pt.longitude; // NW
+    }
+    state.startSelection(LatLng(s, w));
+    state.updateSelection(LatLng(n, e));
+  }
+
+  Widget _buildHandlesOverlay(MapState state, ColorScheme cs) {
+    final bounds = state.selectionBounds;
+    if (bounds == null) return const SizedBox.shrink();
+    final corners = [
+      LatLng(bounds.south, bounds.west), // SW — 0
+      LatLng(bounds.south, bounds.east), // SE — 1
+      LatLng(bounds.north, bounds.east), // NE — 2
+      LatLng(bounds.north, bounds.west), // NW — 3
+    ];
+    return Positioned.fill(
+      child: Stack(
+        children: List.generate(4, (i) {
+          final pt = _mapController.camera.latLngToScreenPoint(corners[i]);
+          return Positioned(
+            left: pt.x.toDouble() - 10,
+            top:  pt.y.toDouble() - 10,
+            width: 20, height: 20,
+            child: GestureDetector(
+              onPanStart:  (_)  => setState(() => _draggingHandleIdx = i),
+              onPanUpdate: (d)  { if (_draggingHandleIdx == i) _dragHandle(i, d.globalPosition, state); },
+              onPanEnd:    (_)  => setState(() => _draggingHandleIdx = null),
+              onPanCancel: ()   => setState(() => _draggingHandleIdx = null),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<MapState>();
+    final cs = Theme.of(context).colorScheme;
+
+    if (state.lastPinnedPoint != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(state.lastPinnedPoint!, 12);
+        state.consumeLastPinned();
+      });
+    }
+
+    if (state.flightFocusPoint != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final fd = state.flightData;
+        if (fd != null && fd.path.length >= 2) {
+          // יש מסלול — fit bounds לכיסוי מלא
+          _mapController.fitCamera(CameraFit.bounds(
+            bounds: LatLngBounds.fromPoints(fd.path),
+            padding: const EdgeInsets.all(40),
+          ));
+        } else {
+          // נקודה בודדת — zoom 8 על המיקום הנוכחי
+          _mapController.move(state.flightFocusPoint!, 8);
+        }
+        state.consumeFlightFocus();
+      });
+    }
+
+    return Scaffold(
+      key: _scaffoldKey,
+      resizeToAvoidBottomInset: true,
+      // Drawer נפתח מימין (RTL)
+      endDrawer: Drawer(
+        width: 260,
+        child: const ControlsPanel(),
+      ),
+      body: Stack(
+        children: [
+          // ── מפה מסך מלא ──
+          FlutterMap(
+            key: _mapKey,
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: const LatLng(31.5, 34.9),
+              initialZoom: 7,
+              onTap: _selectMode ? null : (_, point) => _onMapTap(state, point),
+              interactionOptions: InteractionOptions(
+                flags: (_selectMode || _draggingHandleIdx != null)
+                    ? InteractiveFlag.none
+                    : InteractiveFlag.all,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: state.tileUrl,
+                subdomains: const ['a', 'b', 'c'],
+                userAgentPackageName: 'com.mapsapp.maps_gui_android',
+              ),
+              if (state.selectionStart != null && state.selectionEnd != null)
+                PolygonLayer(polygons: [
+                  Polygon(
+                    points: _rectPoints(state.selectionStart!, state.selectionEnd!),
+                    color: cs.primary.withAlpha(40),
+                    borderColor: cs.primary,
+                    borderStrokeWidth: 2,
+                  ),
+                ]),
+              if (state.activeLayer == LayerType.elevation) _buildElevLayer(state),
+              if (state.activeLayer == LayerType.temperature) _buildTempLayer(state),
+              if (state.flightData != null) ...[
+                if (state.flightData!.path.length >= 2)
+                  PolylineLayer(polylines: [
+                    Polyline(
+                      points: state.flightData!.path,
+                      color: const Color(0xFF89b4fa),
+                      strokeWidth: 3,
+                    ),
+                  ]),
+                if (state.flightData!.current != null)
+                  MarkerLayer(markers: [
+                    Marker(
+                      point: state.flightData!.current!,
+                      width: 32, height: 32,
+                      child: const Icon(Icons.flight, color: Color(0xFFa6e3a1), size: 28),
+                    ),
+                  ]),
+              ],
+              if (state.pinnedPoints.isNotEmpty)
+                MarkerLayer(
+                  markers: state.pinnedPoints.map((p) => Marker(
+                    point: p,
+                    width: 30, height: 30,
+                    child: const Icon(Icons.place, color: Color(0xFFf38ba8), size: 28),
+                  )).toList(),
+                ),
+              if (state.rulerPoints.length >= 2)
+                PolylineLayer(polylines: [
+                  Polyline(
+                    points: state.rulerPoints,
+                    color: const Color(0xFFa6e3a1),
+                    strokeWidth: 2.5,
+                    pattern: StrokePattern.dashed(segments: const [10, 6]),
+                  ),
+                ]),
+              if (state.rulerPoints.isNotEmpty)
+                MarkerLayer(markers: state.rulerPoints.map((p) => Marker(
+                  point: p, width: 14, height: 14,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFa6e3a1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                  ),
+                )).toList()),
+              RichAttributionWidget(attributions: [TextSourceAttribution(state.tileAttribution)]),
+            ],
+          ),
+
+          // ── AppBar צף ──
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            right: 12,
+            child: Material(
+              color: cs.surface.withAlpha(230),
+              borderRadius: BorderRadius.circular(14),
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  children: [
+                    // כפתור בחירת אזור
+                    IconButton(
+                      tooltip: _selectMode ? 'בטל בחירה' : 'בחר אזור על המפה',
+                      icon: Icon(
+                        _selectMode ? Icons.cancel_outlined : Icons.crop_free,
+                        color: _selectMode ? cs.error : cs.onSurface,
+                      ),
+                      onPressed: () async {
+                        if (!_selectMode) {
+                          final ok = await _confirmNewSelection(state);
+                          if (!ok || !mounted) return;
+                          state.resetForNewSelection();
+                        }
+                        setState(() { _selectMode = !_selectMode; _isDragging = false; });
+                      },
+                    ),
+                    Expanded(
+                      child: Text(
+                        _selectMode
+                            ? (state.selectionStart == null
+                                ? 'הקש או גרור לבחירה'
+                                : state.selectionEnd == null
+                                    ? 'הקש נקודה שנייה'
+                                    : 'אזור נבחר ✓')
+                            : 'מפה אינטראקטיבית',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: _selectMode ? cs.primary : cs.onSurface,
+                        ),
+                      ),
+                    ),
+                    // כפתור מדידה
+                    IconButton(
+                      tooltip: state.rulerMode ? 'סיים מדידה' : 'מדד מרחק',
+                      icon: Icon(
+                        Icons.straighten,
+                        color: state.rulerMode ? cs.primary : cs.onSurface,
+                      ),
+                      onPressed: state.toggleRuler,
+                    ),
+                    // כפתור פתיחת drawer
+                    IconButton(
+                      tooltip: 'כלים',
+                      icon: const Icon(Icons.tune),
+                      onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── מחוון טעינה ──
+          if (state.elevLoading || state.tempLoading)
+            const Positioned(
+              top: 100,
+              left: 0,
+              right: 0,
+              child: Center(child: _LoadingChip()),
+            ),
+
+          // ── שכבת גרירה לבחירת אזור ──
+          if (_selectMode)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (d) {
+                  final pt = _screenToLatLng(d.localPosition);
+                  if (pt == null) return;
+                  if (state.selectionStart == null || state.selectionEnd != null) {
+                    state.startSelection(pt);
+                  } else {
+                    state.updateSelection(pt);
+                    setState(() => _selectMode = false);
+                  }
+                },
+                onPanStart: (d) {
+                  final pt = _screenToLatLng(d.localPosition);
+                  if (pt == null) return;
+                  state.startSelection(pt);
+                  setState(() => _isDragging = true);
+                },
+                onPanUpdate: (d) {
+                  if (!_isDragging) return;
+                  final pt = _screenToLatLng(d.localPosition);
+                  if (pt != null) state.updateSelection(pt);
+                },
+                onPanEnd: (_) {
+                  if (!_isDragging) return;
+                  setState(() { _isDragging = false; _selectMode = false; });
+                },
+                onPanCancel: () => setState(() { _isDragging = false; }),
+                onLongPressStart: (d) {
+                  final pt = _screenToLatLng(d.localPosition);
+                  if (pt == null) return;
+                  state.startSelection(pt);
+                  setState(() => _isDragging = true);
+                },
+                onLongPressMoveUpdate: (d) {
+                  if (!_isDragging) return;
+                  final pt = _screenToLatLng(d.localPosition);
+                  if (pt != null) state.updateSelection(pt);
+                },
+                onLongPressEnd: (_) {
+                  if (!_isDragging) return;
+                  setState(() { _isDragging = false; _selectMode = false; });
+                },
+                onLongPressCancel: () => setState(() { _isDragging = false; }),
+              ),
+            ),
+
+          // ── הנחיה בחירת אזור ──
+          if (_selectMode)
+            Positioned(
+              bottom: 30,
+              left: 20,
+              right: 20,
+              child: IgnorePointer(
+                child: Material(
+                  color: cs.inverseSurface.withAlpha(220),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: Text(
+                      state.selectionStart == null
+                          ? 'גרור / לחץ-ארוך / הקש פעמיים לבחירה'
+                          : state.selectionEnd == null
+                              ? 'הקש שוב — נקודת סיום'
+                              : 'אזור נבחר ✓  גרור פינה לעריכה',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: cs.onInverseSurface, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── ידיות עריכת בחירה ──
+          if (!_selectMode && state.selectionStart != null && state.selectionEnd != null)
+            _buildHandlesOverlay(state, cs),
+
+          // ── כרטיס גובה (נקודה נלחצה בשכבת גבהים) ──
+          if (state.tappedElevPoint != null)
+            _ElevationCard(state: state, cs: cs),
+
+          // ── כרטיס מזג אוויר ──
+          if (state.weatherPoint != null)
+            _WeatherCard(state: state, cs: cs),
+
+          // ── כרטיס מדידה ──
+          if (state.rulerPoints.length >= 2)
+            _RulerCard(state: state, cs: cs),
+
+          // ── סרגל קנה-מידה ──
+          Positioned(
+            bottom: 14,
+            right: 12,
+            child: _ScaleBar(mapController: _mapController),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onMapTap(MapState state, LatLng point) {
+    if (state.rulerMode) {
+      state.addRulerPoint(point);
+      return;
+    }
+    if (state.activeLayer == LayerType.elevation && state.elevPoints.isNotEmpty) {
+      state.tapElevation(point);
+    } else {
+      state.fetchWeather(point);
+    }
+  }
+
+  Widget _buildElevLayer(MapState state) {
+    if (state.elevPoints.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    if (state.elevMode == DisplayMode.heat && state.elevHeatBytes != null) {
+      final b = _gridBounds(state.elevPoints);
+      return OverlayImageLayer(overlayImages: [
+        OverlayImage(bounds: b, opacity: 0.75, imageProvider: MemoryImage(state.elevHeatBytes!))
+      ]);
+    }
+    if (state.elevMode == DisplayMode.grid) return PolygonLayer(polygons: _buildCells(state.elevPoints));
+    return CircleLayer(circles: _buildDots(state.elevPoints));
+  }
+
+  Widget _buildTempLayer(MapState state) {
+    if (state.tempPoints.isEmpty) return const SizedBox.shrink();
+    if (state.tempMode == DisplayMode.heat && state.tempHeatBytes != null) {
+      final b = _gridBounds(state.tempPoints);
+      return OverlayImageLayer(overlayImages: [
+        OverlayImage(bounds: b, opacity: 0.75, imageProvider: MemoryImage(state.tempHeatBytes!))
+      ]);
+    }
+    if (state.tempMode == DisplayMode.grid) return PolygonLayer(polygons: _buildCells(state.tempPoints));
+    return CircleLayer(circles: _buildDots(state.tempPoints));
+  }
+
+  LatLngBounds _gridBounds(List<GridPoint> pts) {
+    double minLat = pts.first.lat, maxLat = pts.first.lat;
+    double minLon = pts.first.lon, maxLon = pts.first.lon;
+    for (final p in pts) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lon < minLon) minLon = p.lon;
+      if (p.lon > maxLon) maxLon = p.lon;
+    }
+    return LatLngBounds(LatLng(minLat, minLon), LatLng(maxLat, maxLon));
+  }
+
+  List<Polygon> _buildCells(List<GridPoint> pts) {
+    final uLats = pts.map((p) => p.lat).toSet().toList()..sort();
+    final uLons = pts.map((p) => p.lon).toSet().toList()..sort();
+    if (uLats.length < 2 || uLons.length < 2) return [];
+    final dLat = (uLats.last - uLats.first) / (uLats.length - 1) / 2;
+    final dLon = (uLons.last - uLons.first) / (uLons.length - 1) / 2;
+    double minV = pts.first.value, maxV = pts.first.value;
+    for (final p in pts) {
+      if (p.value < minV) minV = p.value;
+      if (p.value > maxV) maxV = p.value;
+    }
+    final range = max(maxV - minV, 1e-6);
+    return pts.map((p) {
+      final t = (p.value - minV) / range;
+      return Polygon(
+        points: [
+          LatLng(p.lat - dLat, p.lon - dLon), LatLng(p.lat - dLat, p.lon + dLon),
+          LatLng(p.lat + dLat, p.lon + dLon), LatLng(p.lat + dLat, p.lon - dLon),
+        ],
+        color: _valueColor(t).withAlpha(180),
+        borderStrokeWidth: 0, borderColor: Colors.transparent,
+      );
+    }).toList();
+  }
+
+  List<CircleMarker> _buildDots(List<GridPoint> pts) {
+    double minV = pts.first.value, maxV = pts.first.value;
+    for (final p in pts) {
+      if (p.value < minV) minV = p.value;
+      if (p.value > maxV) maxV = p.value;
+    }
+    final range = max(maxV - minV, 1e-6);
+    return pts.map((p) => CircleMarker(
+      point: LatLng(p.lat, p.lon),
+      radius: 6,
+      color: _valueColor((p.value - minV) / range).withAlpha(210),
+      borderStrokeWidth: 0,
+    )).toList();
+  }
+
+  Color _valueColor(double t) {
+    t = t.clamp(0.0, 1.0);
+    int r, g, b;
+    if (t < 0.25)      { final s = t / 0.25;        r = 0;              g = (s * 255).round();       b = 255; }
+    else if (t < 0.5)  { final s = (t - 0.25)/0.25; r = 0;              g = 255;                     b = (255*(1-s)).round(); }
+    else if (t < 0.75) { final s = (t - 0.5) /0.25; r = (s*255).round(); g = 255;                    b = 0; }
+    else               { final s = (t - 0.75)/0.25; r = 255;             g = (255*(1-s)).round();     b = 0; }
+    return Color.fromARGB(255, r, g, b);
+  }
+
+  List<LatLng> _rectPoints(LatLng a, LatLng b) => [
+    LatLng(a.latitude, a.longitude), LatLng(a.latitude, b.longitude),
+    LatLng(b.latitude, b.longitude), LatLng(b.latitude, a.longitude),
+  ];
+}
+
+// ── Elevation card ────────────────────────────────────────
+class _ElevationCard extends StatelessWidget {
+  const _ElevationCard({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => Positioned(
+    bottom: 20,
+    left: 12,
+    child: Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: SizedBox(
+          width: 160,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                Icon(Icons.terrain, size: 14, color: cs.primary),
+                const SizedBox(width: 4),
+                Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: state.closeElevTap,
+                  child: Icon(Icons.close, size: 15, color: cs.outline),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                '${state.tappedElevPoint!.value.toStringAsFixed(0)} מ\'',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: cs.onSurface),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${state.tappedElevPoint!.lat.toStringAsFixed(4)}, ${state.tappedElevPoint!.lon.toStringAsFixed(4)}',
+                style: TextStyle(fontSize: 10, color: cs.outline),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+// ── Loading chip ──────────────────────────────────────────
+class _LoadingChip extends StatelessWidget {
+  const _LoadingChip();
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(20),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary)),
+          const SizedBox(width: 10),
+          Text('טוען נתונים...', style: TextStyle(color: cs.onSurface)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Weather card ──────────────────────────────────────────
+class _WeatherCard extends StatelessWidget {
+  const _WeatherCard({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+
+  static const _wmo = <int, String>{
+    0:'שמיים בהירים', 1:'בהיר', 2:'מעונן חלקית', 3:'מעונן',
+    45:'ערפל', 51:'טחב', 61:'גשם קל', 63:'גשם', 65:'גשם כבד',
+    71:'שלג קל', 73:'שלג', 80:'מקלחות', 95:'סופת רעמים',
+  };
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    bottom: 20,
+    right: 12,
+    child: Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: SizedBox(
+          width: 160,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                Text('מזג אוויר', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: state.closeWeather,
+                  child: Icon(Icons.close, size: 15, color: cs.outline),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              if (state.weatherLoading)
+                const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              else if (state.weatherData == null)
+                Text('שגיאה', style: TextStyle(color: cs.error, fontSize: 11))
+              else
+                Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _WRow(Icons.thermostat, '${state.weatherData!['temp']}°C', cs),
+                      _WRow(Icons.water_drop, '${state.weatherData!['humidity']}%', cs),
+                      _WRow(Icons.air, '${state.weatherData!['wind']} km/h', cs),
+                      _WRow(Icons.wb_cloudy, _wmo[state.weatherData!['code'] as int] ?? 'לא ידוע', cs),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _WRow extends StatelessWidget {
+  const _WRow(this.icon, this.text, this.cs);
+  final IconData icon;
+  final String text;
+  final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(children: [
+      Icon(icon, size: 13, color: cs.primary),
+      const SizedBox(width: 5),
+      Text(text, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+    ]),
+  );
+}
+
+// ── Ruler card ────────────────────────────────────────────
+class _RulerCard extends StatelessWidget {
+  const _RulerCard({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+
+  String _fmt(double meters) {
+    final km  = meters / 1000;
+    final nm  = meters / 1852;
+    final kmStr = km >= 10  ? '${km.toStringAsFixed(1)} ק"מ'  : '${km.toStringAsFixed(2)} ק"מ';
+    final nmStr = nm >= 10  ? '${nm.toStringAsFixed(1)} NM'   : '${nm.toStringAsFixed(2)} NM';
+    return '$kmStr  /  $nmStr';
+  }
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    bottom: 50,
+    left: 12,
+    child: Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              Icon(Icons.straighten, size: 13, color: cs.primary),
+              const SizedBox(width: 4),
+              Text('מרחק', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 12)),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: state.clearRuler,
+                child: Icon(Icons.close, size: 14, color: cs.outline),
+              ),
+            ]),
+            const SizedBox(height: 4),
+            Text(_fmt(state.rulerTotalMeters),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: cs.onSurface)),
+            Text('${state.rulerPoints.length} נקודות', style: TextStyle(fontSize: 10, color: cs.outline)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+// ── Scale bar ─────────────────────────────────────────────
+class _ScaleBar extends StatelessWidget {
+  const _ScaleBar({required this.mapController});
+  final MapController mapController;
+
+  static double _metersPerPixel(MapController c) {
+    final zoom = c.camera.zoom;
+    final lat  = c.camera.center.latitude;
+    return 156543.03392 * cos(lat * pi / 180) / pow(2, zoom);
+  }
+
+  static double _nice(double v) {
+    final exp = (log(v) / log(10)).floor();
+    final f   = v / pow(10, exp);
+    final n   = f < 1.5 ? 1.0 : f < 3.0 ? 2.0 : f < 7.0 ? 5.0 : 10.0;
+    return n * pow(10, exp).toDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    double mpp;
+    try { mpp = _metersPerPixel(mapController); }
+    catch (_) { return const SizedBox.shrink(); }
+
+    const maxPx   = 110.0;
+    final maxM    = mpp * maxPx;
+    final niceM   = _nice(maxM);
+    final barW    = (niceM / mpp).clamp(20.0, 180.0);
+
+    final km  = niceM / 1000;
+    final nm  = niceM / 1852;
+    final kmLabel = km >= 1
+        ? '${km >= 10 ? km.toStringAsFixed(0) : km.toStringAsFixed(1)} ק"מ'
+        : '${niceM.round()} מ\'';
+    final nmLabel = nm >= 1
+        ? '${nm >= 10 ? nm.toStringAsFixed(0) : nm.toStringAsFixed(1)} NM'
+        : '${(nm * 1852).round()} מ\'';
+
+    return Material(
+      color: cs.surface.withAlpha(200),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: barW,
+              height: 3,
+              decoration: BoxDecoration(
+                color: cs.onSurface,
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text('$kmLabel / $nmLabel',
+                style: TextStyle(fontSize: 9, color: cs.onSurface, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+}

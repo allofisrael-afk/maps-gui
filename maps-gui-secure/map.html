@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מפת Leaflet משולבת</title>
+    <!-- Leaflet CSS — עיצוב המפה, סמנים וחלונות מידע -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map {
+            height: 100vh;   /* המפה תופסת את כל גובה החלון */
+            width: 100%;
+        }
+        /* תצוגת קואורדינטות עכבר — פינה שמאל תחתון */
+        #status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(30, 30, 46, 0.88);  /* רקע כהה שקוף — מתאים לנושא */
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #cdd6f4;  /* צבע טקסט תואם ל-Catppuccin Mocha */
+            z-index: 1000;
+            font-family: 'Segoe UI', Arial;
+            border: 1px solid #313244;
+        }
+        /* ── בורר שכבות מפה — פקד מרחף בפינה ימנית-עליונה ── */
+        .layer-switcher {
+            display: flex;           /* סידור הכפתורים בשורה אחת */
+            flex-direction: row;     /* אופקי — כפתורים זה לצד זה */
+            gap: 4px;                /* רווח בין כפתורים */
+            padding: 5px;            /* ריפוד פנימי של המיכל */
+            background: rgba(30,30,46,0.92);  /* רקע כהה-שקוף תואם נושא */
+            border: 1px solid #45475a;        /* מסגרת עדינה */
+            border-radius: 8px;               /* פינות מעוגלות */
+        }
+        .layer-btn {
+            padding: 5px 10px;       /* ריפוד פנימי של כל כפתור */
+            background: #313244;     /* רקע כפתור — גוון כהה */
+            color: #cdd6f4;          /* צבע טקסט בהיר */
+            border: 1px solid #45475a;  /* מסגרת */
+            border-radius: 5px;      /* פינות מעוגלות */
+            cursor: pointer;         /* סמן יד בריחוף */
+            font-family: 'Segoe UI', Arial;
+            font-size: 12px;
+            white-space: nowrap;     /* מונע שבירת שורה בתוך הכפתור */
+            transition: background 0.15s;  /* אנימציית מעבר חלקה בריחוף */
+        }
+        .layer-btn:hover { background: #45475a; }  /* הבהרה בריחוף */
+        .layer-btn.active {         /* כפתור הנבחר — מודגש בכחול */
+            background: #89b4fa;
+            color: #1e1e2e;
+            font-weight: bold;
+            border-color: #89b4fa;
+        }
+
+        /* tooltip טמפרטורה בנקודות דגימה */
+        .temp-tooltip {
+            background-color: rgba(30,30,46,0.92);
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Segoe UI', Arial;
+            padding: 2px 5px;
+            white-space: nowrap;
+        }
+        .temp-tooltip::before { display: none; }
+
+        /* עיצוב Popup — רקע כהה תואם נושא */
+        .leaflet-popup-content-wrapper {
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            border-radius: 8px;
+        }
+        .leaflet-popup-tip { background-color: #1e1e2e; }
+        .leaflet-popup-content { margin: 10px 14px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="status">מיקום העכבר: קו רוחב: 0.0000, קו אורך: 0.0000</div>
+
+
+    <!-- Leaflet JS — ספריית המפה הראשית -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet.heat — תוסף שכבת מפת חום חינמי -->
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+    <script>
+        var map;                      // אובייקט המפה הראשי של Leaflet
+        var heatmap;                  // שכבת מפת החום (L.heatLayer)
+        var heatmapData = [];         // נתוני החום: מערך [[lat, lng, intensity], ...]
+        var allMarkers = [];          // מערך כל הסמנים — מאפשר ניקוי מרוכז מ-Python
+        var flightPolyline = null;    // קו מסלול הטיסה — null כשאין טיסה מוצגת
+        var flightMarker   = null;    // סמן מטוס במיקום הנוכחי
+        var elevationLayer = null;    // שכבת גבהים — null כשכבויה
+        var elevationActive = false;  // האם שכבת הגבהים פעילה
+        var tempHeatLayer   = null;   // שכבת מפת חום טמפרטורה — null כשכבויה
+        var tempDotLayer    = null;   // שכבת נקודות דגימה — חלופה לשכבת החום
+        var tempGridLayer   = null;   // שכבת גריד תאים — כיסוי אחיד ללא רווחים
+        var _tempGridData   = [];     // נתוני גריד גולמיים — משותפים לשתי שכבות
+        var tempSelectStart = null;
+        var tempPreviewRect = null;
+        var tempSelecting   = false;
+        var serversRunning  = false;
+
+        // ── אתחול המפה ──
+        map = L.map('map', {
+            center: [31.7683, 35.2137],  // ירושלים כנקודת מרכז ראשונית
+            zoom: 8                       // רמת זום נוחה לצפייה בישראל כולה
+        });
+
+        // ── שכבות בסיס — מוגדרות מראש ומוחלפות לפי בחירת המשתמש ──
+
+        // מילון שכבות הבסיס הזמינות — המפתח הוא שם קצר שנשלח מ-Python
+        var baseLayers = {
+
+            // מפה טופוגרפית — מציגה גבהים, קווי גובה ושטח טבעי
+            'topo': L.tileLayer(
+                'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+                {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+                    subdomains: 'abc',   // 3 שרתי CDN לאיזון עומסים
+                    maxZoom: 17          // OpenTopoMap מוגבל ל-zoom 17
+                }
+            ),
+
+            // מפת רחובות — OpenStreetMap רגיל, מפורט עם בניינים ורחובות עד zoom 19
+            'streets': L.tileLayer(
+                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    subdomains: 'abc',   // שרתי tile.openstreetmap.org תומכים ב-a/b/c
+                    maxZoom: 19          // רמת זום גבוהה יותר מ-OpenTopoMap
+                }
+            ),
+
+            // תצלום לוויין — Esri World Imagery, חינמי וללא מפתח API, רזולוציה גבוהה
+            'satellite': L.tileLayer(
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                {
+                    attribution: '&copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
+                    maxZoom: 19   // Esri מספק תמונות עד zoom 19
+                }
+            )
+        };
+
+        var currentBaseLayer = baseLayers['topo'];  // שכבת ברירת המחדל — טופוגרפית
+        currentBaseLayer.addTo(map);                // הוספה ראשונית למפה
+
+        // פונקציה להחלפת שכבת הבסיס — נקראת מהפקד על המפה
+        function setBaseLayer(name) {
+            if (!baseLayers[name]) return;              // בדיקת תקינות השם שהתקבל
+            map.removeLayer(currentBaseLayer);          // הסרת השכבה הנוכחית מהמפה
+            currentBaseLayer = baseLayers[name];        // עדכון המשתנה לשכבה החדשה
+            currentBaseLayer.addTo(map);                // הוספת השכבה החדשה למפה
+            currentBaseLayer.bringToBack();             // דחיפה לתחתית — שכבות חום/גבהים/טיסות/סמנים נשארות מעל
+        }
+
+        // ── פקד בורר שכבות — בנוי כ-Leaflet Control מותאם ──
+        var LayerSwitcher = L.Control.extend({
+            options: { position: 'topright' },  // מיקום: פינה ימנית-עליונה של המפה
+
+            onAdd: function(map) {
+                // יצירת מיכל הפקד — Leaflet מצרף אותו ל-DOM אוטומטית
+                var container = L.DomUtil.create('div', 'layer-switcher');
+
+                // הגדרת הכפתורים: מפתח JS + תווית עברית + אייקון
+                var layers = [
+                    { key: 'topo',      label: '🗺 טופו' },    // מפה טופוגרפית
+                    { key: 'streets',   label: '🏘 רחובות' },  // OpenStreetMap
+                    { key: 'satellite', label: '🛰 לוויין' }   // תצלום Esri
+                ];
+
+                layers.forEach(function(layer) {
+                    var btn = L.DomUtil.create('button', 'layer-btn', container);  // יצירת כפתור בתוך המיכל
+                    btn.innerHTML  = layer.label;  // תווית הכפתור
+                    btn.dataset.key = layer.key;   // שמירת המפתח כ-data attribute לשימוש בclickה
+
+                    if (layer.key === 'topo') {
+                        btn.classList.add('active');  // סימון ברירת המחדל כפעיל
+                    }
+
+                    // מניעת הגלשת לחיצות/גלילה למפה מאחורי הפקד
+                    L.DomEvent.disableClickPropagation(btn);
+                    L.DomEvent.disableScrollPropagation(container);
+
+                    L.DomEvent.on(btn, 'click', function() {
+                        setBaseLayer(layer.key);  // החלפת השכבה בפועל
+
+                        // עדכון הסגנון: הסרת active מכולם והוספה לנלחץ
+                        container.querySelectorAll('.layer-btn').forEach(function(b) {
+                            b.classList.remove('active');  // ניקוי הסימון מכל הכפתורים
+                        });
+                        btn.classList.add('active');  // סימון הכפתור שנלחץ כפעיל
+                    });
+                });
+
+                return container;  // החזרת המיכל ל-Leaflet לצורך הוספה ל-DOM
+            }
+        });
+
+        new LayerSwitcher().addTo(map);  // יצירת מופע הפקד והוספתו למפה
+
+        // אתחול שכבת מפת החום — לא מוצגת עד להפעלה מפורשת
+        heatmap = L.heatLayer([], {
+            radius: 50,       // רדיוס נקודת חום בפיקסלים
+            blur: 20,         // טשטוש להגעת רכות ויזואלית
+            maxZoom: 17,      // זום מרבי שבו שכבת החום פעילה
+            minOpacity: 0.4   // שקיפות מינימלית לנראות טובה
+        });
+
+        // מעקב מיקום עכבר — עדכון תיבת הסטטוס בזמן אמת
+        map.on('mousemove', function(e) {
+            var lat = e.latlng.lat.toFixed(4);  // קו רוחב מעוגל ל-4 ספרות עשרוניות
+            var lon = e.latlng.lng.toFixed(4);  // קו אורך מעוגל ל-4 ספרות עשרוניות
+            document.getElementById('status').innerHTML =
+                "מיקום העכבר: קו רוחב: " + lat + ", קו אורך: " + lon;
+        });
+
+        // ── פונקציות מסלול טיסה ──
+
+        function drawFlightRoute(routeData) {
+            clearFlightRoute();
+
+            var trail = routeData.trail;
+
+            if (!trail || trail.length === 0) {
+                if (routeData.lat && routeData.lng) {
+                    trail = [{lat: routeData.lat, lng: routeData.lng}];
+                } else {
+                    throw new Error("אין נתוני מסלול ואין מיקום נוכחי לטיסה: " + routeData.callsign);
+                }
+            }
+
+            // סינון נקודות חסרות — מונע שגיאת Leaflet
+            var path = trail
+                .filter(function(p) { return p.lat != null && p.lng != null; })
+                .map(function(p) { return [p.lat, p.lng]; });
+
+            if (path.length === 0) {
+                throw new Error("כל נקודות המסלול חסרות קואורדינטות");
+            }
+
+            flightPolyline = L.polyline(path, {
+                color: '#4fc3f7',
+                opacity: 0.85,
+                weight: 3
+            }).addTo(map);
+
+            var currentPos = path[path.length - 1];
+            var planeIcon = L.divIcon({
+                html: '<div style="font-size:22px;color:#4fc3f7;text-shadow:0 0 3px #000;transform:rotate('
+                      + (routeData.heading || 0)
+                      + 'deg);line-height:1;cursor:pointer;">&#9992;</div>',
+                className:  '',
+                iconSize:   [28, 28],
+                iconAnchor: [14, 14]
+            });
+
+            flightMarker = L.marker(currentPos, {
+                icon:  planeIcon,
+                title: routeData.callsign || ""
+            }).addTo(map);
+
+            var alt = (routeData.altitude || 0).toLocaleString();
+            var popupContent =
+                '<div style="direction:rtl;font-family:Arial;font-size:13px;min-width:180px;">' +
+                '<div style="font-size:15px;font-weight:bold;margin-bottom:6px;">&#9992; ' + (routeData.callsign || "") + '</div>' +
+                '<div><b>חברה:</b> ' + (routeData.airline || "—") + '</div>' +
+                '<div><b>מטוס:</b> ' + (routeData.aircraft || "—") + '</div>' +
+                '<hr style="margin:5px 0;border-color:#45475a;">' +
+                '<div><b>מוצא:</b> ' + (routeData.origin_iata || "?") + ' &mdash; ' + (routeData.origin_name || "") + '</div>' +
+                '<div><b>יעד:</b> '   + (routeData.dest_iata   || "?") + ' &mdash; ' + (routeData.dest_name   || "") + '</div>' +
+                '<hr style="margin:5px 0;border-color:#45475a;">' +
+                '<div><b>גובה:</b> '    + alt + ' ft</div>' +
+                '<div><b>מהירות:</b> ' + (routeData.speed   || 0) + ' kt</div>' +
+                '<div><b>כיוון:</b> '  + (routeData.heading || 0) + '&#176;</div>' +
+                '<div style="margin-top:5px;color:#6c7086;font-size:11px;">' + trail.length + ' נקודות מסלול</div>' +
+                '</div>';
+
+            flightMarker.bindPopup(popupContent).openPopup();  // קישור Popup ופתיחה מיידית
+
+            // לחיצה חוזרת על הסמן — פתיחת ה-Popup שוב אם נסגר
+            flightMarker.on('click', function() {
+                flightMarker.openPopup();
+            });
+
+            // סימון שדות תעופה: מוצא ויעד עם תווית IATA
+            _addAirportDot(path[0],         routeData.origin_iata);  // שדה מוצא
+            _addAirportDot(currentPos,      routeData.dest_iata);    // שדה יעד
+
+            // התאמת תצוגת המפה לכיסוי מלא של המסלול — זום אוטומטי
+            map.fitBounds(flightPolyline.getBounds());
+        }
+
+        function _addAirportDot(position, label) {
+            // יצירת נקודה עגולה עם תווית IATA לסימון שדות תעופה על המסלול
+            var dotIcon = L.divIcon({
+                html: '<div style="background:#f38ba8;border:2px solid #fff;border-radius:50%;'
+                    + 'width:22px;height:22px;display:flex;align-items:center;justify-content:center;'
+                    + 'color:#fff;font-size:9px;font-weight:bold;">' + label + '</div>',
+                className:  '',        // ביטול קלאס ברירת מחדל
+                iconSize:   [22, 22],  // גודל תואם ה-div
+                iconAnchor: [11, 11]   // עוגן במרכז הנקודה
+            });
+            var dot = L.marker(position, {
+                icon:  dotIcon,
+                title: label  // tooltip עם קוד IATA
+            }).addTo(map);
+            allMarkers.push(dot);  // רישום ברשימה לניקוי עתידי
+        }
+
+        function clearFlightRoute() {
+            // ניקוי מסלול טיסה קיים — polyline וסמן
+            if (flightPolyline) { flightPolyline.remove(); flightPolyline = null; }
+            if (flightMarker)   { flightMarker.remove();   flightMarker   = null; }
+        }
+
+        // ── שכבת גבהים — בחירת אזור ידנית על ידי גרירת עכבר ──
+
+        var elevSelectStart  = null;
+        var elevPreviewRect  = null;
+        var elevSelecting    = false;
+        var _elevGridData    = [];    // נתוני גריד גבהים — משותפים לשלוש תצוגות
+        var elevDotLayer     = null;  // שכבת נקודות גבהים
+        var elevCellLayer    = null;  // שכבת גריד תאי גובה
+
+        function startElevationSelection() {
+            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+            if (elevDotLayer)   { map.removeLayer(elevDotLayer);   elevDotLayer   = null; }
+            if (elevCellLayer)  { map.removeLayer(elevCellLayer);  elevCellLayer  = null; }
+            _elevGridData  = [];
+            elevationActive = false;
+
+            map.dragging.disable();                        // ביטול גרירת המפה — מונע קונפליקט עם גרירת הסימון
+            map.getContainer().style.cursor = 'crosshair'; // שינוי הסמן לצלב — מסמן למשתמש שהוא במצב בחירה
+
+            map.once('mousedown', function(e) {           // האזנה חד-פעמית ללחיצה ראשונה בלבד
+                elevSelectStart = e.latlng;                // שמירת נקודת ההתחלה
+                elevSelecting   = true;                    // סימון שהגרירה החלה
+
+                // יצירת מלבן preview ריק בנקודת ההתחלה
+                elevPreviewRect = L.rectangle(
+                    [e.latlng, e.latlng],  // בהתחלה שתי הפינות זהות — גודל אפס
+                    {
+                        color:       '#89b4fa',  // קו כחול-בהיר לתצוגה מקדימה
+                        weight:      2,           // עובי הקו
+                        dashArray:   '6,4',       // קו מקווקו — מציין שזה תצוגה מקדימה ולא שכבה סופית
+                        fillOpacity: 0.08         // מילוי שקוף כמעט — לא מסתיר את המפה
+                    }
+                ).addTo(map);
+
+                map.on('mousemove', _updateElevPreview);    // עדכון המלבן בכל תזוזת עכבר
+                map.once('mouseup', _finishElevSelection);  // סיום הבחירה בשחרור לחצן העכבר
+            });
+        }
+
+        function _updateElevPreview(e) {
+            // עדכון גבולות המלבן לפי המיקום הנוכחי של העכבר
+            if (elevPreviewRect && elevSelectStart) {
+                elevPreviewRect.setBounds([elevSelectStart, e.latlng]);  // שתי נקודות מגדירות את המלבן
+            }
+        }
+
+        function _finishElevSelection(e) {
+            map.off('mousemove', _updateElevPreview);       // ניתוק האזנת תזוזת העכבר
+            map.dragging.enable();                          // החזרת גרירת המפה
+            map.getContainer().style.cursor = '';           // החזרת הסמן הרגיל
+            elevSelecting = false;                          // סיום מצב הגרירה
+
+            if (!elevPreviewRect) return;  // בטיחות — לא אמור לקרות
+
+            var bounds = elevPreviewRect.getBounds();       // שליפת הגבולות הסופיים שנבחרו
+            map.removeLayer(elevPreviewRect);               // הסרת מלבן התצוגה המקדימה
+            elevPreviewRect = null;                         // ניקוי הפניה
+
+            // בדיקה שהאזור שנבחר גדול מספיק — מונע טעינה בלחיצה בלבד ללא גרירה
+            var sw = bounds.getSouthWest();
+            var ne = bounds.getNorthEast();
+            if (Math.abs(ne.lat - sw.lat) < 0.001 || Math.abs(ne.lng - sw.lng) < 0.001) return;
+
+            _loadElevationGrid(bounds);
+        }
+
+        function _loadElevationGrid(bounds) {
+            var sw = bounds.getSouthWest();
+            var ne = bounds.getNorthEast();
+
+            fetch('http://localhost:5002/elevation_grid', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({
+                    southwest: {lat: sw.lat, lng: sw.lng},
+                    northeast: {lat: ne.lat, lng: ne.lng}
+                })
+            })
+            .then(function(r) {
+                if (r.status === 429) throw new Error('חריגת מגבלת API — נסה שנית בעוד דקה');
+                if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (data.error) throw new Error(data.error);
+                if (!data.length) throw new Error('אין נתוני גובה');
+                _elevGridData  = data;
+                showElevAsHeatmap();
+                elevationActive = true;
+                document.title  = '';
+                document.title  = '__elevation_ok__';
+            })
+            .catch(function(err) {
+                console.error('שגיאת שכבת גבהים:', err);
+                elevationActive = false;
+                document.title  = '';
+                document.title  = '__elevation_error__:' + (err.message || 'שגיאה לא ידועה');
+            });
+        }
+
+        function _calcElevRadius() {
+            var zoom     = map.getZoom();
+            var midLat   = map.getCenter().lat;
+            var pixPerKm = 256 * Math.pow(2, zoom) / 360 / 111 * Math.cos(midLat * Math.PI / 180);
+            var stepKm   = 0.5;
+            if (_elevGridData.length > 1) {
+                var sortedLats = _elevGridData.map(function(p) { return p.lat; })
+                                              .sort(function(a, b) { return a - b; });
+                for (var i = 1; i < sortedLats.length; i++) {
+                    var d = (sortedLats[i] - sortedLats[i - 1]) * 111.0;
+                    if (d > 0.05) { stepKm = d; break; }
+                }
+            }
+            return Math.max(6, Math.ceil(pixPerKm * stepKm * 2.5));
+        }
+
+        // מחזיר [r,g,b] לפי ערך נורמלי 0-1 — משמש לרינדור canvas
+        function _colorRgb(norm) {
+            var stops = [
+                [0.00, [0,   0,   204]],
+                [0.25, [0,   170, 255]],
+                [0.50, [0,   255, 204]],
+                [0.75, [255, 170, 0  ]],
+                [1.00, [204, 0,   0  ]]
+            ];
+            var lo = stops[0], hi = stops[stops.length - 1];
+            for (var i = 0; i < stops.length - 1; i++) {
+                if (norm <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
+            }
+            var t = (norm - lo[0]) / ((hi[0] - lo[0]) || 1);
+            return [
+                Math.round(lo[1][0] + t * (hi[1][0] - lo[1][0])),
+                Math.round(lo[1][1] + t * (hi[1][1] - lo[1][1])),
+                Math.round(lo[1][2] + t * (hi[1][2] - lo[1][2]))
+            ];
+        }
+
+        // שכבת חום לגבהים — canvas עם אינטרפולציה בילינארית
+        // כל פיקסל מחושב מ-4 נקודות הסביבה → גרדיאנט חלק ומדויק לפי ערכי הגובה האמיתיים
+        function showElevAsHeatmap() {
+            if (elevDotLayer)  { map.removeLayer(elevDotLayer);  elevDotLayer  = null; }
+            if (elevCellLayer) { map.removeLayer(elevCellLayer); elevCellLayer = null; }
+            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+            if (!_elevGridData.length) return;
+
+            var elevs  = _elevGridData.map(function(p) { return p.elevation; });
+            var minE   = Math.min.apply(null, elevs);
+            var maxE   = Math.max.apply(null, elevs);
+            var range  = maxE - minE || 1;
+
+            var allLats = _elevGridData.map(function(p) { return p.lat; });
+            var allLons = _elevGridData.map(function(p) { return p.lng; });
+            var minLat  = Math.min.apply(null, allLats);
+            var maxLat  = Math.max.apply(null, allLats);
+            var minLon  = Math.min.apply(null, allLons);
+            var maxLon  = Math.max.apply(null, allLons);
+
+            var uLats = allLats.filter(function(v,i,a){ return a.indexOf(v)===i; })
+                               .sort(function(a,b){return a-b;});
+            var uLons = allLons.filter(function(v,i,a){ return a.indexOf(v)===i; })
+                               .sort(function(a,b){return a-b;});
+
+            var eMap = {};
+            _elevGridData.forEach(function(p) {
+                eMap[p.lat.toFixed(6)+'_'+p.lng.toFixed(6)] = p.elevation;
+            });
+
+            function bilinear(lat, lon) {
+                lat = Math.max(minLat, Math.min(maxLat, lat));
+                lon = Math.max(minLon, Math.min(maxLon, lon));
+                var li = 0, hi = uLats.length - 1;
+                while (li < hi - 1) { var m = (li+hi)>>1; if (uLats[m] <= lat) li=m; else hi=m; }
+                var lj = 0, hj = uLons.length - 1;
+                while (lj < hj - 1) { var m = (lj+hj)>>1; if (uLons[m] <= lon) lj=m; else hj=m; }
+                var y0=uLats[li], y1=uLats[hi], x0=uLons[lj], x1=uLons[hj];
+                var ty = y0===y1 ? 0 : (lat-y0)/(y1-y0);
+                var tx = x0===x1 ? 0 : (lon-x0)/(x1-x0);
+                var e00 = eMap[y0.toFixed(6)+'_'+x0.toFixed(6)] || minE;
+                var e01 = eMap[y0.toFixed(6)+'_'+x1.toFixed(6)] || minE;
+                var e10 = eMap[y1.toFixed(6)+'_'+x0.toFixed(6)] || minE;
+                var e11 = eMap[y1.toFixed(6)+'_'+x1.toFixed(6)] || minE;
+                return e00*(1-ty)*(1-tx) + e01*(1-ty)*tx +
+                       e10*ty*(1-tx)     + e11*ty*tx;
+            }
+
+            var W = 512, H = 512;
+            var canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            var ctx = canvas.getContext('2d');
+            var img = ctx.createImageData(W, H);
+            for (var y = 0; y < H; y++) {
+                for (var x = 0; x < W; x++) {
+                    var lat  = maxLat - (y / (H-1)) * (maxLat - minLat);
+                    var lon  = minLon + (x / (W-1)) * (maxLon - minLon);
+                    var elev = bilinear(lat, lon);
+                    var norm = (elev - minE) / range;
+                    var rgb  = _colorRgb(norm);
+                    var i4   = (y * W + x) * 4;
+                    img.data[i4]   = rgb[0];
+                    img.data[i4+1] = rgb[1];
+                    img.data[i4+2] = rgb[2];
+                    img.data[i4+3] = 200;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+
+            elevationLayer = L.imageOverlay(
+                canvas.toDataURL(),
+                [[minLat, minLon], [maxLat, maxLon]],
+                { opacity: 0.75, interactive: false }
+            ).addTo(map);
+        }
+
+        function showElevAsGrid() {
+            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+            if (elevDotLayer)   { map.removeLayer(elevDotLayer);   elevDotLayer   = null; }
+            _buildElevCellLayer();
+        }
+
+        function showElevAsDots() {
+            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+            if (elevCellLayer)  { map.removeLayer(elevCellLayer);  elevCellLayer  = null; }
+            _buildElevDotLayer();
+        }
+
+        function _buildElevDotLayer() {
+            if (elevDotLayer) { map.removeLayer(elevDotLayer); elevDotLayer = null; }
+            if (!_elevGridData.length) return;
+            var elevs = _elevGridData.map(function(p) { return p.elevation; });
+            var minE  = Math.min.apply(null, elevs);
+            var maxE  = Math.max.apply(null, elevs);
+            var range = maxE - minE || 1;
+            var markers = _elevGridData.map(function(p) {
+                var norm  = (p.elevation - minE) / range;
+                var color = _tempColor(norm);
+                return L.circleMarker([p.lat, p.lng], {
+                    radius: 3, color: color, fillColor: color,
+                    fillOpacity: 0.85, weight: 1, opacity: 0.9
+                }).bindTooltip(Math.round(p.elevation) + ' מטר', {
+                    permanent: false, direction: 'top', className: 'temp-tooltip'
+                });
+            });
+            elevDotLayer = L.layerGroup(markers).addTo(map);
+        }
+
+        function _buildElevCellLayer() {
+            if (elevCellLayer) { map.removeLayer(elevCellLayer); elevCellLayer = null; }
+            if (!_elevGridData.length) return;
+            var elevs = _elevGridData.map(function(p) { return p.elevation; });
+            var minE  = Math.min.apply(null, elevs);
+            var maxE  = Math.max.apply(null, elevs);
+            var range = maxE - minE || 1;
+            var sortedLats = _elevGridData.map(function(p) { return p.lat; }).sort(function(a,b){return a-b;});
+            var sortedLons = _elevGridData.map(function(p) { return p.lng; }).sort(function(a,b){return a-b;});
+            var halfLat = 0.025, halfLon = 0.03;
+            for (var i = 1; i < sortedLats.length; i++) {
+                var d = sortedLats[i] - sortedLats[i-1];
+                if (d > 0.0001) { halfLat = d / 2 * 1.02; break; }
+            }
+            for (var i = 1; i < sortedLons.length; i++) {
+                var d = sortedLons[i] - sortedLons[i-1];
+                if (d > 0.0001) { halfLon = d / 2 * 1.02; break; }
+            }
+            var rects = _elevGridData.map(function(p) {
+                var norm  = (p.elevation - minE) / range;
+                var color = _tempColor(norm);
+                return L.rectangle(
+                    [[p.lat - halfLat, p.lng - halfLon], [p.lat + halfLat, p.lng + halfLon]],
+                    { weight: 0, fillColor: color, fillOpacity: 0.72 }
+                ).bindTooltip(Math.round(p.elevation) + ' מטר', {
+                    permanent: false, direction: 'top', className: 'temp-tooltip'
+                });
+            });
+            elevCellLayer = L.layerGroup(rects).addTo(map);
+        }
+
+        function toggleElevationLayer() {
+            if (elevationActive) {
+                if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+                if (elevDotLayer)   { map.removeLayer(elevDotLayer);   elevDotLayer   = null; }
+                if (elevCellLayer)  { map.removeLayer(elevCellLayer);  elevCellLayer  = null; }
+                _elevGridData  = [];
+                elevationActive = false;
+            } else {
+                startElevationSelection();
+            }
+        }
+
+        var heatmapPickerActive = false;  // מצב בחירת נקודות חום ידנית
+
+        function startTempHeatmap() {
+            if (tempHeatLayer) { map.removeLayer(tempHeatLayer); tempHeatLayer = null; }
+
+            map.dragging.disable();
+            map.getContainer().style.cursor = 'crosshair';
+
+            map.once('mousedown', function(e) {
+                tempSelectStart = e.latlng;
+                tempSelecting   = true;
+
+                tempPreviewRect = L.rectangle(
+                    [e.latlng, e.latlng],
+                    {
+                        color:       '#f38ba8',
+                        weight:      2,
+                        dashArray:   '6,4',
+                        fillOpacity: 0.08
+                    }
+                ).addTo(map);
+
+                map.on('mousemove', _updateTempPreview);
+                map.once('mouseup', _finishTempSelection);
+            });
+        }
+
+        function _updateTempPreview(e) {
+            if (tempPreviewRect && tempSelectStart) {
+                tempPreviewRect.setBounds([tempSelectStart, e.latlng]);
+            }
+        }
+
+        function _finishTempSelection(e) {
+            map.off('mousemove', _updateTempPreview);
+            map.dragging.enable();
+            map.getContainer().style.cursor = '';
+            tempSelecting = false;
+
+            if (!tempPreviewRect) return;
+
+            var bounds = tempPreviewRect.getBounds();
+            map.removeLayer(tempPreviewRect);
+            tempPreviewRect = null;
+
+            var sw = bounds.getSouthWest();
+            var ne = bounds.getNorthEast();
+            if (Math.abs(ne.lat - sw.lat) < 0.001 || Math.abs(ne.lng - sw.lng) < 0.001) {
+                document.title = '__heatmap_cancel__';
+                return;
+            }
+
+            _loadTempHeatmap(bounds);
+        }
+
+        function _loadTempHeatmap(bounds) {
+            var sw = bounds.getSouthWest();
+            var ne = bounds.getNorthEast();
+
+            fetch('http://localhost:5002/temp_grid', {
+                method:  'POST',
+                headers: {'Content-Type': 'application/json'},
+                body:    JSON.stringify({
+                    southwest: {lat: sw.lat, lng: sw.lng},
+                    northeast: {lat: ne.lat, lng: ne.lng}
+                })
+            })
+            .then(function(r) {
+                if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data.length) throw new Error('אין נתוני טמפרטורה');
+
+                _tempGridData = data;
+                showTempAsHeatmap();
+
+                document.title = '';
+                document.title = '__heatmap_ok__';
+            })
+            .catch(function(err) {
+                console.error('שגיאת מפת חום:', err);
+                document.title = '';
+                document.title = '__heatmap_error__';
+            });
+        }
+
+        function clearTempHeatmap() {
+            if (tempHeatLayer) { map.removeLayer(tempHeatLayer); tempHeatLayer = null; }
+            if (tempDotLayer)  { map.removeLayer(tempDotLayer);  tempDotLayer  = null; }
+            if (tempGridLayer) { map.removeLayer(tempGridLayer); tempGridLayer = null; }
+            _tempGridData = [];
+            map.off('mousemove', _updateTempPreview);
+            map.dragging.enable();
+            map.getContainer().style.cursor = '';
+            tempSelecting   = false;
+            tempSelectStart = null;
+            if (tempPreviewRect) { map.removeLayer(tempPreviewRect); tempPreviewRect = null; }
+        }
+
+        function showTempAsGrid() {
+            if (tempHeatLayer) { map.removeLayer(tempHeatLayer); tempHeatLayer = null; }
+            if (tempDotLayer)  { map.removeLayer(tempDotLayer);  tempDotLayer  = null; }
+            _buildGridLayer();
+        }
+
+        // שכבת חום לטמפרטורות — canvas עם אינטרפולציה בילינארית
+        // כל פיקסל מחושב מ-4 נקודות הסביבה → גרדיאנט חלק ומדויק לפי ערכי הטמפרטורה האמיתיים
+        function showTempAsHeatmap() {
+            if (tempGridLayer) { map.removeLayer(tempGridLayer); tempGridLayer = null; }
+            if (tempDotLayer)  { map.removeLayer(tempDotLayer);  tempDotLayer  = null; }
+            if (tempHeatLayer) { map.removeLayer(tempHeatLayer); tempHeatLayer = null; }
+            if (!_tempGridData.length) return;
+
+            var temps  = _tempGridData.map(function(p) { return p.temperature; });
+            var minT   = Math.min.apply(null, temps);
+            var maxT   = Math.max.apply(null, temps);
+            var range  = maxT - minT || 1;
+
+            var allLats = _tempGridData.map(function(p) { return p.lat; });
+            var allLons = _tempGridData.map(function(p) { return p.lng; });
+            var minLat  = Math.min.apply(null, allLats);
+            var maxLat  = Math.max.apply(null, allLats);
+            var minLon  = Math.min.apply(null, allLons);
+            var maxLon  = Math.max.apply(null, allLons);
+
+            var uLats = allLats.filter(function(v,i,a){ return a.indexOf(v)===i; })
+                               .sort(function(a,b){return a-b;});
+            var uLons = allLons.filter(function(v,i,a){ return a.indexOf(v)===i; })
+                               .sort(function(a,b){return a-b;});
+
+            var tMap = {};
+            _tempGridData.forEach(function(p) {
+                tMap[p.lat.toFixed(6)+'_'+p.lng.toFixed(6)] = p.temperature;
+            });
+
+            var bilinearTemp = function(lat, lon) {
+                lat = Math.max(minLat, Math.min(maxLat, lat));
+                lon = Math.max(minLon, Math.min(maxLon, lon));
+                var li = 0, hi = uLats.length - 1;
+                while (li < hi - 1) { var m = (li+hi)>>1; if (uLats[m] <= lat) li=m; else hi=m; }
+                var lj = 0, hj = uLons.length - 1;
+                while (lj < hj - 1) { var m = (lj+hj)>>1; if (uLons[m] <= lon) lj=m; else hj=m; }
+                var y0=uLats[li], y1=uLats[hi], x0=uLons[lj], x1=uLons[hj];
+                var ty = y0===y1 ? 0 : (lat-y0)/(y1-y0);
+                var tx = x0===x1 ? 0 : (lon-x0)/(x1-x0);
+                var t00 = tMap[y0.toFixed(6)+'_'+x0.toFixed(6)]; if(t00===undefined) t00=minT;
+                var t01 = tMap[y0.toFixed(6)+'_'+x1.toFixed(6)]; if(t01===undefined) t01=minT;
+                var t10 = tMap[y1.toFixed(6)+'_'+x0.toFixed(6)]; if(t10===undefined) t10=minT;
+                var t11 = tMap[y1.toFixed(6)+'_'+x1.toFixed(6)]; if(t11===undefined) t11=minT;
+                return t00*(1-ty)*(1-tx) + t01*(1-ty)*tx +
+                       t10*ty*(1-tx)     + t11*ty*tx;
+            };
+
+            var W = 512, H = 512;
+            var canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            var ctx = canvas.getContext('2d');
+            var img = ctx.createImageData(W, H);
+            for (var y = 0; y < H; y++) {
+                for (var x = 0; x < W; x++) {
+                    var lat  = maxLat - (y / (H-1)) * (maxLat - minLat);
+                    var lon  = minLon + (x / (W-1)) * (maxLon - minLon);
+                    var temp = bilinearTemp(lat, lon);
+                    var norm = (temp - minT) / range;
+                    var rgb  = _colorRgb(norm);
+                    var i4   = (y * W + x) * 4;
+                    img.data[i4]   = rgb[0];
+                    img.data[i4+1] = rgb[1];
+                    img.data[i4+2] = rgb[2];
+                    img.data[i4+3] = 200;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+
+            tempHeatLayer = L.imageOverlay(
+                canvas.toDataURL(),
+                [[minLat, minLon], [maxLat, maxLon]],
+                { opacity: 0.75, interactive: false }
+            ).addTo(map);
+        }
+
+        function showTempAsDots() {
+            if (tempHeatLayer) { map.removeLayer(tempHeatLayer); tempHeatLayer = null; }
+            if (tempGridLayer) { map.removeLayer(tempGridLayer); tempGridLayer = null; }
+            _buildDotLayer();
+        }
+
+        function _tempColor(norm) {
+            var stops = [
+                [0.00, [0,   0,   204]],
+                [0.25, [0,   170, 255]],
+                [0.50, [0,   255, 204]],
+                [0.75, [255, 170, 0  ]],
+                [1.00, [204, 0,   0  ]]
+            ];
+            var lo = stops[0], hi = stops[1];
+            for (var i = 0; i < stops.length - 1; i++) {
+                if (norm <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
+            }
+            var t = (norm - lo[0]) / ((hi[0] - lo[0]) || 1);
+            var r = Math.round(lo[1][0] + t * (hi[1][0] - lo[1][0]));
+            var g = Math.round(lo[1][1] + t * (hi[1][1] - lo[1][1]));
+            var b = Math.round(lo[1][2] + t * (hi[1][2] - lo[1][2]));
+            return 'rgb(' + r + ',' + g + ',' + b + ')';
+        }
+
+        function _buildDotLayer() {
+            if (tempDotLayer) { map.removeLayer(tempDotLayer); tempDotLayer = null; }
+            if (!_tempGridData.length) return;
+
+            var temps = _tempGridData.map(function(p) { return p.temperature; });
+            var minT  = Math.min.apply(null, temps);
+            var maxT  = Math.max.apply(null, temps);
+            var range = maxT - minT || 1;
+
+            var markers = _tempGridData.map(function(p) {
+                var norm  = (p.temperature - minT) / range;
+                var color = _tempColor(norm);
+                return L.circleMarker([p.lat, p.lng], {
+                    radius:      3,
+                    color:       color,
+                    fillColor:   color,
+                    fillOpacity: 0.85,
+                    weight:      1,
+                    opacity:     0.9
+                }).bindTooltip(p.temperature.toFixed(1) + '°C', {
+                    permanent:  false,
+                    direction:  'top',
+                    className:  'temp-tooltip'
+                });
+            });
+
+            tempDotLayer = L.layerGroup(markers).addTo(map);
+        }
+
+        function _buildGridLayer() {
+            if (tempGridLayer) { map.removeLayer(tempGridLayer); tempGridLayer = null; }
+            if (!_tempGridData.length) return;
+
+            var temps = _tempGridData.map(function(p) { return p.temperature; });
+            var minT  = Math.min.apply(null, temps);
+            var maxT  = Math.max.apply(null, temps);
+            var range = maxT - minT || 1;
+
+            // חישוב גודל תא: מרחק מינימלי בין נקודות סמוכות + מרווח חפיפה קטן
+            var sortedLats = _tempGridData.map(function(p) { return p.lat; }).sort(function(a,b){return a-b;});
+            var sortedLons = _tempGridData.map(function(p) { return p.lng; }).sort(function(a,b){return a-b;});
+            var halfLat = 0.025, halfLon = 0.03;
+            for (var i = 1; i < sortedLats.length; i++) {
+                var d = sortedLats[i] - sortedLats[i-1];
+                if (d > 0.0001) { halfLat = d / 2 * 1.02; break; }
+            }
+            for (var i = 1; i < sortedLons.length; i++) {
+                var d = sortedLons[i] - sortedLons[i-1];
+                if (d > 0.0001) { halfLon = d / 2 * 1.02; break; }
+            }
+
+            var rects = _tempGridData.map(function(p) {
+                var norm  = (p.temperature - minT) / range;
+                var color = _tempColor(norm);
+                return L.rectangle(
+                    [[p.lat - halfLat, p.lng - halfLon],
+                     [p.lat + halfLat, p.lng + halfLon]],
+                    {
+                        weight:      0,
+                        fillColor:   color,
+                        fillOpacity: 0.72
+                    }
+                ).bindTooltip(p.temperature.toFixed(1) + '°C', {
+                    permanent:  false,
+                    direction:  'top',
+                    className:  'temp-tooltip'
+                });
+            });
+
+            tempGridLayer = L.layerGroup(rects).addTo(map);
+        }
+
+        function _calcTempRadius() {
+            var zoom     = map.getZoom();
+            var midLat   = map.getCenter().lat;
+            var pixPerKm = 256 * Math.pow(2, zoom) / 360 / 111 * Math.cos(midLat * Math.PI / 180);
+
+            // הסקת גודל הצעד מהנתונים — עובד עם כל רזולוציה אדפטיבית
+            var stepKm = 0.5;
+            if (_tempGridData.length > 1) {
+                var sortedLats = _tempGridData.map(function(p) { return p.lat; })
+                                              .sort(function(a, b) { return a - b; });
+                for (var i = 1; i < sortedLats.length; i++) {
+                    var d = (sortedLats[i] - sortedLats[i - 1]) * 111.0;
+                    if (d > 0.05) { stepKm = d; break; }
+                }
+            }
+
+            return Math.max(6, Math.ceil(pixPerKm * stepKm * 2.5));
+        }
+
+        function _calcTempBlur(r) {
+            return Math.max(4, Math.round(r * 0.8));
+        }
+
+        function startHeatmapPicker() {
+            heatmapPickerActive = !heatmapPickerActive;
+            if (heatmapPickerActive) {
+                map.getContainer().style.cursor = 'crosshair';
+                if (!map.hasLayer(heatmap)) { heatmap.addTo(map); }
+            } else {
+                map.getContainer().style.cursor = '';
+            }
+        }
+
+        function clearHeatmapPoints() {
+            heatmapData = [];
+            heatmap.setLatLngs([]);
+        }
+
+        // לחיצה על המפה — כאשר picker פעיל, מוסיף נקודת חום
+        map.on('click', function(e) {
+            var lat = e.latlng.lat.toFixed(4);
+            var lon = e.latlng.lng.toFixed(4);
+            if (heatmapPickerActive) {
+                heatmapData.push([parseFloat(lat), parseFloat(lon), 1.0]);
+                heatmap.setLatLngs(heatmapData);
+            } else if (serversRunning && !tempSelecting) {
+                fetchWeather(lat, lon);
+            }
+        });
+
+        map.on('zoomend', function() {
+            // tempHeatLayer is now an L.imageOverlay — no zoom-dependent recalculation needed
+        });
+
+        function loadHeatmapData() {
+            // שליפת נתוני מפת החום משרת מזג האוויר המקומי
+            const url = "http://localhost:5002/heatmap_data";
+
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Leaflet.heat מצפה למערך [[lat, lng, intensity], ...]
+                    heatmapData = data.map(point => [
+                        point.latitude,
+                        point.longitude,
+                        point.temperature  // עוצמת נקודת החום לפי ערך הטמפרטורה
+                    ]);
+                    heatmap.setLatLngs(heatmapData);  // עדכון נתוני שכבת החום
+                })
+                .catch(error => {
+                    console.error("Error loading heatmap data:", error);
+                    alert("שגיאה בטעינת נתוני מפת החום.");
+                });
+        }
+
+        function loadHeatmapDataFromCSV(csvPath) {
+            // קריאה לטעינת נתוני מפת חום — מנותבת לשרת המקומי
+            loadHeatmapData();   // נתוני ה-CSV מוגשים דרך weather_server.py
+            if (!map.hasLayer(heatmap)) {
+                heatmap.addTo(map);  // הצגה אוטומטית לאחר טעינה מ-CSV
+            }
+        }
+
+        function fetchWeather(lat, lon) {
+            // שליפת נתוני מזג אוויר לפי קואורדינטות
+            const url = `http://localhost:5002/weather?lat=${lat}&lon=${lon}`;
+
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // ולידציה — בדיקה שהתשובה כוללת את השדות הנדרשים
+                    if (!data.weather || !data.temperature) {
+                        throw new Error("הנתונים שהתקבלו אינם כוללים מזג אוויר או טמפרטורה");
+                    }
+                    displayWeatherOnMap(lat, lon, data);  // הצגת הנתונים על המפה
+                })
+                .catch(error => {
+                    console.error("Error fetching weather data:", error.message);
+                    alert("לא ניתן להחזיר נתוני מזג האוויר: " + error.message);
+                });
+        }
+
+        function displayWeatherOnMap(lat, lon, data) {
+            try {
+                const weather     = data.weather     || "לא זמין";
+                const temperature = data.temperature !== undefined
+                    ? `${data.temperature}°C`
+                    : "לא זמין";
+
+                // תוכן Popup — נתוני מזג אוויר בעברית
+                const content = `
+                    <div style="text-align:right;direction:rtl;font-family:Arial;font-size:13px;">
+                        <div><strong>קו רוחב:</strong>    ${lat}</div>
+                        <div><strong>קו אורך:</strong>    ${lon}</div>
+                        <div><strong>מזג אוויר:</strong>  ${weather}</div>
+                        <div><strong>טמפרטורה:</strong>   ${temperature}</div>
+                    </div>`;
+
+                const marker = L.marker([parseFloat(lat), parseFloat(lon)])
+                    .addTo(map);             // הוספת סמן למפה
+                allMarkers.push(marker);     // רישום ברשימה לניקוי עתידי
+                marker.bindPopup(content).openPopup();  // קישור ופתיחת Popup מיידית
+
+                // לחיצה חוזרת על הסמן — פתיחת ה-Popup שוב אם נסגר
+                marker.on('click', function() {
+                    marker.openPopup();
+                });
+            } catch (error) {
+                console.error("Error displaying weather data on map:", error.message);
+            }
+        }
+
+    </script>
+</body>
+</html>

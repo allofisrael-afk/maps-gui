@@ -1,0 +1,388 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../state/map_state.dart';
+
+class ControlsPanel extends StatelessWidget {
+  const ControlsPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<MapState>();
+    final cs = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Container(
+        width: 210,
+        color: cs.surfaceContainerHigh,
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(10),
+                children: [
+            _SectionLabel('שכבת רקע', cs),
+            const SizedBox(height: 6),
+            _TileSelector(state: state),
+            const Divider(height: 20),
+            _SectionLabel('גבהים', cs),
+            if (state.selectionStart == null || state.selectionEnd == null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  Icon(Icons.info_outline, size: 12, color: cs.outline),
+                  const SizedBox(width: 4),
+                  Expanded(child: Text('לחץ 🔲 במפה ובחר אזור', style: TextStyle(fontSize: 10, color: cs.outline))),
+                ]),
+              ),
+            const SizedBox(height: 2),
+            _ActionBtn(
+              label: state.elevLoading ? 'טוען...' : 'טען גבהים',
+              icon: Icons.terrain,
+              enabled: !state.elevLoading && state.selectionStart != null && state.selectionEnd != null,
+              active: state.activeLayer == LayerType.elevation,
+              onTap: state.loadElevation,
+              cs: cs,
+            ),
+            if (state.elevError != null) _ErrText(state.elevError!, cs),
+            if (state.elevPoints.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _ModeRow(selected: state.elevMode, onChanged: state.setElevMode, cs: cs),
+              TextButton.icon(
+                onPressed: state.clearElevation,
+                icon: const Icon(Icons.clear, size: 14),
+                label: const Text('נקה גבהים'),
+                style: TextButton.styleFrom(foregroundColor: cs.error, visualDensity: VisualDensity.compact),
+              ),
+            ],
+            const Divider(height: 20),
+            _SectionLabel('טמפרטורות', cs),
+            const SizedBox(height: 2),
+            _ActionBtn(
+              label: state.tempLoading ? 'טוען...' : 'טען טמפרטורות',
+              icon: Icons.thermostat,
+              enabled: !state.tempLoading && state.selectionStart != null && state.selectionEnd != null,
+              active: state.activeLayer == LayerType.temperature,
+              onTap: state.loadTemperature,
+              cs: cs,
+            ),
+            if (state.tempError != null) _ErrText(state.tempError!, cs),
+            if (state.tempPoints.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _ModeRow(selected: state.tempMode, onChanged: state.setTempMode, cs: cs),
+              TextButton.icon(
+                onPressed: state.clearTemperature,
+                icon: const Icon(Icons.clear, size: 14),
+                label: const Text('נקה טמפרטורות'),
+                style: TextButton.styleFrom(foregroundColor: cs.error, visualDensity: VisualDensity.compact),
+              ),
+            ],
+            if (state.selectionStart != null) ...[
+              const Divider(height: 20),
+              TextButton.icon(
+                onPressed: state.clearSelection,
+                icon: const Icon(Icons.crop_free, size: 14),
+                label: const Text('נקה בחירה'),
+                style: TextButton.styleFrom(foregroundColor: cs.outline, visualDensity: VisualDensity.compact),
+              ),
+            ],
+            const Divider(height: 20),
+            _SectionLabel('מיקום', cs),
+            const SizedBox(height: 6),
+            _LocationSection(state: state, cs: cs),
+            const Divider(height: 20),
+            _SectionLabel('מסלול טיסה', cs),
+            const SizedBox(height: 6),
+            _FlightSearch(state: state, cs: cs),
+          ],
+        ),
+      ),
+      // דוחף את התוכן מעל המקלדת
+      SizedBox(height: bottomInset),
+    ],
+  ),
+),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text, this.cs);
+  final String text; final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => Text(text, style: TextStyle(color: cs.primary, fontWeight: FontWeight.bold, fontSize: 12));
+}
+
+class _ErrText extends StatelessWidget {
+  const _ErrText(this.msg, this.cs);
+  final String msg; final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Text(msg, style: TextStyle(color: cs.error, fontSize: 10), maxLines: 3, overflow: TextOverflow.ellipsis),
+  );
+}
+
+class _ActionBtn extends StatelessWidget {
+  const _ActionBtn({required this.label, required this.icon, required this.enabled, required this.active, required this.onTap, required this.cs});
+  final String label; final IconData icon; final bool enabled, active; final VoidCallback onTap; final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => FilledButton.tonalIcon(
+    onPressed: enabled ? onTap : null,
+    icon: Icon(icon, size: 16),
+    label: Text(label, style: const TextStyle(fontSize: 12)),
+    style: FilledButton.styleFrom(
+      backgroundColor: active ? cs.primaryContainer : null,
+      foregroundColor: active ? cs.onPrimaryContainer : null,
+      visualDensity: VisualDensity.compact,
+      minimumSize: const Size.fromHeight(36),
+    ),
+  );
+}
+
+class _ModeRow extends StatelessWidget {
+  const _ModeRow({required this.selected, required this.onChanged, required this.cs});
+  final DisplayMode selected; final ValueChanged<DisplayMode> onChanged; final ColorScheme cs;
+  @override
+  Widget build(BuildContext context) => SegmentedButton<DisplayMode>(
+    segments: const [
+      ButtonSegment(value: DisplayMode.heat, label: Text('חום', style: TextStyle(fontSize: 10))),
+      ButtonSegment(value: DisplayMode.grid, label: Text('גריד', style: TextStyle(fontSize: 10))),
+      ButtonSegment(value: DisplayMode.dots, label: Text('נקודות', style: TextStyle(fontSize: 10))),
+    ],
+    selected: {selected},
+    onSelectionChanged: (s) => onChanged(s.first),
+    style: ButtonStyle(visualDensity: VisualDensity.compact),
+  );
+}
+
+class _FlightSearch extends StatefulWidget {
+  const _FlightSearch({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+  @override
+  State<_FlightSearch> createState() => _FlightSearchState();
+}
+
+class _FlightSearchState extends State<_FlightSearch> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  void _search() {
+    final q = _ctrl.text.trim();
+    if (q.isEmpty) return;
+    widget.state.loadFlight(q);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final cs = widget.cs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]'))],
+              decoration: InputDecoration(
+                hintText: 'LY002 / ELY002',
+                hintStyle: TextStyle(fontSize: 11, color: cs.outline),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              style: const TextStyle(fontSize: 12),
+              onSubmitted: (_) => _search(),
+            ),
+          ),
+          const SizedBox(width: 6),
+          FilledButton.tonal(
+            onPressed: state.flightLoading ? null : _search,
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(48, 36),
+              padding: EdgeInsets.zero,
+            ),
+            child: state.flightLoading
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.flight_takeoff, size: 18),
+          ),
+        ]),
+        if (state.flightError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(state.flightError!, style: TextStyle(color: cs.error, fontSize: 10), maxLines: 2),
+          ),
+        if (state.flightData != null) ...[
+          const SizedBox(height: 4),
+          Row(children: [
+            Icon(Icons.flight, size: 12, color: cs.primary),
+            const SizedBox(width: 4),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(state.flightData!.callsign, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
+              if (state.flightData!.info.isNotEmpty)
+                Text(state.flightData!.info, style: TextStyle(fontSize: 10, color: cs.outline)),
+              Text('${state.flightData!.path.length} נקודות מסלול', style: TextStyle(fontSize: 10, color: cs.outline)),
+            ])),
+            TextButton(
+              onPressed: state.clearFlight,
+              style: TextButton.styleFrom(foregroundColor: cs.error, visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+              child: const Text('נקה', style: TextStyle(fontSize: 11)),
+            ),
+          ]),
+        ],
+      ],
+    );
+  }
+}
+
+class _LocationSection extends StatefulWidget {
+  const _LocationSection({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+  @override
+  State<_LocationSection> createState() => _LocationSectionState();
+}
+
+class _LocationSectionState extends State<_LocationSection> {
+  final _latCtrl = TextEditingController();
+  final _lonCtrl = TextEditingController();
+  String? _inputError;
+
+  @override
+  void dispose() { _latCtrl.dispose(); _lonCtrl.dispose(); super.dispose(); }
+
+  void _pin() {
+    final lat = double.tryParse(_latCtrl.text.trim().replaceAll(',', '.'));
+    final lon = double.tryParse(_lonCtrl.text.trim().replaceAll(',', '.'));
+    if (lat == null || lon == null || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setState(() => _inputError = 'קואורדינטות לא תקינות');
+      return;
+    }
+    setState(() => _inputError = null);
+    widget.state.pinCoordinate(lat, lon);
+    _latCtrl.clear();
+    _lonCtrl.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final cs = widget.cs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Device GPS button
+        FilledButton.tonalIcon(
+          onPressed: state.locationLoading ? null : state.goToMyLocation,
+          icon: state.locationLoading
+              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.my_location, size: 16),
+          label: Text(state.locationLoading ? 'מאתר...' : 'מיקום עצמי', style: const TextStyle(fontSize: 12)),
+          style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(36)),
+        ),
+        if (state.locationError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(state.locationError!, style: TextStyle(color: cs.error, fontSize: 10), maxLines: 2),
+          ),
+        const SizedBox(height: 8),
+        // Manual coordinate input
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: TextField(
+            controller: _latCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+            decoration: InputDecoration(
+              labelText: 'LAT',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            style: const TextStyle(fontSize: 12),
+            onSubmitted: (_) => _pin(),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: TextField(
+            controller: _lonCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+            decoration: InputDecoration(
+              labelText: 'LON',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            style: const TextStyle(fontSize: 12),
+            onSubmitted: (_) => _pin(),
+          ),
+        ),
+        if (_inputError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(_inputError!, style: TextStyle(color: cs.error, fontSize: 10)),
+          ),
+        const SizedBox(height: 6),
+        Row(children: [
+          Expanded(
+            child: FilledButton.tonal(
+              onPressed: _pin,
+              style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(32)),
+              child: const Text('דקור נ.צ', style: TextStyle(fontSize: 12)),
+            ),
+          ),
+          if (state.pinnedPoints.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            TextButton(
+              onPressed: state.clearPinnedPoints,
+              style: TextButton.styleFrom(foregroundColor: cs.error, visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+              child: const Text('נקה', style: TextStyle(fontSize: 11)),
+            ),
+          ],
+        ]),
+        if (state.pinnedPoints.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('${state.pinnedPoints.length} סיכות', style: TextStyle(fontSize: 10, color: cs.outline)),
+          ),
+      ],
+    );
+  }
+}
+
+class _TileSelector extends StatelessWidget {
+  const _TileSelector({required this.state});
+  final MapState state;
+
+  static const _layers = [
+    (label: 'OSM רגיל',    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',                                                                       attr: '© OpenStreetMap contributors'),
+    (label: 'ESRI לוויין', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                          attr: '© Esri'),
+    (label: 'CartoDB כהה', url: 'https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png',                                              attr: '© CartoDB'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    decoration: InputDecoration(
+      labelText: 'רקע',
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+    ),
+    value: state.tileUrl,
+    isExpanded: true,
+    items: _layers.map((l) => DropdownMenuItem(value: l.url, child: Text(l.label, style: const TextStyle(fontSize: 12)))).toList(),
+    onChanged: (url) {
+      if (url == null) return;
+      final l = _layers.firstWhere((x) => x.url == url);
+      state.setTileLayer(url: l.url, attribution: l.attr);
+    },
+  );
+}

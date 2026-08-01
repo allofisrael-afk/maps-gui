@@ -1,0 +1,41 @@
+# סביבות פייתון וירטואליות (leftover venv בשורש הפרויקט — מעוגן לשורש בלבד
+# כדי לא להתנגש עם maps-gui-android/lib ו-maps-gui-android-src/lib של Flutter)
+.venv/
+/Lib/
+/Scripts/
+/Include/
+/share/
+/etc/
+/pyvenv.cfg
+__pycache__/
+.pytest_cache/
+*.pyc
+*.whl
+
+# סודות ותצורה מקומית
+.env
+.claude/settings.local.json
+
+# לוגים ונתונים שנוצרים בזמן ריצה
+*.log
+app_combined.log
+city_log.txt
+coordinates_log.txt
+weather_data.csv
+
+# IDE
+.idea/
+
+# Flutter / Android (maps-gui-android)
+maps-gui-android/build/
+maps-gui-android/.dart_tool/
+maps-gui-android/.flutter-plugins
+maps-gui-android/.flutter-plugins-dependencies
+maps-gui-android/android/local.properties
+maps-gui-android/android/.gradle/
+maps-gui-android/**/*.iml
+maps-gui-android/**/hs_err_pid*.log
+maps-gui-android/**/replay_pid*.log
+maps-gui-android/flutter_*.log
+*.apk
+*.aab

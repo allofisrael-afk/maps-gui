@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/dev/android-sdk/ 2>/dev/null; ls /c/PY-IS/maps-gui/maps-gui-android/ 2>/dev/null || echo \"no project dir\")",
+      "Read(//c/PY-IS/maps-gui/**)",
+      "PowerShell(Start-Process powershell.exe -ArgumentList \"-ExecutionPolicy Bypass -File `\"D:\\\\PY-IS\\\\maps-gui\\\\build_apk.ps1`\"\" -WorkingDirectory \"D:\\\\PY-IS\\\\maps-gui\" -RedirectStandardOutput \"C:\\\\dev\\\\build_log.txt\" -RedirectStandardError \"C:\\\\dev\\\\build_err.txt\" -WindowStyle Normal)",
+      "Bash(rm -rf \"/c/dev/android-sdk/ndk/\" && echo \"NDK deleted\")",
+      "Bash(xargs head -40)",
+      "Bash(xargs grep -l \"LatLngBounds\\\\|flutter_map\")",
+      "Bash(/c/dev/flutter/bin/flutter.bat analyze *)",
+      "PowerShell(Get-Process -Name \"java\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)",
+      "Bash(dir \"d:\\\\PY-IS\\\\maps-gui\")",
+      "Bash(Get-ChildItem -Path \"d:\\\\PY-IS\\\\maps-gui\\\\maps-gui-android-src\\\\lib\" -Recurse -Filter \"*.dart\")",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem -Path \"d:\\\\PY-IS\\\\maps-gui\\\\maps-gui-android\\\\lib\" -Recurse -Filter \"*.dart\")",
+      "Bash(flutter pub *)",
+      "PowerShell(where.exe flutter 2>$null; if \\(-not $?\\) { Get-ChildItem -Path \"C:\\\\\", \"$env:USERPROFILE\" -Filter \"flutter.bat\" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 3 FullName })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\dev\", \"C:\\\\flutter\", \"$env:LOCALAPPDATA\", \"$env:APPDATA\" -Filter \"flutter.bat\" -Recurse -ErrorAction SilentlyContinue -Depth 4 | Select-Object -First 5 FullName)",
+      "Bash(python -c \"from FlightRadar24 import FlightRadar24API; import FlightRadar24; print\\('version:', getattr\\(FlightRadar24, '__version__', 'unknown'\\)\\); import inspect; api = FlightRadar24API\\(\\); print\\('methods:', [m for m in dir\\(api\\) if not m.startswith\\('_'\\)]\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('d:/PY-IS/maps-gui/flight_server.py'\\).read\\(\\)\\); print\\('flight_server.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('d:/PY-IS/maps-gui/flight_server.py', encoding='utf-8'\\).read\\(\\)\\); print\\('flight_server.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('d:/PY-IS/maps-gui/MAP.py', encoding='utf-8'\\).read\\(\\)\\); print\\('MAP.py OK'\\)\")",
+      "Bash(ls d:/PY-IS/maps-gui/ 2>/dev/null && ls d:/PY-IS/ 2>/dev/null)",
+      "Read(//d/PY-IS/**)",
+      "Bash(export PATH=\"$PATH:/c/dev/flutter/bin\")",
+      "Bash(flutter --version)",
+      "Bash(flutter analyze *)",
+      "Bash(powershell -Command \"Get-Content lib\\\\widgets\\\\controls_panel.dart | Select-Object -Index \\(20..106\\) | Format-List\")",
+      "Bash(powershell -Command ' *)",
+      "Bash(flutter build *)",
+      "PowerShell(Get-ChildItem \"C:\\\\src\\\\flutter\\\\bin\\\\flutter.bat\" -ErrorAction SilentlyContinue; Get-ChildItem \"C:\\\\flutter\\\\bin\\\\flutter.bat\" -ErrorAction SilentlyContinue; Get-ChildItem \"$env:LOCALAPPDATA\\\\flutter\\\\bin\\\\flutter.bat\" -ErrorAction SilentlyContinue; Get-ChildItem \"C:\\\\Users\\\\allof\\\\flutter\\\\bin\\\\flutter.bat\" -ErrorAction SilentlyContinue)",
+      "Read(//c//**)",
+      "Read(//d//**)",
+      "PowerShell(cmd /c \"where flutter 2>nul\")",
+      "PowerShell(cmd /c \"flutter --version 2>nul\")",
+      "Bash(which flutter *)",
+      "Read(//mnt/c/Users/**)",
+      "Bash(ls /mnt/d/ 2>/dev/null | head -20)",
+      "Read(//mnt/**)",
+      "PowerShell([System.IO.Directory]::GetDirectories\\(\"C:\\\\dev\"\\) | ForEach-Object { Write-Host $_ })",
+      "Bash(node -e \"const fs = require\\('fs'\\); const src = fs.readFileSync\\('d:/PY-IS/maps-gui/map.html', 'utf8'\\); const scriptMatch = src.match\\(/<script>\\([\\\\s\\\\S]*?\\)<\\\\/script>/g\\); if\\(scriptMatch\\) { scriptMatch.forEach\\(\\(s,i\\) => { try { new Function\\(s.replace\\(/<\\\\/?script>/g,''\\)\\); console.log\\('Script ' + i + ': OK'\\); } catch\\(e\\) { console.log\\('Script ' + i + ' ERROR: ' + e.message\\); } }\\); }\")",
+      "Bash(Get-ChildItem \"d:\\\\PY-IS\\\\maps-gui\" -MaxDepth 1 -Name)",
+      "PowerShell(ls \"d:\\\\PY-IS\\\\maps-gui\" | Where-Object { !$_.PSIsContainer } | Select-Object Name)"
+    ],
+    "additionalDirectories": [
+      "C:\\dev\\android-sdk\\ndk\\"
+    ]
+  }
+}
