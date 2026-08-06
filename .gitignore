@@ -33,6 +33,7 @@ maps-gui-android/.flutter-plugins
 maps-gui-android/.flutter-plugins-dependencies
 maps-gui-android/android/local.properties
 maps-gui-android/android/.gradle/
+maps-gui-android/android/.kotlin/
 maps-gui-android/**/*.iml
 maps-gui-android/**/hs_err_pid*.log
 maps-gui-android/**/replay_pid*.log
