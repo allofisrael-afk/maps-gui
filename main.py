@@ -1,4 +1,5 @@
 import logging  # רישום אירועים לקובץ לוג
+import math  # חישוב זוויות למחוג שעוני הסקירה בדשבורד
 import os  # גישה לנתיבי קבצים ומשתני סביבה
 import subprocess  # הפעלת תהליכי שרת חיצוניים
 import sys  # גישה לארגומנטים ויציאה מהאפליקציה
@@ -8,11 +9,15 @@ import psutil  # מדידת CPU/זיכרון לתהליכי השרתים בדש�
 import requests  # שליחת בקשות HTTP לשרתים
 from datetime import datetime  # חישוב פקיעת cache לפי זמן
 from MAP import create_map  # ייבוא פונקציית יצירת המפה
-from PyQt5.QtCore import Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון
-from PyQt5.QtGui import QIcon, QColor  # אייקונים וצבעים לממשק
+from test_requests import run_health_checks, summarize  # בדיקת תקינות שרתים לדשבורד
+from security_checks import run_security_checks, summarize_findings  # סריקת אבטחה/חשיפה לדשבורד
+from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה
+    Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
+)
+from PyQt5.QtGui import QIcon, QColor, QPainter, QPen, QFont  # אייקונים/צבעים לממשק + ציור שעוני הסקירה בדשבורד
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage  # תצוגת דפדפן פנימי להצגת המפה
 from PyQt5.QtWidgets import (  # רכיבי ממשק גרפי
-    QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout,
+    QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QGridLayout,
     QTextEdit, QFileDialog, QSplitter, QSizePolicy, QDoubleSpinBox,
     QMessageBox, QLabel, QTabWidget, QSlider, QComboBox, QFrame,  # QLabel לכותרות, QTabWidget ללשוניות, QSlider לשקיפות, QComboBox להיסטוריה, QFrame להפרדה
     QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # רכיבי דשבורד התהליכים
@@ -95,7 +100,9 @@ class MetricsWorker(QThread):
                     pass
 
                 try:
-                    resp = requests.get(f"http://localhost:{port}/metrics", timeout=1)
+                    # "127.0.0.1" ולא "localhost" — במחשב הזה resolve ל-localhost מנסה IPv6 קודם
+                    # ונופל ל-IPv4 רק אחרי ~2 שניות, כך שה-timeout=1 כאן היה נכשל כמעט תמיד.
+                    resp = requests.get(f"http://127.0.0.1:{port}/metrics", timeout=1)
                     if resp.status_code == 200:
                         for endpoint, s in resp.json().get("endpoints", {}).items():
                             api_rows.append((label, endpoint, s["count"], s["errors"], s["avg_ms"], s["last_call"] or "—"))
@@ -138,6 +145,107 @@ class MetricsWorker(QThread):
         return list(current.values())
 
 
+class HealthCheckWorker(QThread):
+    """
+    מריץ את בדיקות התקינות (test_requests.run_health_checks) על thread נפרד, כדי
+    שהקריאות ל-HTTP (חלקן עד 20 שניות timeout — למשל /los, /flight_search) לא יקפיאו
+    את ה-GUI. שולח תוצאה מלאה בסיום; progressReady משודר אחרי כל בדיקה בודדת כדי
+    שהטבלה תתמלא בהדרגה במקום לקפוץ בבת אחת בסוף.
+    """
+    progressReady = pyqtSignal(object)  # TestResult בודד — נשלח מיד אחרי כל בדיקה
+    finished_results = pyqtSignal(list)  # רשימת כל ה-TestResult בסיום
+
+    def run(self):
+        try:
+            results = run_health_checks(on_progress=self.progressReady.emit)
+        except Exception:
+            results = []
+        self.finished_results.emit(results)
+
+
+class SecurityCheckWorker(QThread):
+    """
+    מריץ את בדיקות האבטחה (security_checks.run_security_checks) על thread נפרד — כולל
+    סריקת pip-audit (עד 120 שניות) וסריקת קובץ APK שלם, כדי לא להקפיא את ה-GUI.
+    """
+    progressReady = pyqtSignal(object)  # SecurityFinding בודד — נשלח מיד אחרי כל בדיקה
+    finished_findings = pyqtSignal(list)  # רשימת כל ה-SecurityFinding בסיום
+
+    def run(self):
+        try:
+            findings = run_security_checks(on_progress=self.progressReady.emit)
+        except Exception:
+            findings = []
+        self.finished_findings.emit(findings)
+
+
+class GaugeWidget(QWidget):
+    """
+    שעון מד-מהירות (קשת 270°, אזורי צבע אדום/צהוב/ירוק, מחוג) שמציג אחוז תקינות בודד —
+    נצרך ברשת 3×3 (שרת × סוג בדיקה) בלשונית "סקירה" של הדשבורד. value=None (לפני
+    שהבדיקה הרלוונטית רצה בכלל) מצויר כקשת אפורה עם "—" במקום מספר.
+    """
+    _BANDS = ((0, 60, "#f38ba8"), (60, 90, "#f9e2af"), (90, 100, "#a6e3a1"))  # אדום / צהוב / ירוק
+    _START_ANGLE = 225.0  # תחילת הקשת (למטה-שמאל, במעלות בקונבנציית Qt: 0°=3 שעונים, CCW חיובי)
+    _SWEEP = 270.0        # טווח הקשת (מעלות) — נגמר ב-225-270=-45° (למטה-ימין)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._value = None  # None = אין נתונים עדיין
+        self.setFixedSize(120, 120)
+
+    def setValue(self, value):
+        """ value: אחוז 0–100, או None להצגת "אין נתונים". """
+        self._value = value
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        side = min(self.width(), self.height())
+        margin = 16
+        rect = QRectF((self.width() - side) / 2 + margin, (self.height() - side) / 2 + margin,
+                       side - 2 * margin, side - 2 * margin)
+        cx, cy = self.width() / 2.0, self.height() / 2.0
+        radius = rect.width() / 2.0
+
+        # קשת רקע אפורה על כל הטווח
+        painter.setPen(QPen(QColor("#313244"), 10, Qt.SolidLine, Qt.RoundCap))
+        painter.drawArc(rect, int(self._START_ANGLE * 16), int(-self._SWEEP * 16))
+
+        # שלושת אזורי הצבע לפי סף (אדום/צהוב/ירוק)
+        for lo, hi, color in self._BANDS:
+            start_angle = self._START_ANGLE - (lo / 100.0) * self._SWEEP
+            span_angle = -((hi - lo) / 100.0) * self._SWEEP
+            painter.setPen(QPen(QColor(color), 10, Qt.SolidLine, Qt.FlatCap))
+            painter.drawArc(rect, int(start_angle * 16), int(span_angle * 16))
+
+        if self._value is None:
+            painter.setPen(QColor("#585b70"))
+            painter.setFont(QFont("Segoe UI", 15, QFont.Bold))
+            painter.drawText(self.rect(), Qt.AlignCenter, "—")
+            return
+
+        value = max(0.0, min(100.0, self._value))
+        angle_deg = self._START_ANGLE - (value / 100.0) * self._SWEEP
+        angle_rad = math.radians(angle_deg)
+        needle_len = radius - 8
+        nx = cx + needle_len * math.cos(angle_rad)
+        ny = cy - needle_len * math.sin(angle_rad)  # y הפוך — Qt מתחיל מלמעלה
+
+        painter.setPen(QPen(QColor("#cdd6f4"), 3))
+        painter.drawLine(QPointF(cx, cy), QPointF(nx, ny))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#cdd6f4"))
+        painter.drawEllipse(QPointF(cx, cy), 5, 5)
+
+        painter.setPen(QColor("#cdd6f4"))
+        painter.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        text_rect = QRectF(0, cy + radius * 0.32, self.width(), 24)
+        painter.drawText(text_rect, Qt.AlignCenter, f"{value:.0f}%")
+
+
 class ProcessDashboard(QDialog):
     """
     חלון נפרד (לא-מודלי) למעקב חי אחר 3 שרתי ה-Flask: סטטוס תהליך (פעיל/כבוי, PID,
@@ -159,15 +267,68 @@ class ProcessDashboard(QDialog):
         # QDialog לא מציג כפתור מזעור כברירת מחדל ב-Windows — מוסיפים אותו במפורש
         # (כפתור מקסום לא מתבקש, אבל מזעור וסגירה כן) כדי שהחלון יתנהג כמו חלון רגיל.
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.resize(780, 600)
+        self.resize(820, 820)
         if parent is not None:
             self.setStyleSheet(parent.styleSheet())  # ירושת ערכת הנושא הכהה מהחלון הראשי
 
         layout = QVBoxLayout(self)
 
+        # ארבע לשוניות — סקירה (שעונים), סטטוס/מטריקות רגיל, בדיקת תקינות, ובדיקת אבטחה —
+        # במקום ערימה אנכית אחת שהייתה נהיית עמוסה מדי עם כל הטבלאות יחד.
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # --- לשונית 0: סקירה כללית — רשת שעונים 3×3 (שרת × תקינות/עומס/אבטחה) ---
+        overview_tab = QWidget()
+        overview_layout = QVBoxLayout(overview_tab)
+
+        overview_header = QHBoxLayout()
+        overview_label = QLabel("סקירה כללית")
+        overview_label.setObjectName("sectionLabel")
+        overview_header.addWidget(overview_label)
+        overview_header.addStretch()
+        self.overview_run_button = QPushButton("▶ הרץ הכל")
+        self.overview_run_button.clicked.connect(self.run_all_checks)
+        overview_header.addWidget(self.overview_run_button)
+        overview_layout.addLayout(overview_header)
+
+        gauge_grid = QGridLayout()
+        gauge_grid.setHorizontalSpacing(24)
+        gauge_grid.setVerticalSpacing(8)
+
+        self._GAUGE_CATEGORIES = [("health", "תקינות"), ("load", "עומס"), ("security", "אבטחה")]
+        self._GAUGE_SERVERS = ["GeoServer", "WeatherServer", "FlightServer"]
+
+        for col, (_, cat_label) in enumerate(self._GAUGE_CATEGORIES, start=1):
+            col_label = QLabel(cat_label)
+            col_label.setAlignment(Qt.AlignCenter)
+            col_label.setObjectName("sectionLabel")
+            gauge_grid.addWidget(col_label, 0, col)
+
+        self.gauges = {}  # {(server, category): GaugeWidget}
+        for row, server in enumerate(self._GAUGE_SERVERS, start=1):
+            row_label = QLabel(server)
+            row_label.setAlignment(Qt.AlignCenter)
+            gauge_grid.addWidget(row_label, row, 0)
+            for col, (category, _) in enumerate(self._GAUGE_CATEGORIES, start=1):
+                gauge = GaugeWidget()
+                self.gauges[(server, category)] = gauge
+                gauge_grid.addWidget(gauge, row, col, Qt.AlignCenter)
+
+        overview_layout.addLayout(gauge_grid)
+        overview_layout.addStretch()
+
+        self.tabs.addTab(overview_tab, "סקירה")
+        self._last_health_results = []    # תוצאות הריצה האחרונה — נצרך גם ע"י _update_gauges
+        self._last_security_findings = []  # ממצאי הריצה האחרונה — נצרך גם ע"י _update_gauges
+
+        # --- לשונית 1: סטטוס שרתים + מטריקות API + יומן ---
+        status_tab = QWidget()
+        status_layout = QVBoxLayout(status_tab)
+
         proc_label = QLabel("סטטוס שרתים")
         proc_label.setObjectName("sectionLabel")
-        layout.addWidget(proc_label)
+        status_layout.addWidget(proc_label)
 
         self.proc_table = QTableWidget(len(self.SERVERS), 6)
         self.proc_table.setHorizontalHeaderLabels(["שרת", "פורט", "סטטוס", "PID", "זמן ריצה", "CPU / זיכרון"])
@@ -176,11 +337,11 @@ class ProcessDashboard(QDialog):
         self.proc_table.setSelectionMode(QAbstractItemView.NoSelection)
         self.proc_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.proc_table.setFixedHeight(150)
-        layout.addWidget(self.proc_table)
+        status_layout.addWidget(self.proc_table)
 
         api_label = QLabel("מטריקות קריאות API")
         api_label.setObjectName("sectionLabel")
-        layout.addWidget(api_label)
+        status_layout.addWidget(api_label)
 
         self.api_table = QTableWidget(0, 6)
         self.api_table.setHorizontalHeaderLabels(["שרת", "נתיב", "קריאות", "שגיאות", "זמן ממוצע (ms)", "קריאה אחרונה"])
@@ -188,18 +349,76 @@ class ProcessDashboard(QDialog):
         self.api_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.api_table.setSelectionMode(QAbstractItemView.NoSelection)
         self.api_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(self.api_table)
+        status_layout.addWidget(self.api_table)
 
         log_label = QLabel("יומן חי")
         log_label.setObjectName("sectionLabel")
-        layout.addWidget(log_label)
+        status_layout.addWidget(log_label)
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(160)
         for line in self.app_ref.logs[-200:]:  # מילוי ראשוני מהיומן הקיים
             self.log_view.append(f'<span style="color:#cdd6f4;">{line}</span>')
-        layout.addWidget(self.log_view)
+        status_layout.addWidget(self.log_view)
+
+        self.tabs.addTab(status_tab, "שרתים ומטריקות")
+
+        # --- לשונית 2: בדיקת תקינות (test_requests.py) ---
+        health_tab = QWidget()
+        health_layout = QVBoxLayout(health_tab)
+
+        health_header = QHBoxLayout()
+        health_label = QLabel("בדיקת תקינות (Health Check)")
+        health_label.setObjectName("sectionLabel")
+        health_header.addWidget(health_label)
+        health_header.addStretch()
+        self.health_run_button = QPushButton("▶ הרץ בדיקה")
+        self.health_run_button.clicked.connect(self.run_health_check)
+        health_header.addWidget(self.health_run_button)
+        health_layout.addLayout(health_header)
+
+        self.health_summary_label = QLabel("לא הורצה בדיקה עדיין")
+        health_layout.addWidget(self.health_summary_label)
+
+        self.health_table = QTableWidget(0, 5)
+        self.health_table.setHorizontalHeaderLabels(["שרת", "בדיקה", "סטטוס", "זמן (ms)", "הודעה"])
+        self.health_table.verticalHeader().setVisible(False)
+        self.health_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.health_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.health_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        health_layout.addWidget(self.health_table)
+
+        self.tabs.addTab(health_tab, "בדיקת תקינות")
+        self.health_worker = None  # מופע HealthCheckWorker פעיל — None כשאין בדיקה רצה
+
+        # --- לשונית 3: בדיקת אבטחה (security_checks.py) ---
+        security_tab = QWidget()
+        security_layout = QVBoxLayout(security_tab)
+
+        security_header = QHBoxLayout()
+        security_label = QLabel("בדיקת אבטחה (Security Scan)")
+        security_label.setObjectName("sectionLabel")
+        security_header.addWidget(security_label)
+        security_header.addStretch()
+        self.security_run_button = QPushButton("🔒 הרץ סריקה")
+        self.security_run_button.clicked.connect(self.run_security_check)
+        security_header.addWidget(self.security_run_button)
+        security_layout.addLayout(security_header)
+
+        self.security_summary_label = QLabel("לא הורצה סריקה עדיין")
+        security_layout.addWidget(self.security_summary_label)
+
+        self.security_table = QTableWidget(0, 4)
+        self.security_table.setHorizontalHeaderLabels(["בדיקה", "חומרה", "תוצאה", "הודעה"])
+        self.security_table.verticalHeader().setVisible(False)
+        self.security_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.security_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.security_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        security_layout.addWidget(self.security_table)
+
+        self.tabs.addTab(security_tab, "אבטחה")
+        self.security_worker = None  # מופע SecurityCheckWorker פעיל — None כשאין סריקה רצה
 
         # כל העבודה החוסמת (HTTP ל-/metrics, psutil) רצה ב-thread נפרד; כאן רק מציירים
         # את התוצאה המוכנה שהוא שולח — כך שה-GUI (כולל תצוגת המפה בחלון הראשי) לא נתקע.
@@ -238,6 +457,137 @@ class ProcessDashboard(QDialog):
             self._set_cell(self.api_table, r, 4, str(avg_ms))
             self._set_cell(self.api_table, r, 5, last_call)
 
+    def run_health_check(self):
+        """ מריץ בדיקת תקינות מלאה (test_requests.run_health_checks) על thread נפרד — שומר את ה-GUI חי גם כשבדיקה בודדת (למשל /los, /flight_search) לוקחת עד 20 שניות. """
+        if self.health_worker is not None and self.health_worker.isRunning():
+            return  # בדיקה כבר רצה — מונע הרצות כפולות בלחיצה חוזרת
+        self.health_run_button.setEnabled(False)
+        self.health_summary_label.setText("מריץ בדיקה...")
+        self.health_summary_label.setStyleSheet("")
+        self.health_table.setRowCount(0)
+        self.health_worker = HealthCheckWorker(self)
+        self.health_worker.progressReady.connect(self._append_health_row)
+        self.health_worker.finished_results.connect(self._finish_health_check)
+        self.health_worker.start()
+
+    def _append_health_row(self, result):
+        """ מוסיף שורת תוצאה בודדת לטבלה מיד עם קבלתה — הטבלה מתמלאת בהדרגה במקום לקפוץ בסוף. """
+        row = self.health_table.rowCount()
+        self.health_table.insertRow(row)
+        self._set_cell(self.health_table, row, 0, result.server)
+        self._set_cell(self.health_table, row, 1, result.name)
+        status_item = QTableWidgetItem("✓ תקין" if result.ok else "✗ שגיאה")
+        status_item.setForeground(QColor("#a6e3a1" if result.ok else "#f38ba8"))
+        self.health_table.setItem(row, 2, status_item)
+        self._set_cell(self.health_table, row, 3, f"{result.elapsed_ms:.0f}")
+        self._set_cell(self.health_table, row, 4, result.message)
+
+    def _finish_health_check(self, results):
+        """ מציג את אחוז התקינות הכולל ופירוט תקין/סה"כ לכל שרת — כך שרואים מיד גם ציון כללי וגם איזה שרת ספציפי לא תקין. """
+        self.health_run_button.setEnabled(True)
+        self._last_health_results = results
+        self._update_gauges()
+        health_percent, per_server = summarize(results)
+        if health_percent >= 90:
+            color = "#a6e3a1"  # ירוק — תקין
+        elif health_percent >= 60:
+            color = "#f9e2af"  # צהוב — תקין חלקית
+        else:
+            color = "#f38ba8"  # אדום — בעייתי
+        per_server_text = "   |   ".join(f"{server}: {ok}/{total}" for server, (ok, total) in per_server.items())
+        self.health_summary_label.setText(f"תקינות כוללת: {health_percent}%    ({per_server_text})")
+        self.health_summary_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def run_security_check(self):
+        """ מריץ סריקת אבטחה מלאה (security_checks.run_security_checks) על thread נפרד — כוללת pip-audit וסריקת APK שעלולות לקחת עד כ-2 דקות. """
+        if self.security_worker is not None and self.security_worker.isRunning():
+            return  # סריקה כבר רצה — מונע הרצות כפולות בלחיצה חוזרת
+        self.security_run_button.setEnabled(False)
+        self.security_summary_label.setText("מריץ סריקה...")
+        self.security_summary_label.setStyleSheet("")
+        self.security_table.setRowCount(0)
+        self.security_worker = SecurityCheckWorker(self)
+        self.security_worker.progressReady.connect(self._append_security_row)
+        self.security_worker.finished_findings.connect(self._finish_security_check)
+        self.security_worker.start()
+
+    def _append_security_row(self, finding):
+        """ מוסיף שורת ממצא בודד לטבלה מיד עם קבלתו. """
+        row = self.security_table.rowCount()
+        self.security_table.insertRow(row)
+        self._set_cell(self.security_table, row, 0, finding.check)
+        severity_colors = {"high": "#f38ba8", "medium": "#f9e2af", "low": "#89b4fa", "info": "#585b70"}
+        severity_item = QTableWidgetItem(finding.severity)
+        severity_item.setForeground(QColor(severity_colors.get(finding.severity, "#cdd6f4")))
+        self.security_table.setItem(row, 1, severity_item)
+        result_item = QTableWidgetItem("✓ תקין" if finding.ok else "⚠ ממצא")
+        result_item.setForeground(QColor("#a6e3a1" if finding.ok else severity_colors.get(finding.severity, "#f38ba8")))
+        self.security_table.setItem(row, 2, result_item)
+        self._set_cell(self.security_table, row, 3, finding.message)
+
+    def _finish_security_check(self, findings):
+        """ מציג כמה ממצאים נמצאו ובאיזו חומרה — כדי שרואים מיד אם יש משהו לטפל בו. """
+        self.security_run_button.setEnabled(True)
+        self._last_security_findings = findings
+        self._update_gauges()
+        issue_count, severity_counts = summarize_findings(findings)
+        if issue_count == 0:
+            color = "#a6e3a1"  # ירוק — לא נמצאו ממצאים
+            self.security_summary_label.setText("לא נמצאו ממצאים")
+        else:
+            color = "#f38ba8" if severity_counts.get("high") else "#f9e2af"
+            parts = "   |   ".join(f"{v} {k}" for k, v in severity_counts.items() if v)
+            self.security_summary_label.setText(f"נמצאו {issue_count} ממצאים:    ({parts})")
+        self.security_summary_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    def run_all_checks(self):
+        """ מריץ גם בדיקת תקינות וגם סריקת אבטחה במקביל (כל אחת ב-thread נפרד משלה) —
+        כפתור "הרץ הכל" בלשונית הסקירה. השעונים מתעדכנים בהדרגה ככל שכל בדיקה מסיימת. """
+        self.run_health_check()
+        self.run_security_check()
+
+    def _update_gauges(self):
+        """ מחשב אחוז תקין/סה"כ לכל תא ברשת (שרת × תקינות/עומס/אבטחה) מתוך תוצאות הריצה
+        האחרונות, ומעדכן את שעוני ה-GaugeWidget בהתאם. ממצאי אבטחה "Global" (pip-audit,
+        APK) לא שייכים לשרת ספציפי — נספרים בציון האבטחה של כל שלושת השרתים כאחד. """
+        health_by_server = {}
+        load_by_server = {}
+        for r in self._last_health_results:
+            bucket = load_by_server if getattr(r, "category", "health") == "load" else health_by_server
+            ok, total = bucket.get(r.server, (0, 0))
+            bucket[r.server] = (ok + (1 if r.ok else 0), total + 1)
+
+        security_by_server = {}
+        global_ok, global_total = 0, 0
+        for f in self._last_security_findings:
+            if f.server == "Global":
+                global_ok += 1 if f.ok else 0
+                global_total += 1
+            else:
+                ok, total = security_by_server.get(f.server, (0, 0))
+                security_by_server[f.server] = (ok + (1 if f.ok else 0), total + 1)
+
+        for server in self._GAUGE_SERVERS:
+            self._set_gauge(server, "health", health_by_server.get(server))
+            self._set_gauge(server, "load", load_by_server.get(server))
+
+            sec_ok, sec_total = security_by_server.get(server, (0, 0))
+            combined_total = sec_total + global_total
+            if combined_total == 0:
+                self._set_gauge(server, "security", None)
+            else:
+                self._set_gauge(server, "security", (sec_ok + global_ok, combined_total))
+
+    def _set_gauge(self, server, category, data):
+        gauge = self.gauges.get((server, category))
+        if gauge is None:
+            return
+        if not data or data[1] == 0:
+            gauge.setValue(None)
+        else:
+            ok, total = data
+            gauge.setValue(round(100.0 * ok / total, 1))
+
     @staticmethod
     def _set_cell(table, row, col, text):
         table.setItem(row, col, QTableWidgetItem(text))
@@ -251,6 +601,21 @@ class ProcessDashboard(QDialog):
 
     def closeEvent(self, event):
         self.worker.stop()  # עוצר את thread המדידה בצורה מסודרת לפני סגירה
+        if self.health_worker is not None and self.health_worker.isRunning():
+            # בדיקת תקינות עשויה עדיין לרוץ ברקע (עד 20 שניות לבדיקה) — מנתקים את ה-signals
+            # כדי שהיא לא תנסה לעדכן widgets של דיאלוג שעומד להיהרס.
+            try:
+                self.health_worker.progressReady.disconnect(self._append_health_row)
+                self.health_worker.finished_results.disconnect(self._finish_health_check)
+            except TypeError:
+                pass
+        if self.security_worker is not None and self.security_worker.isRunning():
+            # סריקת אבטחה עשויה לרוץ ברקע עד ~2 דקות (pip-audit) — אותו טיפול.
+            try:
+                self.security_worker.progressReady.disconnect(self._append_security_row)
+                self.security_worker.finished_findings.disconnect(self._finish_security_check)
+            except TypeError:
+                pass
         self.app_ref._process_dashboard = None  # מאפשר פתיחה מחדש בלחיצה הבאה
         event.accept()
 
@@ -454,7 +819,7 @@ class MapApp(QMainWindow):
         self.show_flight_button.setEnabled(False)  # נעילת הכפתור למניעת לחיצות כפולות בזמן הבקשה
 
         try:
-            url = f"http://localhost:5004/flight_route?flight={flight_number}"  # בקשה לשרת הטיסות
+            url = f"http://127.0.0.1:5004/flight_route?flight={flight_number}"  # בקשה לשרת הטיסות
             response = requests.get(url, timeout=35)  # FR24 get_flights() יכול לקחת 20+ שניות
 
             if response.status_code == 200:
@@ -1156,7 +1521,7 @@ class MapApp(QMainWindow):
             return
 
         try:
-            url = f"http://localhost:5002/weather?lat={lat}&lon={lon}"  # בניית URL עם פרמטרים נפרדים
+            url = f"http://127.0.0.1:5002/weather?lat={lat}&lon={lon}"  # בניית URL עם פרמטרים נפרדים
             response = requests.get(url)  # שליחת בקשת GET לשרת מזג האוויר
 
             if response.status_code == 200:
@@ -1208,7 +1573,7 @@ class MapApp(QMainWindow):
 
         # שליחת הבקשה לשרת
         try:
-            url = f"http://localhost:5002/weather?region={encoded_city_name}"
+            url = f"http://127.0.0.1:5002/weather?region={encoded_city_name}"
             response = requests.get(url)
 
             if response.status_code == 200:
@@ -1396,7 +1761,7 @@ class MapApp(QMainWindow):
         else:
             # שליחת בקשה ישירה לשרת עם lat ו-lon כפרמטרים נפרדים — לא כשם עיר
             try:
-                url = f"http://localhost:5002/weather?lat={lat}&lon={lon}"
+                url = f"http://127.0.0.1:5002/weather?lat={lat}&lon={lon}"
                 response = requests.get(url, timeout=10)
                 weather_data = response.json() if response.status_code == 200 else {}
                 if weather_data:
@@ -1434,7 +1799,7 @@ class MapApp(QMainWindow):
             elevation_text = "לא זמין"
             try:
                 elev_response = requests.post(
-                    "http://localhost:5002/elevation",
+                    "http://127.0.0.1:5002/elevation",
                     json={"locations": [{"latitude": lat, "longitude": lon}]},
                     timeout=5
                 )
@@ -1502,7 +1867,7 @@ class MapApp(QMainWindow):
             # בדוק שהפרמטרים נכונים
             print(f"שליחת בקשה לשרת עבור המיקום: {location}")
 
-            url = f"http://localhost:5002/weather?region={location}"
+            url = f"http://127.0.0.1:5002/weather?region={location}"
             response = requests.get(url)
 
             # מדפיס את התשובה שהתקבלה לצורך ניתוח שגיאות
