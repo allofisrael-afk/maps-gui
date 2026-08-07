@@ -5,6 +5,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import requests
 
+from metrics import register_metrics
+
 # טעינת משתני סביבה מקובץ .env
 load_dotenv()  # טעינת משתני הסביבה מקובץ .env לפני שימוש בהם
 
@@ -14,6 +16,7 @@ logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(a
 # יצירת מופע Flask
 app = Flask(__name__)
 CORS(app)
+register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
 
 # מפתח ה-API נטען ממשתה סביבה ולא מוטמע בקוד מטעמי אבטחה
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # קריאת מפתח Google API מקובץ .env

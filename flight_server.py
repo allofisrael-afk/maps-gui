@@ -6,6 +6,8 @@ from flask import Flask, jsonify, request  # ייבוא Flask לבניית ה-AP
 from flask_cors import CORS               # מאפשר קריאות cross-origin מהמפה
 from FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24
 
+from metrics import register_metrics
+
 load_dotenv()  # טעינת FR24_USER ו-FR24_PASS מקובץ .env
 
 # הגדרת לוגינג לקובץ משותף
@@ -43,6 +45,7 @@ def _normalize_flight_num(fn: str) -> str:
 
 app = Flask(__name__)  # יצירת מופע Flask
 CORS(app)              # אפשור קריאות מהדפדפן הפנימי (QWebEngineView)
+register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
 
 fr_api = FlightRadar24API()  # יצירת מופע ה-API
 

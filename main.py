@@ -2,17 +2,20 @@ import logging  # רישום אירועים לקובץ לוג
 import os  # גישה לנתיבי קבצים ומשתני סביבה
 import subprocess  # הפעלת תהליכי שרת חיצוניים
 import sys  # גישה לארגומנטים ויציאה מהאפליקציה
+import time  # חישוב uptime בדשבורד התהליכים
 import urllib.parse  # קידוד שמות ערים לפורמט URL
+import psutil  # מדידת CPU/זיכרון לתהליכי השרתים בדשבורד
 import requests  # שליחת בקשות HTTP לשרתים
 from datetime import datetime  # חישוב פקיעת cache לפי זמן
 from MAP import create_map  # ייבוא פונקציית יצירת המפה
-from PyQt5.QtCore import Qt, QUrl, QDateTime, QSize, QTimer, QPropertyAnimation, QEasingCurve  # רכיבי ליבה: טיימר, אנימציה, כיוון
+from PyQt5.QtCore import Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון
 from PyQt5.QtGui import QIcon, QColor  # אייקונים וצבעים לממשק
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage  # תצוגת דפדפן פנימי להצגת המפה
 from PyQt5.QtWidgets import (  # רכיבי ממשק גרפי
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout,
     QTextEdit, QFileDialog, QSplitter, QSizePolicy, QDoubleSpinBox,
-    QMessageBox, QLabel, QTabWidget, QSlider, QComboBox, QFrame  # QLabel לכותרות, QTabWidget ללשוניות, QSlider לשקיפות, QComboBox להיסטוריה, QFrame להפרדה
+    QMessageBox, QLabel, QTabWidget, QSlider, QComboBox, QFrame,  # QLabel לכותרות, QTabWidget ללשוניות, QSlider לשקיפות, QComboBox להיסטוריה, QFrame להפרדה
+    QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # רכיבי דשבורד התהליכים
 )
 from PyQt5.QtCore import QSettings  # שמירת הגדרות והיסטוריית ערים בין הפעלות
 
@@ -27,6 +30,229 @@ class LoggingWebEnginePage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         logging.warning(f"JS console [{level}] {sourceID}:{lineNumber} - {message}")
         super().javaScriptConsoleMessage(level, message, lineNumber, sourceID)
+
+
+class MetricsWorker(QThread):
+    """
+    אוסף את נתוני הדשבורד ב-thread נפרד: קריאות HTTP חוסמות ל-GET /metrics (עד timeout=1
+    שנייה, כפול 3 שרתים) ופעולות psutil היו רצות קודם בתוך QTimer על ה-thread הראשי —
+    מה שהקפיא את כל ה-GUI (כולל תצוגת המפה) לזמן ניכר בכל טיק. כאן העבודה החוסמת
+    מתבצעת ב-thread ברקע, ורק תוצאה מוכנה (רשימות טקסט) נשלחת ל-thread הראשי דרך signal.
+    """
+    resultReady = pyqtSignal(list, list)  # (proc_rows, api_rows)
+
+    def __init__(self, app_ref, interval_sec, parent=None):
+        super().__init__(parent)
+        self.app_ref = app_ref
+        self.interval_sec = interval_sec
+        self._running = True
+        self._psutil_procs = {}
+        self._psutil_children = {}
+
+    def stop(self):
+        self._running = False
+        self.wait(2000)
+
+    def run(self):
+        while self._running:
+            try:
+                proc_rows, api_rows = self._collect()
+                self.resultReady.emit(proc_rows, api_rows)
+            except Exception:
+                pass  # לא מפילים את thread המדידה על שגיאה חד-פעמית — פשוט מדלגים לטיק הבא
+            self.msleep(int(self.interval_sec * 1000))
+
+    def _collect(self):
+        proc_rows = []
+        api_rows = []
+        for attr, label, port in ProcessDashboard.SERVERS:
+            proc = getattr(self.app_ref, attr, None)
+            running = proc is not None and proc.poll() is None
+            pid_str, uptime_str, res_str = "—", "—", "—"
+
+            if running:
+                pid_str = str(proc.pid)
+                try:
+                    ps = self._get_root_process(attr, proc.pid)
+                    # ה-PID שנשמר הוא ה"עוטף" החיצוני בלבד: virtualenv (python.exe ב-.venv) מריץ
+                    # launcher stub שמבצע re-exec לתהליך האמיתי, ו-Flask עם debug=True מוסיף שכבת
+                    # reloader משלו — כך שבפועל יש שרשרת תהליכי-בן. סיכום CPU/זיכרון על כל העץ
+                    # (הורה + כל הצאצאים) הוא הדרך היחידה לקבל מספר משמעותי, במקום למדוד עוטף כמעט-ריק.
+                    # cpu_percent(None) חייב להיקרא בדיוק פעם אחת לכל תהליך בכל טיק —
+                    # קריאה שנייה מיד תמדוד דלתא של מיקרו-שניות ותחזיר כמעט תמיד 0.
+                    children = self._get_cached_children(attr, ps)
+                    tree = [ps] + children
+                    uptime_str = ProcessDashboard._fmt_uptime(time.time() - ps.create_time())
+                    cpu_total, rss_total = 0.0, 0
+                    for p in tree:
+                        try:
+                            cpu_total += p.cpu_percent(None)
+                            rss_total += p.memory_info().rss
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                    res_str = f"{cpu_total:.1f}%  /  {rss_total / (1024 * 1024):.0f} MB"
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+                try:
+                    resp = requests.get(f"http://localhost:{port}/metrics", timeout=1)
+                    if resp.status_code == 200:
+                        for endpoint, s in resp.json().get("endpoints", {}).items():
+                            api_rows.append((label, endpoint, s["count"], s["errors"], s["avg_ms"], s["last_call"] or "—"))
+                except requests.exceptions.RequestException:
+                    pass  # שרת פעיל אך /metrics עדיין לא זמין (למשל ברגע ההפעלה) — פשוט מדלגים הפעם
+            else:
+                self._psutil_procs.pop(attr, None)
+                self._psutil_children.pop(attr, None)
+
+            proc_rows.append((label, port, running, pid_str, uptime_str, res_str))
+        return proc_rows, api_rows
+
+    def _get_root_process(self, attr, pid):
+        """ מחזיר psutil.Process יציב עבור תהליך השורש, ממטמון בין טיקים — נדרש כדי
+        ש-cpu_percent(None) ימדוד דלתא אמיתית מאז הטיק הקודם ולא מאז רגע ההפעלה. """
+        ps = self._psutil_procs.get(attr)
+        if ps is None or ps.pid != pid:
+            ps = psutil.Process(pid)
+            ps.cpu_percent(None)  # קריאת "חימום" — מדידה ראשונה תמיד מחזירה 0.0
+            self._psutil_procs[attr] = ps
+            self._psutil_children[attr] = {}
+        return ps
+
+    def _get_cached_children(self, attr, root_process):
+        """ מחזיר את כל צאצאי התהליך (ה-launcher stub של virtualenv + reloader של Werkzeug
+        יוצרים שרשרת תהליכי-בן), תוך שימוש במטמון קבוע per-PID כדי לשמר את מצב cpu_percent. """
+        cached = self._psutil_children.setdefault(attr, {})
+        current = {}
+        try:
+            for child in root_process.children(recursive=True):
+                cached_child = cached.get(child.pid)
+                if cached_child is None:
+                    child.cpu_percent(None)  # קריאת "חימום" לתהליך-בן שהתגלה עכשיו לראשונה
+                    current[child.pid] = child
+                else:
+                    current[child.pid] = cached_child
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        self._psutil_children[attr] = current
+        return list(current.values())
+
+
+class ProcessDashboard(QDialog):
+    """
+    חלון נפרד (לא-מודלי) למעקב חי אחר 3 שרתי ה-Flask: סטטוס תהליך (פעיל/כבוי, PID,
+    זמן ריצה, CPU/זיכרון דרך psutil), מטריקות קריאות API לכל endpoint (נשלף מ-GET
+    /metrics של כל שרת, ר' metrics.py), ותצוגת יומן חי המשקפת את self.logs.
+    כל הפעולות החוסמות (HTTP, psutil) רצות ב-MetricsWorker על thread נפרד.
+    """
+    SERVERS = [
+        ("geo_server_process", "GeoServer", 5003),
+        ("weather_server_process", "WeatherServer", 5002),
+        ("flight_server_process", "FlightServer", 5004),
+    ]
+    REFRESH_SEC = 1.5  # תדירות רענון הדשבורד
+
+    def __init__(self, app_ref, parent=None):
+        super().__init__(parent)
+        self.app_ref = app_ref  # הפניה ל-MapApp — גישה לתהליכים וליומן
+        self.setWindowTitle("דשבורד מעקב תהליכים")
+        # QDialog לא מציג כפתור מזעור כברירת מחדל ב-Windows — מוסיפים אותו במפורש
+        # (כפתור מקסום לא מתבקש, אבל מזעור וסגירה כן) כדי שהחלון יתנהג כמו חלון רגיל.
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
+        self.resize(780, 600)
+        if parent is not None:
+            self.setStyleSheet(parent.styleSheet())  # ירושת ערכת הנושא הכהה מהחלון הראשי
+
+        layout = QVBoxLayout(self)
+
+        proc_label = QLabel("סטטוס שרתים")
+        proc_label.setObjectName("sectionLabel")
+        layout.addWidget(proc_label)
+
+        self.proc_table = QTableWidget(len(self.SERVERS), 6)
+        self.proc_table.setHorizontalHeaderLabels(["שרת", "פורט", "סטטוס", "PID", "זמן ריצה", "CPU / זיכרון"])
+        self.proc_table.verticalHeader().setVisible(False)
+        self.proc_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.proc_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.proc_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.proc_table.setFixedHeight(150)
+        layout.addWidget(self.proc_table)
+
+        api_label = QLabel("מטריקות קריאות API")
+        api_label.setObjectName("sectionLabel")
+        layout.addWidget(api_label)
+
+        self.api_table = QTableWidget(0, 6)
+        self.api_table.setHorizontalHeaderLabels(["שרת", "נתיב", "קריאות", "שגיאות", "זמן ממוצע (ms)", "קריאה אחרונה"])
+        self.api_table.verticalHeader().setVisible(False)
+        self.api_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.api_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.api_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(self.api_table)
+
+        log_label = QLabel("יומן חי")
+        log_label.setObjectName("sectionLabel")
+        layout.addWidget(log_label)
+
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumHeight(160)
+        for line in self.app_ref.logs[-200:]:  # מילוי ראשוני מהיומן הקיים
+            self.log_view.append(f'<span style="color:#cdd6f4;">{line}</span>')
+        layout.addWidget(self.log_view)
+
+        # כל העבודה החוסמת (HTTP ל-/metrics, psutil) רצה ב-thread נפרד; כאן רק מציירים
+        # את התוצאה המוכנה שהוא שולח — כך שה-GUI (כולל תצוגת המפה בחלון הראשי) לא נתקע.
+        self.worker = MetricsWorker(self.app_ref, self.REFRESH_SEC, self)
+        self.worker.resultReady.connect(self._apply_data)
+        self.worker.start()
+
+    def append_log_line(self, log_message, is_success=None):
+        """ נקרא מ-MapApp.log_action בכל הודעת יומן חדשה, כדי לשקף אותה כאן חי. """
+        color = "#a6e3a1" if is_success is True else "#f38ba8" if is_success is False else "#cdd6f4"
+        self.log_view.append(f'<span style="color:{color};">{log_message}</span>')
+        scrollbar = self.log_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _apply_data(self, proc_rows, api_rows):
+        """ Slot מהיר בלבד (ללא I/O) שמצייר את התוצאות שחושבו ב-MetricsWorker לתוך הטבלאות. """
+        for row, (label, port, running, pid_str, uptime_str, res_str) in enumerate(proc_rows):
+            self._set_cell(self.proc_table, row, 0, label)
+            self._set_cell(self.proc_table, row, 1, str(port))
+            status_item = QTableWidgetItem("● פעיל" if running else "○ כבוי")
+            status_item.setForeground(QColor("#a6e3a1" if running else "#585b70"))
+            self.proc_table.setItem(row, 2, status_item)
+            self._set_cell(self.proc_table, row, 3, pid_str)
+            self._set_cell(self.proc_table, row, 4, uptime_str)
+            self._set_cell(self.proc_table, row, 5, res_str)
+
+        self.api_table.setRowCount(len(api_rows))
+        for r, (label, endpoint, count, errors, avg_ms, last_call) in enumerate(api_rows):
+            self._set_cell(self.api_table, r, 0, label)
+            self._set_cell(self.api_table, r, 1, endpoint)
+            self._set_cell(self.api_table, r, 2, str(count))
+            err_item = QTableWidgetItem(str(errors))
+            if errors > 0:
+                err_item.setForeground(QColor("#f38ba8"))
+            self.api_table.setItem(r, 3, err_item)
+            self._set_cell(self.api_table, r, 4, str(avg_ms))
+            self._set_cell(self.api_table, r, 5, last_call)
+
+    @staticmethod
+    def _set_cell(table, row, col, text):
+        table.setItem(row, col, QTableWidgetItem(text))
+
+    @staticmethod
+    def _fmt_uptime(seconds):
+        seconds = int(seconds)
+        h, rem = divmod(seconds, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+    def closeEvent(self, event):
+        self.worker.stop()  # עוצר את thread המדידה בצורה מסודרת לפני סגירה
+        self.app_ref._process_dashboard = None  # מאפשר פתיחה מחדש בלחיצה הבאה
+        event.accept()
 
 
 class MapApp(QMainWindow):
@@ -52,6 +278,7 @@ class MapApp(QMainWindow):
         self.debounce_timer.timeout.connect(self.submit_coordinates)  # בסיום ה-debounce — שליחת הקואורדינטות
         self.settings = QSettings("MapApp", "MapGUI")  # אחסון הגדרות קבועות (היסטוריית ערים) בין הפעלות
         self._map_created = False  # האם המפה נוצרה לפחות פעם אחת — קובע אם לאפס JS או לייצר מחדש
+        self._process_dashboard = None  # מופע יחיד של חלון דשבורד התהליכים — None כשסגור
         self._kill_zombie_servers()  # הרג שרתים שנשארו רצים מהפעלות קודמות
         self.init_ui()  # בניית ממשק המשתמש
 
@@ -79,6 +306,9 @@ class MapApp(QMainWindow):
 
         self.update_log_view(message, is_success)  # עדכון תצוגה עם צביעה לפי סוג ההודעה
 
+        if self._process_dashboard is not None:  # שיקוף חי ליומן הדשבורד אם הוא פתוח
+            self._process_dashboard.append_log_line(log_message, is_success)
+
         if not self.log_area.isVisible():  # רק כשהלוג סגור — עדכון badge
             self.unread_log_count += 1  # הגדלת מונה לוגים שלא נצפו
             self.badge_label.setText(str(self.unread_log_count))  # הצגת המספר על הbadge
@@ -96,6 +326,15 @@ class MapApp(QMainWindow):
         """
         status = "הצליחה" if success else "נכשלה"
         self.log_action(f"פעולה '{action}' על {process_name} {status}.", is_success=success)
+
+    def open_process_dashboard(self):
+        """ פותח (או מעלה לחזית) את חלון דשבורד מעקב התהליכים. מופע יחיד — לא נפתח כפול. """
+        if self._process_dashboard is None:
+            self._process_dashboard = ProcessDashboard(self, self)
+            self._process_dashboard.show()
+        else:
+            self._process_dashboard.raise_()
+            self._process_dashboard.activateWindow()
 
     def update_log_view(self, message="", is_success=None):
         """ הוספת שורת לוג אחת עם צבע מתאים — מהיר יותר מ-setPlainText מחדש בכל פעם. """
@@ -301,6 +540,12 @@ class MapApp(QMainWindow):
         status_col.addWidget(self.weather_status_dot)
         servers_row.addLayout(status_col)
         top_layout.addLayout(servers_row)
+
+        self.dashboard_button = QPushButton("📊 דשבורד תהליכים")  # פותח חלון מעקב חי אחר תהליכי השרתים
+        self.dashboard_button.setFixedSize(140, 34)  # גודל עקבי עם שאר הכפתורים
+        self.dashboard_button.setToolTip("מעקב חי: סטטוס תהליכים, CPU/זיכרון, מטריקות API ויומן")  # tooltip
+        self.dashboard_button.clicked.connect(self.open_process_dashboard)  # חיבור לפתיחת הדשבורד
+        top_layout.addWidget(self.dashboard_button)
 
         sep1 = QFrame()  # קו הפרדה חזותי בין הסעיפים
         sep1.setFrameShape(QFrame.HLine)  # קו אופקי
@@ -799,7 +1044,7 @@ class MapApp(QMainWindow):
         """ הפעלת שרתי GeoServer ו-WeatherServer. """
         try:
             self.log_action("הפעלת GeoServer התחילה.")
-            self.geo_server_process = subprocess.Popen(["python", "geo_server.py"])  # הפעלת GeoServer בתהליך נפרד
+            self.geo_server_process = subprocess.Popen([sys.executable, "geo_server.py"])  # הפעלת GeoServer בתהליך נפרד
             self.log_process_action("GeoServer", "הפעלת", success=True)
             self.geo_status_dot.setObjectName("dotOn")  # נורת סטטוס ירוקה — GeoServer פעיל
             self.geo_status_dot.setStyle(self.geo_status_dot.style())  # רענון QSS לאחר שינוי objectName
@@ -809,7 +1054,7 @@ class MapApp(QMainWindow):
 
         try:
             self.log_action("הפעלת WeatherServer התחילה.")
-            self.weather_server_process = subprocess.Popen(["python", "weather_server.py"])  # הפעלת WeatherServer בתהליך נפרד
+            self.weather_server_process = subprocess.Popen([sys.executable, "weather_server.py"])  # הפעלת WeatherServer בתהליך נפרד
             self.log_action("WeatherServer הופעל בהצלחה.", is_success=True)
             self.weather_status_dot.setObjectName("dotOn")  # נורת סטטוס ירוקה — WeatherServer פעיל
             self.weather_status_dot.setStyle(self.weather_status_dot.style())  # רענון QSS
@@ -818,7 +1063,7 @@ class MapApp(QMainWindow):
 
         try:
             self.log_action("הפעלת FlightServer התחילה.")
-            self.flight_server_process = subprocess.Popen(["python", "flight_server.py"])  # הפעלת שרת הטיסות על פורט 5004
+            self.flight_server_process = subprocess.Popen([sys.executable, "flight_server.py"])  # הפעלת שרת הטיסות על פורט 5004
             self.log_action("FlightServer הופעל בהצלחה.", is_success=True)
             self.flight_input.setEnabled(True)  # אפשור שדה מספר הטיסה לאחר הפעלת השרת
             self.show_flight_button.setEnabled(True)  # אפשור כפתור הצגת מסלול
@@ -827,24 +1072,57 @@ class MapApp(QMainWindow):
 
         self.map_view.page().runJavaScript("window.serversRunning = true;")  # עדכון JS שהשרתים פעילים
         self.load_map_button.setEnabled(True)  # אפשור יצירת מפה לאחר הפעלת השרתים
+        if self._map_created:  # אם המפה כבר נוצרה בעבר, יש לשחזר כפתורים שנעלו ע"י stop_servers
+            self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
+            self.heatmap_button.setEnabled(True)  # שחזור נעילת שכבת חום
+            self.opacity_slider.setEnabled(True)  # שחזור נעילת ה-slider
+
+    @staticmethod
+    def _terminate_process_tree(proc):
+        """ עוצר תהליך + כל צאצאיו. השרת נפתח דרך python.exe של virtualenv (launcher stub
+        שמבצע re-exec) ודרך reloader של Flask debug=True — שתי שכבות שכל אחת מוסיפה תהליך-בן.
+        terminate() על ה-PID הנשמר בלבד משאיר את הצאצאים חיים ותופסים את הפורט, כך שהשרת
+        בפועל ממשיך לרוץ גם אחרי "עצירה" והפעלה חוזרת עלולה להיכשל על פורט תפוס. """
+        try:
+            parent = psutil.Process(proc.pid)
+            children = parent.children(recursive=True)
+        except psutil.NoSuchProcess:
+            children = []
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.NoSuchProcess:
+                pass
+        if children:
+            _, alive = psutil.wait_procs(children, timeout=3)
+            for child in alive:
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
     def stop_servers(self):
         """ עצירת שרתי GeoServer ו-WeatherServer. """
         try:
             if self.geo_server_process:  # עצירה רק אם התהליך קיים
-                self.geo_server_process.terminate()  # שליחת SIGTERM לתהליך
+                self._terminate_process_tree(self.geo_server_process)  # עצירת התהליך וכל צאצאיו
                 self.geo_server_process = None  # ניקוי הפניה
                 self.log_action("GeoServer נעצר בהצלחה.", is_success=True)
                 self.geo_status_dot.setObjectName("dotOff")  # נורה אפורה — כבוי
                 self.geo_status_dot.setStyle(self.geo_status_dot.style())  # רענון QSS
             if self.weather_server_process:  # עצירה רק אם התהליך קיים
-                self.weather_server_process.terminate()  # שליחת SIGTERM לתהליך
+                self._terminate_process_tree(self.weather_server_process)  # עצירת התהליך וכל צאצאיו
                 self.weather_server_process = None  # ניקוי הפניה
                 self.log_action("WeatherServer נעצר בהצלחה.", is_success=True)
                 self.weather_status_dot.setObjectName("dotOff")  # נורה אפורה — כבוי
                 self.weather_status_dot.setStyle(self.weather_status_dot.style())  # רענון QSS
             if self.flight_server_process:  # עצירה רק אם התהליך קיים
-                self.flight_server_process.terminate()  # שליחת SIGTERM לתהליך
+                self._terminate_process_tree(self.flight_server_process)  # עצירת התהליך וכל צאצאיו
                 self.flight_server_process = None  # ניקוי הפניה
                 self.log_action("FlightServer נעצר בהצלחה.", is_success=True)
         except Exception as e:

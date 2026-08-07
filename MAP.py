@@ -273,7 +273,7 @@ def create_map():
                     return L.circleMarker([p.lat, p.lng], {{
                         radius: r, fillColor: _normToColor(p.v, _elevGrad), fillOpacity: 0.85,
                         stroke: elevDisplayMode === 'grid', color: '#333', weight: 1
-                    }});
+                    }}).bindTooltip('גובה: ' + Math.round(p.raw) + " מ'", {{direction: 'top', offset: [0, -r]}});
                 }});
                 elevGridLayer = L.layerGroup(mk).addTo(map);
             }}
@@ -300,7 +300,7 @@ def create_map():
                     return L.circleMarker([p.lat, p.lng], {{
                         radius: r2, fillColor: _normToColor(p.v, _tempGrad), fillOpacity: 0.85,
                         stroke: tempDisplayMode === 'grid', color: '#333', weight: 1
-                    }});
+                    }}).bindTooltip('טמפרטורה: ' + p.raw.toFixed(1) + '°C', {{direction: 'top', offset: [0, -r2]}});
                 }});
                 tempGridLayer = L.layerGroup(mk2).addTo(map);
             }}
@@ -827,7 +827,7 @@ def create_map():
                 var maxE  = Math.max.apply(null, elevations);
                 var range = maxE - minE || 1;
                 _elevRawData = results.map(function(p) {{
-                    return {{ lat: p.latitude, lng: p.longitude, v: (p.elevation - minE) / range }};
+                    return {{ lat: p.latitude, lng: p.longitude, v: (p.elevation - minE) / range, raw: p.elevation }};
                 }});
 
                 _rebuildElevLayer();
@@ -979,7 +979,7 @@ def create_map():
                 var range = maxT - minT || 1;
 
                 _tempRawData = data.map(function(p) {{
-                    return {{ lat: p.lat, lng: p.lng, v: 0.05 + 0.9 * (p.temperature - minT) / range }};
+                    return {{ lat: p.lat, lng: p.lng, v: 0.05 + 0.9 * (p.temperature - minT) / range, raw: p.temperature }};
                 }});
 
                 _rebuildTempLayer();

@@ -7,6 +7,8 @@ import requests
 import os
 from dotenv import load_dotenv
 
+from metrics import register_metrics
+
 # טעינת משתני סביבה
 load_dotenv()
 
@@ -17,6 +19,7 @@ logging.basicConfig(filename='app_combined.log', level=logging.INFO,  # נשמו
 # יצירת מופע Flask
 app = Flask(__name__)
 CORS(app)
+register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
 
 # קבלת המפתחות ל-OpenWeather ו-Google API
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
