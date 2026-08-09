@@ -6,6 +6,7 @@ from flask_cors import CORS
 import requests
 
 from metrics import register_metrics
+from notam_drones import get_uas_notams
 
 # טעינת משתני סביבה מקובץ .env
 load_dotenv()  # טעינת משתני הסביבה מקובץ .env לפני שימוש בהם
@@ -64,6 +65,24 @@ def get_geo_data():
     except requests.exceptions.RequestException as e:
         logging.error(f"שגיאה בחיבור ל-Google API: {str(e)}")  # רישום שגיאה אם יש בעיה בחיבור
         return jsonify({"error": f"שגיאה בחיבור ל-Google API: {str(e)}"}), 500  # החזרת קוד שגיאה 500 במקרה של שגיאה
+
+@app.route("/uas_notams", methods=["GET"])
+def get_uas_notams_route():
+    """
+    שכבת "אזורי פעילות רחפנים (NOTAM)" — מסונן ל-UAS/UAV בלבד מתוך NOTAM של רשות שדות
+    התעופה, עם גיאומטריה (מעגל/פוליגון) שחולצה מהטקסט. חשוב: אלה אזורים של פעילות
+    רחפנים *מאושרת של אחרים* — אזור להימנעות/מודעות, לא "מותר לך לטוס כאן".
+    force=1 מדלג על ה-cache (20 דק') ומושך מחדש — לשימוש זהיר, לא לרענון אוטומטי תכוף.
+    """
+    force = request.args.get("force") == "1"
+    zones, text_only_count, fetched_at, error = get_uas_notams(force_refresh=force)
+    return jsonify({
+        "zones": zones,
+        "text_only_count": text_only_count,  # רשומות UAS/UAV שנמצאו אך בלי גיאומטריה ניתנת לזיהוי בטקסט
+        "fetched_at": fetched_at,
+        "error": error,  # None אם הצליח; אחרת הודעת השגיאה מהניסיון האחרון (וייתכן שהוחזר cache ישן)
+    })
+
 
 if __name__ == "__main__":
     # הפעלת השרת

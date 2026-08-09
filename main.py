@@ -4,9 +4,9 @@ import os  # גישה לנתיבי קבצים ומשתני סביבה
 import subprocess  # הפעלת תהליכי שרת חיצוניים
 import sys  # גישה לארגומנטים ויציאה מהאפליקציה
 import time  # חישוב uptime בדשבורד התהליכים
-import urllib.parse  # קידוד שמות ערים לפורמט URL
-import psutil  # מדידת CPU/זיכרון לתהליכי השרתים בדשבורד
-import requests  # שליחת בקשות HTTP לשרתים
+import urllib.parse  # קידוד רתים בדשבורד
+import requests  # שלישמות ערים לפורמט URL
+import psutil  # מדידת CPU/זיכרון לתהליכי השחת בקשות HTTP לשרתים
 from datetime import datetime  # חישוב פקיעת cache לפי זמן
 from MAP import create_map  # ייבוא פונקציית יצירת המפה
 from test_requests import run_health_checks, summarize  # בדיקת תקינות שרתים לדשבורד
@@ -74,6 +74,7 @@ class MetricsWorker(QThread):
             proc = getattr(self.app_ref, attr, None)
             running = proc is not None and proc.poll() is None
             pid_str, uptime_str, res_str = "—", "—", "—"
+            cpu_total, rss_mb = None, None  # None = אין נתונים (שרת כבוי/לא ניתן למדוד) — נצרך ע"י שעוני CPU/זיכרון
 
             if running:
                 pid_str = str(proc.pid)
@@ -95,9 +96,10 @@ class MetricsWorker(QThread):
                             rss_total += p.memory_info().rss
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
                             pass
-                    res_str = f"{cpu_total:.1f}%  /  {rss_total / (1024 * 1024):.0f} MB"
+                    rss_mb = rss_total / (1024 * 1024)
+                    res_str = f"{cpu_total:.1f}%  /  {rss_mb:.0f} MB"
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
+                    cpu_total, rss_mb = None, None
 
                 try:
                     # "127.0.0.1" ולא "localhost" — במחשב הזה resolve ל-localhost מנסה IPv6 קודם
@@ -112,7 +114,7 @@ class MetricsWorker(QThread):
                 self._psutil_procs.pop(attr, None)
                 self._psutil_children.pop(attr, None)
 
-            proc_rows.append((label, port, running, pid_str, uptime_str, res_str))
+            proc_rows.append((label, port, running, pid_str, uptime_str, res_str, cpu_total, rss_mb))
         return proc_rows, api_rows
 
     def _get_root_process(self, attr, pid):
@@ -191,12 +193,16 @@ class GaugeWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._value = None  # None = אין נתונים עדיין
+        self._value = None  # None = אין נתונים עדיין — קובע את מיקום המחוג/צבע (תמיד 0-100)
+        self._display_text = None  # טקסט מותאם במרכז (למשל "142 MB") — None משתמש בברירת המחדל "{value:.0f}%"
         self.setFixedSize(120, 120)
 
-    def setValue(self, value):
-        """ value: אחוז 0–100, או None להצגת "אין נתונים". """
+    def setValue(self, value, display_text=None):
+        """ value: מיקום המחוג בטווח 0–100 (100=ירוק/הכי טוב), או None להצגת "אין נתונים".
+        display_text: טקסט חלופי במרכז השעון (למשל ערך גולמי ביחידות אמיתיות) — כשלא סופק
+        מוצג "{value:.0f}%" הרגיל, שימושי לשעוני תקינות/עומס/אבטחה הקיימים. """
         self._value = value
+        self._display_text = display_text
         self.update()
 
     def paintEvent(self, event):
@@ -243,7 +249,7 @@ class GaugeWidget(QWidget):
         painter.setPen(QColor("#cdd6f4"))
         painter.setFont(QFont("Segoe UI", 13, QFont.Bold))
         text_rect = QRectF(0, cy + radius * 0.32, self.width(), 24)
-        painter.drawText(text_rect, Qt.AlignCenter, f"{value:.0f}%")
+        painter.drawText(text_rect, Qt.AlignCenter, self._display_text if self._display_text is not None else f"{value:.0f}%")
 
 
 class ProcessDashboard(QDialog):
@@ -267,7 +273,7 @@ class ProcessDashboard(QDialog):
         # QDialog לא מציג כפתור מזעור כברירת מחדל ב-Windows — מוסיפים אותו במפורש
         # (כפתור מקסום לא מתבקש, אבל מזעור וסגירה כן) כדי שהחלון יתנהג כמו חלון רגיל.
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.resize(820, 820)
+        self.resize(820, 980)
         if parent is not None:
             self.setStyleSheet(parent.styleSheet())  # ירושת ערכת הנושא הכהה מהחלון הראשי
 
@@ -316,6 +322,38 @@ class ProcessDashboard(QDialog):
                 gauge_grid.addWidget(gauge, row, col, Qt.AlignCenter)
 
         overview_layout.addLayout(gauge_grid)
+
+        # רשת שעונים שנייה — מדדים בזמן אמת (CPU/זיכרון/latency/שגיאות), נגזרים ישירות
+        # מה-tick השוטף של MetricsWorker (כל REFRESH_SEC) ולכן מתעדכנים לבד ברקע, בלי
+        # תלות בלחיצה על "הרץ הכל" — בשונה משלושת השעונים למעלה שדורשים בדיקה יזומה.
+        live_label = QLabel(f"מדדים בזמן אמת (מתעדכן אוטומטית כל {self.REFRESH_SEC:g} שניות)")
+        live_label.setObjectName("sectionLabel")
+        overview_layout.addWidget(live_label)
+
+        live_gauge_grid = QGridLayout()
+        live_gauge_grid.setHorizontalSpacing(24)
+        live_gauge_grid.setVerticalSpacing(8)
+
+        self._LIVE_CATEGORIES = [
+            ("cpu", "CPU"), ("ram", "זיכרון"), ("latency", "זמן תגובה"), ("errors", "שגיאות"),
+        ]
+
+        for col, (_, cat_label) in enumerate(self._LIVE_CATEGORIES, start=1):
+            col_label = QLabel(cat_label)
+            col_label.setAlignment(Qt.AlignCenter)
+            col_label.setObjectName("sectionLabel")
+            live_gauge_grid.addWidget(col_label, 0, col)
+
+        for row, server in enumerate(self._GAUGE_SERVERS, start=1):
+            row_label = QLabel(server)
+            row_label.setAlignment(Qt.AlignCenter)
+            live_gauge_grid.addWidget(row_label, row, 0)
+            for col, (category, _) in enumerate(self._LIVE_CATEGORIES, start=1):
+                gauge = GaugeWidget()
+                self.gauges[(server, category)] = gauge  # אותו מילון כמו שעוני תקינות/עומס/אבטחה למעלה
+                live_gauge_grid.addWidget(gauge, row, col, Qt.AlignCenter)
+
+        overview_layout.addLayout(live_gauge_grid)
         overview_layout.addStretch()
 
         self.tabs.addTab(overview_tab, "סקירה")
@@ -409,8 +447,8 @@ class ProcessDashboard(QDialog):
         self.security_summary_label = QLabel("לא הורצה סריקה עדיין")
         security_layout.addWidget(self.security_summary_label)
 
-        self.security_table = QTableWidget(0, 4)
-        self.security_table.setHorizontalHeaderLabels(["בדיקה", "חומרה", "תוצאה", "הודעה"])
+        self.security_table = QTableWidget(0, 5)
+        self.security_table.setHorizontalHeaderLabels(["בדיקה", "חומרה", "תוצאה", "הודעה", "המלצה לתיקון"])
         self.security_table.verticalHeader().setVisible(False)
         self.security_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.security_table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -433,9 +471,15 @@ class ProcessDashboard(QDialog):
         scrollbar = self.log_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    _CPU_GAUGE_CEILING = 100.0   # % ניצול CPU (סכום על כל עץ התהליך) שממנו ואילך השעון אדום מלא
+    _RAM_GAUGE_CEILING = 500.0   # MB RSS (סכום על כל עץ התהליך) שממנו ואילך השעון אדום מלא
+    _LATENCY_GAUGE_CEILING = 500.0  # ms זמן תגובה ממוצע שממנו ואילך השעון אדום מלא
+
     def _apply_data(self, proc_rows, api_rows):
-        """ Slot מהיר בלבד (ללא I/O) שמצייר את התוצאות שחושבו ב-MetricsWorker לתוך הטבלאות. """
-        for row, (label, port, running, pid_str, uptime_str, res_str) in enumerate(proc_rows):
+        """ Slot מהיר בלבד (ללא I/O) שמצייר את התוצאות שחושבו ב-MetricsWorker לתוך הטבלאות,
+        וגם מעדכן את שעוני "מדדים בזמן אמת" (CPU/זיכרון/latency/שגיאות) — בשונה משעוני
+        תקינות/עומס/אבטחה, אלה מתעדכנים כאן לבד בכל tick ולא רק בלחיצת "הרץ". """
+        for row, (label, port, running, pid_str, uptime_str, res_str, cpu_total, rss_mb) in enumerate(proc_rows):
             self._set_cell(self.proc_table, row, 0, label)
             self._set_cell(self.proc_table, row, 1, str(port))
             status_item = QTableWidgetItem("● פעיל" if running else "○ כבוי")
@@ -445,7 +489,11 @@ class ProcessDashboard(QDialog):
             self._set_cell(self.proc_table, row, 4, uptime_str)
             self._set_cell(self.proc_table, row, 5, res_str)
 
+            self._set_cost_gauge(label, "cpu", cpu_total, self._CPU_GAUGE_CEILING, "%", decimals=1)
+            self._set_cost_gauge(label, "ram", rss_mb, self._RAM_GAUGE_CEILING, " MB", decimals=0)
+
         self.api_table.setRowCount(len(api_rows))
+        per_server = {}  # {server: [count_total, errors_total, weighted_ms_sum]} — לצבירת שעוני latency/שגיאות
         for r, (label, endpoint, count, errors, avg_ms, last_call) in enumerate(api_rows):
             self._set_cell(self.api_table, r, 0, label)
             self._set_cell(self.api_table, r, 1, endpoint)
@@ -456,6 +504,35 @@ class ProcessDashboard(QDialog):
             self.api_table.setItem(r, 3, err_item)
             self._set_cell(self.api_table, r, 4, str(avg_ms))
             self._set_cell(self.api_table, r, 5, last_call)
+
+            agg = per_server.setdefault(label, [0, 0, 0.0])
+            agg[0] += count
+            agg[1] += errors
+            agg[2] += avg_ms * count  # משוקלל לפי מספר קריאות — endpoint שנקרא הרבה משפיע יותר על הממוצע
+
+        for server in self._GAUGE_SERVERS:
+            count_total, errors_total, weighted_ms_sum = per_server.get(server, (0, 0, 0.0))
+            avg_latency = weighted_ms_sum / count_total if count_total else None
+            self._set_cost_gauge(server, "latency", avg_latency, self._LATENCY_GAUGE_CEILING, " ms", decimals=0)
+
+            if count_total:
+                self._set_gauge(server, "errors", (count_total - errors_total, count_total),
+                                 display_text=f"{errors_total}/{count_total}")
+            else:
+                self._set_gauge(server, "errors", None)
+
+    def _set_cost_gauge(self, server, category, raw_value, ceiling, unit, decimals=0):
+        """ שעון 'עלות' (CPU/זיכרון/latency) — ככל שהערך הגולמי נמוך יותר ביחס ל-ceiling, הציון
+        גבוה יותר (ירוק) — בניגוד לשעוני תקינות/עומס/אבטחה שם ערך גבוה=טוב. raw_value=None
+        (שרת כבוי/אין עדיין קריאות) מוצג כ"אין נתונים". """
+        gauge = self.gauges.get((server, category))
+        if gauge is None:
+            return
+        if raw_value is None:
+            gauge.setValue(None)
+            return
+        score = max(0.0, 100.0 - min(100.0, (raw_value / ceiling) * 100.0))
+        gauge.setValue(score, display_text=f"{raw_value:.{decimals}f}{unit}")
 
     def run_health_check(self):
         """ מריץ בדיקת תקינות מלאה (test_requests.run_health_checks) על thread נפרד — שומר את ה-GUI חי גם כשבדיקה בודדת (למשל /los, /flight_search) לוקחת עד 20 שניות. """
@@ -524,6 +601,7 @@ class ProcessDashboard(QDialog):
         result_item.setForeground(QColor("#a6e3a1" if finding.ok else severity_colors.get(finding.severity, "#f38ba8")))
         self.security_table.setItem(row, 2, result_item)
         self._set_cell(self.security_table, row, 3, finding.message)
+        self._set_cell(self.security_table, row, 4, finding.remediation if not finding.ok else "—")
 
     def _finish_security_check(self, findings):
         """ מציג כמה ממצאים נמצאו ובאיזו חומרה — כדי שרואים מיד אם יש משהו לטפל בו. """
@@ -578,7 +656,7 @@ class ProcessDashboard(QDialog):
             else:
                 self._set_gauge(server, "security", (sec_ok + global_ok, combined_total))
 
-    def _set_gauge(self, server, category, data):
+    def _set_gauge(self, server, category, data, display_text=None):
         gauge = self.gauges.get((server, category))
         if gauge is None:
             return
@@ -586,7 +664,7 @@ class ProcessDashboard(QDialog):
             gauge.setValue(None)
         else:
             ok, total = data
-            gauge.setValue(round(100.0 * ok / total, 1))
+            gauge.setValue(round(100.0 * ok / total, 1), display_text=display_text)
 
     @staticmethod
     def _set_cell(table, row, col, text):
@@ -1116,6 +1194,15 @@ class MapApp(QMainWindow):
         sep_measure.setObjectName("separator")
         top_layout.addWidget(sep_measure)
 
+        self.uas_notam_button = QPushButton("🚁 אזורי רחפנים (NOTAM)")  # שכבת NOTAM UAS/UAV מ-GeoServer
+        self.uas_notam_button.setFixedSize(210, 34)  # גודל מותאם לטקסט הארוך ביותר
+        self.uas_notam_button.setEnabled(False)  # נעול עד ליצירת מפה
+        self.uas_notam_button.setCheckable(True)  # כפתור דו-מצבי: לחיצה ראשונה טוענת, שנייה מכבה
+        self.uas_notam_button.setToolTip(
+            "אזורים שבהם גורם אחר קיבל אישור לפעילות רחפנים (NOTAM) — להימנעות/מודעות, לא \"מותר לך לטוס כאן\"")
+        self.uas_notam_button.clicked.connect(self.toggle_uas_notam_layer)  # חיבור לפונקציית הפעלה/כיבוי
+        top_layout.addWidget(self.uas_notam_button)  # הוספת הכפתור לפאנל הכלים
+
         lbl_measure = QLabel("מדידה")
         lbl_measure.setObjectName("sectionLabel")
         top_layout.addWidget(lbl_measure)
@@ -1347,6 +1434,7 @@ class MapApp(QMainWindow):
             self.heatmap_button.setEnabled(True)
             self.heatmap_pick_button.setEnabled(True)
             self.elevation_button.setEnabled(True)
+            self.uas_notam_button.setEnabled(True)
             self.ruler_button.setEnabled(True)
             self.opacity_slider.setEnabled(True)
             if not getattr(self, '_title_connected', False):
@@ -1364,6 +1452,8 @@ class MapApp(QMainWindow):
         self.heatmap_button.setText("שכבת חום")
         self.elevation_button.setChecked(False)
         self.elevation_button.setText("שכבת גבהים")
+        self.uas_notam_button.setChecked(False)
+        self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
         self.heatmap_pick_button.setChecked(False)
         self.heatmap_pick_button.setText("בחר נקודות")
         self.heatmap_clear_points_button.setEnabled(False)
@@ -1440,6 +1530,7 @@ class MapApp(QMainWindow):
         if self._map_created:  # אם המפה כבר נוצרה בעבר, יש לשחזר כפתורים שנעלו ע"י stop_servers
             self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
             self.heatmap_button.setEnabled(True)  # שחזור נעילת שכבת חום
+            self.uas_notam_button.setEnabled(True)  # שחזור נעילת שכבת NOTAM רחפנים
             self.opacity_slider.setEnabled(True)  # שחזור נעילת ה-slider
 
     @staticmethod
@@ -1496,6 +1587,7 @@ class MapApp(QMainWindow):
         self.load_map_button.setEnabled(False)  # נעילת יצירת מפה
         self.Find_a_location.setEnabled(False)  # נעילת דקירת נ.צ
         self.heatmap_button.setEnabled(False)  # נעילת שכבת חום
+        self.uas_notam_button.setEnabled(False)  # נעילת שכבת NOTAM רחפנים
         self.opacity_slider.setEnabled(False)  # נעילת Slider
         self.show_flight_button.setEnabled(False)  # נעילת כפתור הצגת מסלול
         self.flight_input.setEnabled(False)  # נעילת שדה מספר הטיסה
@@ -1663,6 +1755,20 @@ class MapApp(QMainWindow):
             # JS שלח איתות — החישוב נכשל (בעיית רשת או שגיאת שרת)
             self.log_action("שגיאה בחישוב קו ראייה — בדוק חיבור רשת", is_success=False)
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+        elif title == '__uas_notam_loading__':
+            self.log_action("טוען שכבת NOTAM רחפנים...")
+            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+        elif title.startswith('__uas_notam_loaded__:'):
+            count = title[len('__uas_notam_loaded__:'):]
+            self.uas_notam_button.setText("🚁 נקה שכבת רחפנים")
+            self.log_action(
+                f"שכבת NOTAM רחפנים נטענה — {count} אזורים (להימנעות, לא לטיסה חופשית)", is_success=True)
+            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+        elif title == '__uas_notam_error__':
+            self.uas_notam_button.setChecked(False)
+            self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
+            self.log_action("שגיאה בטעינת שכבת NOTAM רחפנים — בדוק חיבור רשת", is_success=False)
+            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
 
     def toggle_heatmap(self):
         if self.heatmap_button.isChecked():
@@ -1729,6 +1835,17 @@ class MapApp(QMainWindow):
             self.log_action("שכבת גבהים כובתה")
             for btn in (self.elev_mode_heat_btn, self.elev_mode_grid_btn, self.elev_mode_dots_btn):
                 btn.setEnabled(False)
+
+    def toggle_uas_notam_layer(self, checked):
+        """ הפעלה/כיבוי שכבת NOTAM רחפנים — אזורי פעילות רחפנים מאושרת של גורמים אחרים
+        (סגורים לתעבורה אחרת עד לגובה מסוים) שנשלפים מ-NOTAM של רשות שדות התעופה —
+        שכבת הימנעות/מודעות, לא "מותר לך לטוס כאן". ר' notam_drones.py. """
+        self.map_view.page().runJavaScript("toggleUasNotamLayer();")
+        if checked:
+            self.uas_notam_button.setText("🚁 טוען...")
+        else:
+            self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
+            self.log_action("שכבת NOTAM רחפנים כובתה")
 
     def save_logs_to_file(self):
         """ שמירה של הלוגים לקובץ טקסט במערכת הקבצים. """

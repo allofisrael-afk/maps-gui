@@ -47,7 +47,8 @@ class SecurityFinding:
     message: str
     elapsed_ms: float = 0.0
     server: str = "Global"  # "GeoServer"/"WeatherServer"/"FlightServer", או "Global" לממצא שחל על כל הפרויקט
-    # (dependency scan, APK) — נצרך ע"י רשת השעונים 3×3 בדשבורד לצירוף ממצא לכל שרת
+    # (dependency scan, APK, בדיקות CIS) — נצרך ע"י רשת השעונים 3×3 בדשבורד לצירוף ממצא לכל שרת
+    remediation: str = ""  # הנחיה/פקודה לתיקון — מוצג בדשבורד רק כשok=False
 
 
 def _check_bind_exposure(host):
@@ -225,7 +226,10 @@ def _check_apk_secrets():
 
 
 def run_security_checks(host=DEFAULT_HOST, on_progress=None):
-    """ מריץ את כל בדיקות האבטחה ומחזיר רשימת SecurityFinding. """
+    """ מריץ את כל בדיקות האבטחה ומחזיר רשימת SecurityFinding. ייבוא cis_checks מבוצע כאן
+    (ולא בראש הקובץ) כי cis_checks מייבא בחזרה SecurityFinding מהמודול הזה — ייבוא בראש
+    היה יוצר circular import. """
+    from cis_checks import run_cis_l1_checks, run_cis_l2_checks
     findings = []
     for check_fn, args in (
         (_check_bind_exposure, (host,)),
@@ -233,6 +237,8 @@ def run_security_checks(host=DEFAULT_HOST, on_progress=None):
         (_check_cors_policy, (host,)),
         (_check_dependency_vulnerabilities, ()),
         (_check_apk_secrets, ()),
+        (run_cis_l1_checks, ()),
+        (run_cis_l2_checks, ()),
     ):
         for finding in check_fn(*args):
             findings.append(finding)
@@ -259,6 +265,8 @@ def _print_report(findings):
     for f in findings:
         icon = "✓" if f.ok else "⚠"
         print(f"  {icon} [{f.severity:6s}] {f.check:40s} {f.message}")
+        if not f.ok and f.remediation:
+            print(f"           ↳ תיקון מומלץ: {f.remediation}")
 
     issue_count, severity_counts = summarize_findings(findings)
     print("\n" + "-" * 60)
