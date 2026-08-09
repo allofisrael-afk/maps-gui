@@ -672,23 +672,23 @@ def create_map():
         }});
 
         function toggleUasNotamLayer() {{
-            if (uasNotamActive) {{
+            if (uasNotamActive) {{  // כבר טעונה — לחיצה שנייה מכבה במקום לטעון שוב
                 clearUasNotamLayer();
                 return;
             }}
-            document.title = '__uas_notam_loading__';
+            document.title = '__uas_notam_loading__';  // איתות ל-Python (main.py) שהטעינה החלה — נתפס ב-_on_title_changed
             fetch('http://localhost:5003/uas_notams')
                 .then(function(r) {{
                     if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
                     return r.json();
                 }})
                 .then(function(data) {{
-                    if (data.error && (!data.zones || !data.zones.length)) {{
+                    if (data.error && (!data.zones || !data.zones.length)) {{  // שגיאה בלי אפילו cache ישן — אין מה להציג
                         throw new Error(data.error);
                     }}
                     _drawUasNotamZones(data.zones || []);
                     uasNotamActive = true;
-                    document.title = '__uas_notam_loaded__:' + (data.zones ? data.zones.length : 0);
+                    document.title = '__uas_notam_loaded__:' + (data.zones ? data.zones.length : 0);  // מספר האזורים מוטמע בכותרת עצמה
                 }})
                 .catch(function(err) {{
                     console.error('שגיאת שכבת NOTAM רחפנים:', err);
@@ -697,18 +697,19 @@ def create_map():
         }}
 
         function _escHtml(s) {{
+            // מונע HTML injection דרך טקסט ה-NOTAM (גם אם המקור ממשלתי — הגנה בכל מקרה) בטרם הכנסה ל-innerHTML של הפופאפ
             return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }}
 
         function _drawUasNotamZones(zones) {{
-            clearUasNotamLayer();
+            clearUasNotamLayer();  // מנקה ציור קודם לפני ציור מחדש — מונע כפילות שכבות
             var shapes = zones.map(function(z) {{
                 var style = {{ color: '#fab387', weight: 2, fillColor: '#fab387', fillOpacity: 0.22 }};
                 var shape;
                 if (z.geometry.type === 'circle') {{
-                    shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));
+                    shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));  // מעגל: "X NM RADIUS CENTERED ON PSN"
                 }} else {{
-                    shape = L.polygon(z.geometry.points, style);
+                    shape = L.polygon(z.geometry.points, style);  // פוליגון: "AN AREA BTN FLW PSN" עם 3+ קואורדינטות
                 }}
                 var popup =
                     '<div style="direction:rtl;font-family:Arial;font-size:13px;max-width:280px;">' +
@@ -722,7 +723,7 @@ def create_map():
                 return shape;
             }});
             uasNotamLayer = L.layerGroup(shapes).addTo(map);
-            if (!uasNotamLegendControl) {{
+            if (!uasNotamLegendControl) {{  // מונע הוספת תיבת מקרא כפולה אם הפונקציה נקראת שוב בזמן שהשכבה כבר פעילה
                 uasNotamLegendControl = new UasNotamLegend().addTo(map);
             }}
         }}

@@ -1,12 +1,12 @@
-import logging
+import logging  # רישום אירועים לקובץ לוג משותף
 import os  # ייבוא מודול os לגישה למשתני סביבה
 from dotenv import load_dotenv  # ייבוא load_dotenv לטעינת קובץ .env
-from flask import Flask, jsonify, request
-from flask_cors import CORS
-import requests
+from flask import Flask, jsonify, request  # שרת ה-Web ופענוח פרמטרים
+from flask_cors import CORS  # מאפשר קריאות cross-origin מ-map.html שנטען מ-file://
+import requests  # קריאה ל-Google Geocoding API
 
-from metrics import register_metrics
-from notam_drones import get_uas_notams
+from metrics import register_metrics  # נתיב /metrics משותף לכל שרתי הפרויקט
+from notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים
 
 # טעינת משתני סביבה מקובץ .env
 load_dotenv()  # טעינת משתני הסביבה מקובץ .env לפני שימוש בהם
@@ -74,8 +74,8 @@ def get_uas_notams_route():
     רחפנים *מאושרת של אחרים* — אזור להימנעות/מודעות, לא "מותר לך לטוס כאן".
     force=1 מדלג על ה-cache (20 דק') ומושך מחדש — לשימוש זהיר, לא לרענון אוטומטי תכוף.
     """
-    force = request.args.get("force") == "1"
-    zones, text_only_count, fetched_at, error = get_uas_notams(force_refresh=force)
+    force = request.args.get("force") == "1"  # "?force=1" בלבד מחשיב כ-True — כל ערך אחר מתעלם
+    zones, text_only_count, fetched_at, error = get_uas_notams(force_refresh=force)  # לוגיקת ה-cache כולה נמצאת ב-notam_drones
     return jsonify({
         "zones": zones,
         "text_only_count": text_only_count,  # רשומות UAS/UAV שנמצאו אך בלי גיאומטריה ניתנת לזיהוי בטקסט

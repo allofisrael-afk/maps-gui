@@ -6,13 +6,13 @@ WeatherServer (5002), FlightServer (5004).
 ריצה כמודול: from test_requests import run_health_checks, summarize — נצרך ע"י
              ProcessDashboard ב-main.py להצגת אחוז תקינות ותקלות פר-שרת בדשבורד.
 """
-import concurrent.futures
-import sys
-import time
-from dataclasses import dataclass
-from typing import Callable, Optional
+import concurrent.futures  # threads מקבילים לבדיקות עומס
+import sys  # קידוד stdout ב-CLI
+import time  # מדידת elapsed_ms
+from dataclasses import dataclass  # מבני TestCase/TestResult/LoadTestCase
+from typing import Callable, Optional  # טיפוסי type hints לשדות אופציונליים ולפונקציית validate
 
-import requests
+import requests  # ירי הבקשות בפועל לשרתים
 
 DEFAULT_HOST = "127.0.0.1"  # לא "localhost" — Windows מנסה IPv6 (::1) קודם ונופל חזרה ל-IPv4 רק אחרי delay של ~2 שניות לכל קריאה
 
@@ -43,17 +43,19 @@ class TestResult:
 
 
 def _default_validate(response):
+    """ ולידציה כללית לבדיקות בלי validate מפורש — רק מוודאת שהשרת לא קרס (5xx). """
     if response.status_code >= 500:
         return False, f"סטטוס {response.status_code}"
     return True, f"סטטוס {response.status_code}"
 
 
 def _validate_json_keys(*keys):
+    """ מחזיר פונקציית ולידציה שבודקת שכל keys קיימים בגוף ה-JSON — משמש ל-endpoints שמחזירים מבנה קבוע. """
     def _v(response):
         if response.status_code >= 500:
             return False, f"סטטוס {response.status_code}"
         if response.status_code >= 400:
-            return True, f"סטטוס {response.status_code} (תגובת שגיאה תקינה)"
+            return True, f"סטטוס {response.status_code} (תגובת שגיאה תקינה)"  # 4xx נחשב תקין כאן — הבדיקה בודקת שהשרת לא קרס, לא שהבקשה הצליחה עסקית
         try:
             data = response.json()
         except ValueError:
@@ -66,6 +68,7 @@ def _validate_json_keys(*keys):
 
 
 def _validate_list(response):
+    """ מוודא שהתגובה היא JSON array — משמש ל-endpoints שמחזירים רשימת תוצאות (חיפוש, heatmap וכו'). """
     if response.status_code >= 500:
         return False, f"סטטוס {response.status_code}"
     try:
@@ -87,6 +90,7 @@ def _validate_client_error(response):
 
 
 def _validate_empty_list(response):
+    """ ל-query קצר מדי לחיפוש טיסות: מוודא שהשרת מחזיר [] במקום לנסות לחפש/לקרוס. """
     if response.status_code != 200:
         return False, f"סטטוס {response.status_code} (צפוי 200 עם רשימה ריקה)"
     try:
@@ -121,7 +125,7 @@ def _validate_elevation_truncated(response):
     except ValueError:
         return False, "תגובה אינה JSON תקין"
     results = data.get("results", [])
-    if len(results) > 100:
+    if len(results) > 100:  # מגבלת ה-API החיצוני (Open-Meteo) לבקשה בודדת — השרת אמור לאכוף אותה
         return False, f"התקבלו {len(results)} תוצאות — אמור לחתוך ל-100 לכל היותר"
     return True, f"סטטוס 200, {len(results)} תוצאות (חתוך נכון)"
 
@@ -222,21 +226,23 @@ LOAD_TEST_CASES = [
 
 
 def _run_single_case(case, host):
+    """ מריץ TestCase בודד ומחזיר TestResult — תופס בנפרד connection refused/timeout/שגיאה כללית
+    כדי שההודעה תהיה ברורה (לא רק "Exception") ושבדיקה אחת שנכשלת לא תפיל את כל הרצף. """
     url = f"http://{host}:{case.port}{case.path}"
     start = time.perf_counter()
     body = ""
     try:
         resp = requests.request(case.method, url, params=case.params, json=case.json_body, timeout=case.timeout)
-        validate = case.validate or _default_validate
+        validate = case.validate or _default_validate  # ולידציה מותאמת אם הוגדרה, אחרת ברירת המחדל
         ok, message = validate(resp)
         status = resp.status_code
         body = resp.text[:50000]  # חתוך — נצרך רק לסריקת סודות ב-security_checks.py, לא מוצג
     except requests.exceptions.ConnectionError:
-        ok, status, message = False, None, "השרת לא מגיב (Connection refused)"
+        ok, status, message = False, None, "השרת לא מגיב (Connection refused)"  # השרת כבוי/לא עלה עדיין
     except requests.exceptions.Timeout:
         ok, status, message = False, None, f"תם הזמן הקצוב ({case.timeout:.0f}s)"
     except Exception as e:
-        ok, status, message = False, None, f"שגיאה: {e}"
+        ok, status, message = False, None, f"שגיאה: {e}"  # רשת נכשלה מסיבה אחרת — לא מפילים את שאר הבדיקות
     elapsed_ms = (time.perf_counter() - start) * 1000
     return TestResult(case.server, case.name, ok, status, message, elapsed_ms, body)
 
@@ -246,16 +252,17 @@ def _run_load_case(case, host):
     url = f"http://{host}:{case.port}{case.path}"
 
     def _one():
+        """ בקשה בודדת מתוך ה-batch המקביל — לא זורקת חריגה החוצה, מחזירה (status, ms) גם בכישלון. """
         req_start = time.perf_counter()
         try:
             resp = requests.request(case.method, url, params=case.params, timeout=case.timeout)
             return resp.status_code, (time.perf_counter() - req_start) * 1000
         except Exception:
-            return None, (time.perf_counter() - req_start) * 1000
+            return None, (time.perf_counter() - req_start) * 1000  # status=None מסמן כישלון — נספר כ-fail בהמשך
 
     start_all = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=case.concurrency) as pool:
-        outcomes = [f.result() for f in [pool.submit(_one) for _ in range(case.total_requests)]]
+        outcomes = [f.result() for f in [pool.submit(_one) for _ in range(case.total_requests)]]  # יורה את כל הבקשות במקביל ומחכה לכולן
     total_elapsed_ms = (time.perf_counter() - start_all) * 1000
 
     ok_count = sum(1 for status, _ in outcomes if status == 200)
@@ -277,14 +284,14 @@ def run_health_checks(host=DEFAULT_HOST, cases=None, load_cases=None, on_progres
     מריץ את כל בדיקות התקינות (כולל בדיקות עומס) ומחזיר רשימת TestResult.
     :param on_progress: callback אופציונלי(result) שנקרא אחרי כל בדיקה בודדת — לעדכון UI חי.
     """
-    cases = TEST_CASES if cases is None else cases
+    cases = TEST_CASES if cases is None else cases  # ניתן להזריק רשימת cases מותאמת (למשל security_checks עובר load_cases=[])
     load_cases = LOAD_TEST_CASES if load_cases is None else load_cases
     results = []
     for case in cases:
         result = _run_single_case(case, host)
         results.append(result)
         if on_progress:
-            on_progress(result)
+            on_progress(result)  # מדווח מיד — הטבלה בדשבורד מתמלאת בהדרגה, לא בבת אחת בסוף
     for case in load_cases:
         result = _run_load_case(case, host)
         results.append(result)
@@ -300,19 +307,20 @@ def summarize(results):
     per_server = {}
     for r in results:
         ok_count, total = per_server.get(r.server, (0, 0))
-        per_server[r.server] = (ok_count + (1 if r.ok else 0), total + 1)
+        per_server[r.server] = (ok_count + (1 if r.ok else 0), total + 1)  # צבירת ok/total לכל שרת בנפרד
     total_ok = sum(1 for r in results if r.ok)
     health_percent = round(100.0 * total_ok / len(results), 1)
     return health_percent, per_server
 
 
 def _print_report(results):
+    """ דוח טקסטואלי לריצה כ-CLI (python test_requests.py) — main.py משתמש בתוצאות ישירות, לא בפונקציה הזו. """
     print("=" * 60)
     print("בדיקת תקינות שרתים — maps-gui")
     print("=" * 60)
     current_server = None
     for r in results:
-        if r.server != current_server:
+        if r.server != current_server:  # מדפיס כותרת שרת חדשה רק כשעוברים לשרת אחר — התוצאות כבר מקובצות לפי סדר ה-cases
             current_server = r.server
             print(f"\n{current_server}:")
         icon = "✓" if r.ok else "✗"

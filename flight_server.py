@@ -104,6 +104,7 @@ def get_flight_route():
         normalized_input = _normalize_flight_num(flight_number)
 
         def _find_in_list(flights):
+            """ מחפש התאמה ברשימת טיסות משני כיוונים: לפי callsign (הכלה חלקית) או לפי מספר טיסה מנורמל (שוויון מדויק). """
             return [
                 f for f in flights
                 if (f.callsign and flight_number   in f.callsign.upper())
@@ -224,7 +225,7 @@ def get_flight_route():
         trail = normalized_trail
 
         # שמירת המיקום הנוכחי לפני השינוי — ישמש כ-fallback
-        current_lat = getattr(flight, "latitude",  None)
+        current_lat = getattr(flight, "latitude",  None)  # getattr עם ברירת מחדל — שדות עשויים לא להתקיים אם FR24 שינה מבנה
         current_lng = getattr(flight, "longitude", None)
 
         # אם trail ריק — בונים נקודה בודדת מהמיקום הנוכחי של ה-flight

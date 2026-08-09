@@ -9,17 +9,17 @@ positive. Level 2 הוא הקשחה עמוקה יותר (defense-in-depth) שח�
 כרוכים בפשרת שימושיות (למשל ביטול RDP לגמרי) — עדיין בדיקות read-only בלבד.
 נצרך אך ורק ע"י security_checks.run_security_checks — לא רץ כ-CLI עצמאי.
 """
-import json
-import os
-import subprocess
-import tempfile
-import time
-import winreg
-from pathlib import Path
+import json  # פענוח פלט Get-NetFirewallProfile שמומר ל-JSON ע"י PowerShell עצמו
+import os  # נתיב קובץ זמני ל-secedit export
+import subprocess  # הרצת פקודות PowerShell/secedit חיצוניות
+import tempfile  # תיקיית הטמפ של המערכת לקובץ ה-export הזמני
+import time  # מדידת elapsed_ms לכל בדיקה
+import winreg  # קריאת ערכי registry ישירות (מהירה יותר ופחות שברירית מ-PowerShell לבדיקות DWORD פשוטות)
+from pathlib import Path  # קריאת קובץ ה-export הזמני של secedit
 
-from security_checks import SecurityFinding
+from security_checks import SecurityFinding  # מבנה התוצאה המשותף לכל בדיקות האבטחה בפרויקט
 
-_PS_TIMEOUT = 15
+_PS_TIMEOUT = 15  # שניות — מספיק לרוב הפקודות; חורג רק אם PowerShell תקוע
 
 
 def _run_powershell(command, timeout=_PS_TIMEOUT):
@@ -27,12 +27,12 @@ def _run_powershell(command, timeout=_PS_TIMEOUT):
     (כולל כישלון מחוסר הרשאות מנהל — נבדל מ"הערך הוא ריק" ע"י בדיקת הצלחת הרצה). """
     try:
         proc = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],  # -NoProfile/-NonInteractive: הרצה מהירה ונקייה, בלי לטעון פרופיל משתמש
             capture_output=True, text=True, timeout=timeout
         )
-        return proc.stdout.strip() if proc.returncode == 0 else None
+        return proc.stdout.strip() if proc.returncode == 0 else None  # returncode!=0 כולל כישלון מחוסר הרשאות מנהל
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
-        return None
+        return None  # powershell.exe לא נמצא, timeout, או כשל תהליך — מטופל זהה לכישלון הרצה רגיל
 
 
 def _read_registry_value(hive, path, name):
@@ -40,48 +40,49 @@ def _read_registry_value(hive, path, name):
     לרוב שהמדיניות לא הוגדרה במפורש, כלומר ברירת המחדל של Windows חלה (לרוב זה המצב
     הלא-מוקשח). """
     try:
-        with winreg.OpenKey(hive, path) as key:
-            value, _ = winreg.QueryValueEx(key, name)
+        with winreg.OpenKey(hive, path) as key:  # hive: HKEY_LOCAL_MACHINE/HKEY_CURRENT_USER
+            value, _ = winreg.QueryValueEx(key, name)  # מתעלמים מסוג הערך (type) — לא רלוונטי לבדיקות כאן
             return value
     except (FileNotFoundError, OSError):
-        return None
+        return None  # המפתח/הערך לא קיימים בכלל — לא שגיאת הרשאות (זו נדירה לקריאת policy keys)
 
 
 def _run_secedit_export():
     """ מייצא את מדיניות האבטחה המקומית (secedit) לקובץ זמני ומחזיר את תוכנו כטקסט —
     המקור היחיד למדיניות סיסמאות/נעילה, שלא נגיש דרך registry רגיל. """
-    tmp_path = os.path.join(tempfile.gettempdir(), "cis_secpol_export.cfg")
+    tmp_path = os.path.join(tempfile.gettempdir(), "cis_secpol_export.cfg")  # קובץ זמני — secedit לא תומך בפלט ל-stdout
     try:
         subprocess.run(["secedit", "/export", "/cfg", tmp_path, "/quiet"],
                         capture_output=True, timeout=_PS_TIMEOUT)
         if not os.path.exists(tmp_path):
-            return None
-        raw = Path(tmp_path).read_bytes()
-        os.remove(tmp_path)
-        encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
+            return None  # secedit נכשל (למשל מחוסר הרשאות) — לא נוצר קובץ בכלל
+        raw = Path(tmp_path).read_bytes()  # קריאה כ-bytes כדי לזהות קידוד לפי BOM לפני פענוח
+        os.remove(tmp_path)  # ניקוי הקובץ הזמני מיד — לא נשאר על הדיסק בין ריצות
+        encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"  # secedit כותב UTF-16 עם BOM לרוב
         return raw.decode(encoding, errors="ignore")
     except (subprocess.SubprocessError, OSError):
         return None
 
 
 def _parse_secedit_value(text, key):
+    """ מחלץ ערך בודד מתוך קובץ ה-export של secedit, בפורמט "KeyName = value" בשורה נפרדת. """
     for line in text.splitlines():
-        if line.strip().startswith(key + " "):
-            _, _, value = line.partition("=")
+        if line.strip().startswith(key + " "):  # רווח אחרי המפתח מונע התאמה חלקית עם מפתח אחר שהשם שלו הוא prefix
+            _, _, value = line.partition("=")  # partition על "=" הראשון — מתעלם מ"=" נוספים בערך עצמו אם יש
             return value.strip()
-    return None
+    return None  # המפתח לא נמצא בקובץ ה-export כלל
 
 
 def _check_firewall_enabled():
     check = "CIS L1: חומת אש (Windows Firewall) מופעלת בכל הפרופילים"
-    out = _run_powershell("Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json -Compress")
+    out = _run_powershell("Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json -Compress")  # 3 פרופילים: Domain/Private/Public
     if out is None:
         return [SecurityFinding(check, "medium", True, "לא ניתן להריץ Get-NetFirewallProfile — בדוק ידנית")]
     try:
         profiles = json.loads(out)
         if isinstance(profiles, dict):
-            profiles = [profiles]
-        disabled = [p["Name"] for p in profiles if not p.get("Enabled")]
+            profiles = [profiles]  # PowerShell מחזיר object בודד (לא מערך) כשיש רק תוצאה אחת — מנרמל לרשימה תמיד
+        disabled = [p["Name"] for p in profiles if not p.get("Enabled")]  # שמות הפרופילים שה-Enabled שלהם false
     except (json.JSONDecodeError, KeyError, TypeError):
         return [SecurityFinding(check, "medium", True, "פלט לא צפוי מ-PowerShell — בדוק ידנית")]
     if disabled:
@@ -95,7 +96,7 @@ def _check_firewall_enabled():
 
 def _check_smb1_disabled():
     check = "CIS L1: פרוטוקול SMBv1 מבוטל"
-    out = _run_powershell("(Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol).State")
+    out = _run_powershell("(Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol).State")  # מחזיר "Enabled"/"Disabled" — דורש הרשאות מנהל
     if out is None:
         return [SecurityFinding(check, "medium", True, "לא ניתן לבדוק (נדרשות הרשאות מנהל) — הרץ כמנהל לבדיקה מלאה")]
     if out.strip() == "Enabled":
@@ -108,6 +109,7 @@ def _check_smb1_disabled():
 
 def _check_llmnr_disabled():
     check = "CIS L1: LLMNR מבוטל"
+    # EnableMulticast=0 מבטל LLMNR במפורש; המפתח חסר כברירת מחדל (LLMNR מופעל)
     value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
                                   r"SOFTWARE\Policies\Microsoft\Windows NT\DNSClient", "EnableMulticast")
     if value == 0:
@@ -124,12 +126,12 @@ def _check_netbios_disabled():
     check = "CIS L1: NetBIOS over TCP/IP מבוטל"
     out = _run_powershell(
         "(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' "
-        "| Select-Object -ExpandProperty TcpipNetbiosOptions) -join ','"
+        "| Select-Object -ExpandProperty TcpipNetbiosOptions) -join ','"  # TcpipNetbiosOptions: 0=ברירת מחדל(DHCP), 1=מופעל, 2=מבוטל — לכל מתאם רשת פעיל
     )
     if not out:
         return [SecurityFinding(check, "low", True, "לא נמצאו מתאמי רשת פעילים לבדיקה, או שהבדיקה נכשלה")]
     values = [v.strip() for v in out.split(",") if v.strip()]
-    not_disabled = [v for v in values if v != "2"]
+    not_disabled = [v for v in values if v != "2"]  # רק "2" (מבוטל במפורש) נחשב תקין — 0/1 חשופים ל-NetBIOS
     if not_disabled:
         return [SecurityFinding(
             check, "low", False,
@@ -142,7 +144,7 @@ def _check_netbios_disabled():
 
 def _check_guest_account_disabled():
     check = "CIS L1: חשבון Guest מבוטל"
-    out = _run_powershell("(Get-LocalUser -Name Guest -ErrorAction SilentlyContinue).Enabled")
+    out = _run_powershell("(Get-LocalUser -Name Guest -ErrorAction SilentlyContinue).Enabled")  # מחזיר "True"/"False", או ריק אם החשבון לא קיים
     if not out:
         return [SecurityFinding(check, "info", True, "חשבון Guest לא נמצא (כנראה כבר לא קיים במערכת)")]
     if out.strip().lower() == "true":
@@ -156,7 +158,7 @@ def _check_guest_account_disabled():
 def _check_uac_enabled():
     check = "CIS L1: User Account Control (UAC) מופעל"
     value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "EnableLUA")
+                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "EnableLUA")  # 1=UAC מופעל, 0=כבוי
     if value == 1:
         return [SecurityFinding(check, "info", True, "UAC מופעל")]
     return [SecurityFinding(
@@ -172,7 +174,7 @@ def _check_password_policy():
     if text is None:
         return [SecurityFinding(check, "low", True, "לא ניתן לייצא מדיניות אבטחה מקומית (secedit) — בדוק ידנית")]
     min_len = _parse_secedit_value(text, "MinimumPasswordLength")
-    complexity = _parse_secedit_value(text, "PasswordComplexity")
+    complexity = _parse_secedit_value(text, "PasswordComplexity")  # "1"=מופעל, "0"/חסר=כבוי
     problems = []
     if min_len is None or int(min_len) < 14:
         problems.append(f"אורך מינימלי לסיסמה: {min_len or '0'} (נדרש 14 ומעלה)")
@@ -191,7 +193,7 @@ def _check_account_lockout_policy():
     text = _run_secedit_export()
     if text is None:
         return [SecurityFinding(check, "low", True, "לא ניתן לייצא מדיניות אבטחה מקומית (secedit) — בדוק ידנית")]
-    threshold = _parse_secedit_value(text, "LockoutBadCount")
+    threshold = _parse_secedit_value(text, "LockoutBadCount")  # "0" או חסר = ללא הגבלת נעילה (חלון brute-force פתוח)
     if threshold is None or threshold == "0" or int(threshold) > 5:
         return [SecurityFinding(
             check, "medium", False,
@@ -203,7 +205,7 @@ def _check_account_lockout_policy():
 
 def _check_defender_realtime():
     check = "CIS L1: Microsoft Defender — הגנה בזמן אמת מופעלת"
-    out = _run_powershell("(Get-MpComputerStatus).RealTimeProtectionEnabled")
+    out = _run_powershell("(Get-MpComputerStatus).RealTimeProtectionEnabled")  # "True"/"False" — ריק אם Defender לא מותקן/רלוונטי
     if not out:
         return [SecurityFinding(check, "low", True,
                                  "לא ניתן לבדוק (Defender לא זמין/כבוי, או קיים AV צד-שלישי חלופי) — בדוק ידנית")]
@@ -219,10 +221,10 @@ def _check_defender_realtime():
 def _check_windows_update_service():
     check = "CIS L1: שירות Windows Update פעיל"
     out = _run_powershell("(Get-Service -Name wuauserv).Status.ToString() + ',' + "
-                           "(Get-Service -Name wuauserv).StartType.ToString()")
+                           "(Get-Service -Name wuauserv).StartType.ToString()")  # שני ערכים מחוברים בפסיק כדי לחסוך קריאת PowerShell נוספת
     if not out:
         return [SecurityFinding(check, "low", True, "לא ניתן לבדוק את שירות wuauserv")]
-    status, _, start_type = out.strip().partition(",")
+    status, _, start_type = out.strip().partition(",")  # פיצול חזרה לשני הערכים לפי אותו הפסיק
     if start_type.strip().lower() == "disabled":
         return [SecurityFinding(
             check, "medium", False, "שירות Windows Update מוגדר Disabled — עדכוני אבטחה לא יתקבלו",
@@ -233,7 +235,7 @@ def _check_windows_update_service():
 def _check_autorun_disabled():
     check = "CIS L1: AutoPlay/AutoRun מבוטל בכל סוגי הכוננים"
     value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", "NoDriveTypeAutoRun")
+                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer", "NoDriveTypeAutoRun")  # ביטמאסק — 255 (0xFF) = כל סוגי הכוננים
     if value == 255:
         return [SecurityFinding(check, "info", True, "AutoRun מבוטל בכל סוגי הכוננים (0xFF)")]
     return [SecurityFinding(
@@ -250,7 +252,7 @@ def _check_powershell_logging():
     check = "CIS L1: PowerShell Script Block Logging מופעל"
     value = _read_registry_value(
         winreg.HKEY_LOCAL_MACHINE,
-        r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging", "EnableScriptBlockLogging")
+        r"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging", "EnableScriptBlockLogging")  # 1=מתעד כל בלוק סקריפט שרץ ל-Event Log
     if value == 1:
         return [SecurityFinding(check, "info", True, "Script Block Logging מופעל")]
     return [SecurityFinding(
@@ -265,12 +267,12 @@ def _check_powershell_logging():
 def _check_rdp_nla():
     check = "CIS L1: חיבורי Remote Desktop דורשים NLA"
     deny = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                 r"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections")
+                                 r"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections")  # 1=RDP חסום כליל ברמת המערכת
     if deny == 1:
         return [SecurityFinding(check, "info", True, "Remote Desktop כבוי לגמרי — הבדיקה לא רלוונטית")]
     nla = _read_registry_value(
         winreg.HKEY_LOCAL_MACHINE,
-        r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp", "UserAuthentication")
+        r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp", "UserAuthentication")  # 1=NLA נדרש לפני יצירת session מלא
     if nla == 1:
         return [SecurityFinding(check, "info", True, "RDP מופעל עם דרישת NLA")]
     return [SecurityFinding(
@@ -285,8 +287,8 @@ def _check_inactivity_lock():
     check = "CIS L1: נעילת מסך אוטומטית לאחר חוסר פעילות"
     value = _read_registry_value(
         winreg.HKEY_LOCAL_MACHINE,
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "InactivityTimeoutSecs")
-    if value is not None and 0 < value <= 900:
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "InactivityTimeoutSecs")  # שניות עד נעילה אוטומטית — חסר = ללא הגבלה
+    if value is not None and 0 < value <= 900:  # 900s=15 דק' — סף CIS L1 המקובל
         return [SecurityFinding(check, "info", True, f"נעילה אוטומטית לאחר {value} שניות חוסר פעילות")]
     return [SecurityFinding(
         check, "low", False,
@@ -299,10 +301,10 @@ def _check_inactivity_lock():
 def _check_wdigest_disabled():
     check = "CIS L2: WDigest Authentication מבוטל"
     value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                  r"SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest", "UseLogonCredential")
+                                  r"SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest", "UseLogonCredential")  # 1=WDigest שומר סיסמת המשתמש בטקסט גלוי ב-LSASS
     if value == 0:
         return [SecurityFinding(check, "info", True, "WDigest מבוטל — סיסמאות לא נשמרות בטקסט גלוי בזיכרון")]
-    state = "מופעל במפורש" if value == 1 else "לא מוגדר במפורש"
+    state = "מופעל במפורש" if value == 1 else "לא מוגדר במפורש"  # ערך חסר עדיין נחשב לא-בטוח כי CIS דורש 0 מפורש
     return [SecurityFinding(
         check, "high", False,
         f"WDigest {state} — סיסמאות עלולות להישמר בטקסט גלוי בזיכרון וניתנות לחילוץ בכלים כמו Mimikatz; "
@@ -314,7 +316,7 @@ def _check_wdigest_disabled():
 
 def _check_lsa_protection():
     check = "CIS L2: LSA Protection (RunAsPPL) מופעל"
-    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RunAsPPL")
+    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RunAsPPL")  # 1=LSASS רץ כ-Protected Process Light
     if value == 1:
         return [SecurityFinding(check, "info", True, "LSA Protection מופעל — תהליך LSASS מוגן כתהליך מוגן (PPL)")]
     return [SecurityFinding(
@@ -326,7 +328,7 @@ def _check_lsa_protection():
 
 def _check_lm_hash_disabled():
     check = "CIS L2: אחסון LM hash מבוטל"
-    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "NoLMHash")
+    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "NoLMHash")  # 1=לא נוצר LM hash חלש בשינוי סיסמה הבא
     if value == 1:
         return [SecurityFinding(check, "info", True, "אחסון LM hash מבוטל")]
     return [SecurityFinding(
@@ -340,10 +342,10 @@ def _check_lm_hash_disabled():
 def _check_always_install_elevated_disabled():
     check = "CIS L2: AlwaysInstallElevated מבוטל (HKLM + HKCU)"
     hklm = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                 r"SOFTWARE\Policies\Microsoft\Windows\Installer", "AlwaysInstallElevated")
+                                 r"SOFTWARE\Policies\Microsoft\Windows\Installer", "AlwaysInstallElevated")  # שני ה-hives חייבים להיות 1 יחד כדי שההסלמה תהיה אפשרית בפועל
     hkcu = _read_registry_value(winreg.HKEY_CURRENT_USER,
                                  r"SOFTWARE\Policies\Microsoft\Windows\Installer", "AlwaysInstallElevated")
-    if hklm == 1 and hkcu == 1:
+    if hklm == 1 and hkcu == 1:  # שניהם 1 = כל התקנת MSI רצה בהרשאות SYSTEM ללא שאלה
         return [SecurityFinding(
             check, "high", False,
             "AlwaysInstallElevated מופעל בשני ה-hives — כל משתמש יכול להתקין חבילות MSI בהרשאות SYSTEM; "
@@ -356,7 +358,7 @@ def _check_always_install_elevated_disabled():
 
 def _check_restrict_anonymous_sam():
     check = "CIS L2: הגבלת מנייה אנונימית של חשבונות SAM"
-    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RestrictAnonymousSAM")
+    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RestrictAnonymousSAM")  # 1=חוסם מנייה אנונימית; ברירת המחדל המודרנית היא 1
     if value is None or value == 1:
         return [SecurityFinding(check, "info", True, "מנייה אנונימית של חשבונות מוגבלת (ברירת מחדל מודרנית, או מוגדר במפורש)")]
     return [SecurityFinding(
@@ -368,7 +370,7 @@ def _check_restrict_anonymous_sam():
 
 def _check_restrict_remote_sam():
     check = "CIS L2: הגבלת גישה מרוחקת ל-SAM (RestrictRemoteSAM)"
-    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RestrictRemoteSAM")
+    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", "RestrictRemoteSAM")  # מחרוזת SDDL (לא DWORD) שמגדירה מי רשאי — ריקה = ללא הגבלה
     if value is None:
         return [SecurityFinding(check, "info", True,
                                  "המפתח לא מוגדר — ברירת המחדל בגרסאות Windows עדכניות כבר מגבילה גישה מרוחקת ל-Administrators בלבד")]
@@ -384,10 +386,10 @@ def _check_restrict_remote_sam():
 def _check_smb_signing_required():
     check = "CIS L2: חתימת SMB נדרשת (Client + Server)"
     client = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                   r"SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters", "RequireSecuritySignature")
+                                   r"SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters", "RequireSecuritySignature")  # צד הלקוח (SMB client)
     server = _read_registry_value(winreg.HKEY_LOCAL_MACHINE,
-                                   r"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters", "RequireSecuritySignature")
-    missing = [name for name, value in (("Client", client), ("Server", server)) if value != 1]
+                                   r"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters", "RequireSecuritySignature")  # צד השרת (SMB server)
+    missing = [name for name, value in (("Client", client), ("Server", server)) if value != 1]  # כל צד שלא =1 לא אוכף חתימה
     if missing:
         return [SecurityFinding(
             check, "medium", False,
@@ -402,7 +404,7 @@ def _check_smb_signing_required():
 
 def _check_wsh_disabled():
     check = "CIS L2: Windows Script Host מבוטל"
-    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows Script Host\Settings", "Enabled")
+    value = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows Script Host\Settings", "Enabled")  # 0=חוסם הרצת .vbs/.js דרך wscript/cscript
     if value == 0:
         return [SecurityFinding(check, "info", True, "Windows Script Host מבוטל")]
     return [SecurityFinding(
@@ -413,7 +415,7 @@ def _check_wsh_disabled():
 
 def _check_rdp_disabled_entirely():
     check = "CIS L2: Remote Desktop מבוטל לחלוטין"
-    deny = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections")
+    deny = _read_registry_value(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections")  # 1=RDP חסום כליל — כאן L2 דורש 1 (בניגוד ל-L1 שמסתפק ב-NLA)
     if deny == 1:
         return [SecurityFinding(check, "info", True, "Remote Desktop מבוטל לחלוטין")]
     return [SecurityFinding(
@@ -426,7 +428,7 @@ def _check_rdp_disabled_entirely():
 
 def _check_bitlocker_enabled():
     check = "CIS L2: הצפנת כונן המערכת (BitLocker) מופעלת"
-    out = _run_powershell("(Get-BitLockerVolume -MountPoint C: -ErrorAction Stop).ProtectionStatus.ToString()")
+    out = _run_powershell("(Get-BitLockerVolume -MountPoint C: -ErrorAction Stop).ProtectionStatus.ToString()")  # "On"/"Off" — שם enum יציב, לא טקסט מתורגם כמו manage-bde
     if not out:
         return [SecurityFinding(check, "low", True,
                                  "לא ניתן לבדוק (BitLocker אינו זמין במהדורת Windows הזו, או נדרשות הרשאות מנהל)")]
@@ -442,7 +444,7 @@ def _check_bitlocker_enabled():
 def _check_smartscreen_enabled():
     check = "CIS L2: Microsoft Defender SmartScreen מופעל (Explorer)"
     value = _read_registry_value(winreg.HKEY_CURRENT_USER,
-                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer", "SmartScreenEnabled")
+                                  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer", "SmartScreenEnabled")  # מחרוזת: "RequireAdmin"/"Warn"/"Off"
     if value is None:
         return [SecurityFinding(check, "info", True, "לא מוגדר במפורש — ברירת המחדל של Windows היא מופעל")]
     if str(value).strip().lower() == "off":
@@ -460,17 +462,17 @@ def _run_checks(check_fns, on_progress=None):
     findings = []
     for check_fn in check_fns:
         start = time.perf_counter()
-        results = check_fn()
+        results = check_fn()  # כל בדיקה מחזירה רשימה (כמעט תמיד עם פריט אחד) של SecurityFinding
         elapsed = (time.perf_counter() - start) * 1000
         for finding in results:
-            finding.elapsed_ms = elapsed
+            finding.elapsed_ms = elapsed  # אותו elapsed לכל הממצאים מאותה בדיקה — נמדד ברמת הפונקציה, לא לכל finding בנפרד
             findings.append(finding)
             if on_progress:
-                on_progress(finding)
+                on_progress(finding)  # callback אופציונלי — מאפשר לדשבורד להציג תוצאה מיד ולא לחכות לסיום כל הבדיקות
     return findings
 
 
-_L1_CHECKS = (
+_L1_CHECKS = (  # כל הפונקציות שמורכבות ל-run_cis_l1_checks — הסדר קובע את סדר ההצגה בדשבורד
     _check_firewall_enabled,
     _check_smb1_disabled,
     _check_llmnr_disabled,
@@ -487,7 +489,7 @@ _L1_CHECKS = (
     _check_inactivity_lock,
 )
 
-_L2_CHECKS = (
+_L2_CHECKS = (  # כל הפונקציות שמורכבות ל-run_cis_l2_checks
     _check_wdigest_disabled,
     _check_lsa_protection,
     _check_lm_hash_disabled,
