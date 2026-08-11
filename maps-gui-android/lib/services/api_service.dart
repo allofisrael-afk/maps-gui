@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל נקודות ופרופיל קו ראייה
 import '../models/city_result.dart'; // מודל תוצאת חיפוש עיר
+import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 
 class ApiService {
   static const String _elevBase = 'https://api.open-meteo.com/v1/elevation';
@@ -406,5 +407,120 @@ class ApiService {
       'wind': current['wind_speed_10m'],
       'code': current['weather_code'],
     };
+  }
+
+  // ── שכבת "אזורי פעילות רחפנים (NOTAM)" — מקביל ל-notam_drones.py בגרסת הדסקטופ ──
+  // brin.iaa.gov.il הוא אתר ציבורי (רשות שדות התעופה) שנגיש ישירות מהמכשיר —
+  // בשונה מ-FlightServer, אין כאן תלות ברשת ה-WiFi המקומית של הדסקטופ.
+  // חשוב — סמנטיקה: "UAS/UAV ACT WILL TAKE PLACE... CLSD FM GND UP TO Xft" מתארת
+  // פעילות רחפנים *מאושרת של מפעיל אחר* שסוגרת את המרחב לתעבורה אחרת — זה *לא*
+  // "מותר לך לטוס כאן". השכבה היא כלי הימנעות/מודעות בלבד.
+  static const _notamUrl = 'https://brin.iaa.gov.il/aeroinfo/AeroInfo.aspx?msgType=Notam';
+
+  // קואורדינטת DMS דחוסה, למשל "305819N0345601E" — 2 ספרות מעלות/דקות/שניות לרוחב, 3 מעלות לאורך
+  static final _coordRe = RegExp(r'(\d{2})(\d{2})(\d{2})([NS])(\d{3})(\d{2})(\d{2})([EW])');
+  // תבנית אזור מעגלי, למשל "0.3NM RADIUS CENTERED ON PSN 314643N0350539E"
+  static final _radiusRe = RegExp(
+    r'(\d+(?:\.\d+)?)\s*NM\s+RADIUS\s+CENTERED\s+ON\s+PSN\s+(\d{6}[NS]\d{7}[EW])',
+    caseSensitive: false,
+  );
+  // משפט הגובה — מ"FM" (התחלה: GND או גובה) עד "UP TO ..." ועד לנקודה הבאה
+  static final _altSentenceRe = RegExp(r'FM\s+(?:GND|[\d,]+\s*FT)\s+UP\s+TO[^.]*', caseSensitive: false);
+  static final _notamIdRe = RegExp(r'class="NotamID">\s*([^<\n]+?)\s*</td>');   // תא הטבלה עם מספר ה-NOTAM
+  static final _locationRe = RegExp(r'class="Location">\s*([^<\n]+?)\s*</td>'); // תא הטבלה עם קוד ה-ICAO
+  static final _msgTextRe = RegExp(r'class="MsgText">\s*([^<]*?)\s*</td>');     // שורת טקסט אחת מתוך כמה
+
+  /// ממיר קואורדינטת DMS דחוסה לנקודת LatLng עשרונית, או null אם הפורמט לא תואם.
+  static LatLng? _coordToLatLng(String coord) {
+    final m = _coordRe.firstMatch(coord);
+    if (m == null) return null;
+    final latD = int.parse(m.group(1)!), latM = int.parse(m.group(2)!), latS = int.parse(m.group(3)!);
+    final ns = m.group(4)!;
+    final lonD = int.parse(m.group(5)!), lonM = int.parse(m.group(6)!), lonS = int.parse(m.group(7)!);
+    final ew = m.group(8)!;
+    var lat = latD + latM / 60 + latS / 3600; // המרת DMS לעשרוני: מעלות + דקות/60 + שניות/3600
+    var lon = lonD + lonM / 60 + lonS / 3600;
+    if (ns == 'S') lat = -lat; // דרום = ערך שלילי
+    if (ew == 'W') lon = -lon; // מערב = ערך שלילי
+    return LatLng(lat, lon);
+  }
+
+  /// מזהה מעגל ("X NM RADIUS CENTERED ON PSN ...") או פוליגון (3+ קואורדינטות בטקסט).
+  /// מחזיר null אם לא נמצאה גיאומטריה ניתנת לזיהוי — הרשומה תידלג במקום להיכשל.
+  static ({UasNotamGeometryType type, LatLng? center, double? radiusM, List<LatLng> points})? _extractGeometry(
+      String text) {
+    final radiusMatch = _radiusRe.firstMatch(text); // קודם בודקים מעגל — יותר ספציפי מפוליגון
+    if (radiusMatch != null) {
+      final center = _coordToLatLng(radiusMatch.group(2)!);
+      if (center != null) {
+        return (
+          type: UasNotamGeometryType.circle,
+          center: center,
+          radiusM: double.parse(radiusMatch.group(1)!) * 1852.0, // המרת NM למטרים
+          points: const <LatLng>[],
+        );
+      }
+    }
+    final coords = _coordRe
+        .allMatches(text)
+        .map((m) => _coordToLatLng(m.group(0)!))
+        .whereType<LatLng>()
+        .toList();
+    if (coords.length >= 3) {
+      return (type: UasNotamGeometryType.polygon, center: null, radiusM: null, points: coords);
+    }
+    return null; // אין מספיק מידע גיאומטרי בטקסט
+  }
+
+  static String _extractAltitudeText(String text) {
+    final m = _altSentenceRe.firstMatch(text);
+    return m?.group(0)?.trim() ?? '';
+  }
+
+  /// מפצל את ה-HTML לבלוקים לפי divMainInfo_ (רשומת NOTAM אחת לכל בלוק) ומחלץ
+  /// מכל בלוק: מזהה NOTAM, מיקום ICAO, וטקסט ההודעה המלא (מחובר מכל שורות ה-MsgText).
+  static List<({String id, String icao, String text})> _parseNotamBlocks(String html) {
+    final starts = RegExp(r'<div id="divMainInfo_').allMatches(html).map((m) => m.start).toList();
+    final notams = <({String id, String icao, String text})>[];
+    for (int i = 0; i < starts.length; i++) {
+      final end = i + 1 < starts.length ? starts[i + 1] : html.length;
+      final block = html.substring(starts[i], end);
+      final idMatch = _notamIdRe.firstMatch(block);
+      final locMatch = _locationRe.firstMatch(block);
+      if (idMatch == null || locMatch == null) continue; // בלוק שלא בפורמט הצפוי — מדלגים
+      final msgParts = _msgTextRe
+          .allMatches(block)
+          .map((m) => m.group(1)!.trim())
+          .where((p) => p.isNotEmpty);
+      final fullText = msgParts.join(' '); // חיבור כל שורות הטקסט לרצף אחד — כולל קואורדינטות שנחתכו על פני כמה שורות
+      notams.add((id: idMatch.group(1)!.trim(), icao: locMatch.group(1)!.trim(), text: fullText));
+    }
+    return notams;
+  }
+
+  static Future<List<UasNotamZone>> fetchUasNotamZones() async {
+    final resp = await http
+        .get(Uri.parse(_notamUrl), headers: {'User-Agent': 'Mozilla/5.0'}) // UA דפדפן — נדרש כדי לעבור את הגנת ה-WAF של האתר
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) throw Exception('שגיאת שרת NOTAM ${resp.statusCode}');
+
+    final notams = _parseNotamBlocks(resp.body);
+    final zones = <UasNotamZone>[];
+    for (final n in notams) {
+      if (!n.text.contains('UAS') && !n.text.contains('UAV')) continue; // לא רשומת רחפנים — לא רלוונטית
+      final geo = _extractGeometry(n.text);
+      if (geo == null) continue; // רשומת UAS/UAV אמיתית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
+      zones.add(UasNotamZone(
+        id: n.id,
+        icao: n.icao,
+        text: n.text,
+        altitudeText: _extractAltitudeText(n.text),
+        geometryType: geo.type,
+        center: geo.center,
+        radiusM: geo.radiusM,
+        points: geo.points,
+      ));
+    }
+    return zones;
   }
 }

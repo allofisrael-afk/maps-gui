@@ -544,6 +544,46 @@ class LayersPanel extends StatelessWidget {
               style: TextButton.styleFrom(foregroundColor: cs.outline, visualDensity: VisualDensity.compact),
             ),
           ],
+          const Divider(height: 24),
+          _SectionLabel('אזורי רחפנים (NOTAM)', cs),
+          const SizedBox(height: 4),
+          Row(children: [
+            Icon(Icons.info_outline, size: 12, color: cs.outline),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text('אזור פעילות מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית',
+                  style: TextStyle(fontSize: 10, color: cs.outline)),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          _ActionBtn(
+            label: state.uasNotamLoading
+                ? 'טוען...'
+                : state.uasNotamActive
+                    ? 'הסתר שכבה'
+                    : 'הצג אזורי רחפנים',
+            icon: Icons.warning_amber_rounded,
+            enabled: !state.uasNotamLoading,
+            active: state.uasNotamActive,
+            onTap: state.toggleUasNotamLayer,
+            cs: cs,
+          ),
+          if (state.uasNotamError != null) _ErrText(state.uasNotamError!, cs),
+          if (state.uasNotamZones.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(
+                child: Text('${state.uasNotamZones.length} אזורים נטענו',
+                    style: TextStyle(fontSize: 11, color: cs.onSurface)),
+              ),
+              TextButton.icon(
+                onPressed: state.clearUasNotamCache,
+                icon: const Icon(Icons.refresh, size: 14),
+                label: const Text('רענן'),
+                style: TextButton.styleFrom(foregroundColor: cs.outline, visualDensity: VisualDensity.compact),
+              ),
+            ]),
+          ],
         ],
       ),
     );

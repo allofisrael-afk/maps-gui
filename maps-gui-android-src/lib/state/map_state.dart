@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה
+import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../services/api_service.dart'; // גם geocodeCity() -> CityResult, בשימוש מוסק (inferred) ללא ייבוא ישיר
 import '../utils/heat_image.dart';
 
@@ -395,6 +396,43 @@ class MapState extends ChangeNotifier {
     losCurObs   = null;  // אפס נקודת תצפית ממתינה
     losMode     = false; // כבה מצב LOS
     losError    = null;  // נקה הודעת שגיאה
+    notifyListeners();
+  }
+
+  // ── שכבת "אזורי פעילות רחפנים (NOTAM)" ──
+  // חשוב: אזורים שבהם *מישהו אחר* קיבל אישור לפעילות רחפנים — שכבת הימנעות/מודעות,
+  // לא "מותר לך לטוס כאן". ר' ApiService.fetchUasNotamZones להסבר המקור.
+  List<UasNotamZone> uasNotamZones = []; // נשמר בזיכרון אחרי טעינה ראשונה — לחיצה חוזרת רק מחליפה תצוגה
+  bool uasNotamActive  = false;          // האם השכבה מוצגת כרגע על המפה
+  bool uasNotamLoading = false;          // בקשת רשת פעילה ברקע
+  String? uasNotamError;                 // הודעת השגיאה מהניסיון האחרון, אם נכשל
+
+  Future<void> toggleUasNotamLayer() async {
+    if (uasNotamActive) {
+      uasNotamActive = false; // כבר טעונה ומוצגת — לחיצה שנייה רק מסתירה, לא מוחקת מהזיכרון
+      notifyListeners();
+      return;
+    }
+    if (uasNotamZones.isNotEmpty) {
+      uasNotamActive = true; // כבר נטענה קודם באותה הפעלה — מציגים מיד בלי בקשת רשת נוספת
+      notifyListeners();
+      return;
+    }
+    uasNotamLoading = true; uasNotamError = null; notifyListeners();
+    try {
+      uasNotamZones = await ApiService.fetchUasNotamZones();
+      uasNotamActive = true;
+    } catch (e) {
+      uasNotamError = e.toString().replaceFirst('Exception: ', '');
+    }
+    uasNotamLoading = false; notifyListeners();
+  }
+
+  void clearUasNotamCache() {
+    // מנקה גם את המטמון (לא רק מסתיר) — לשימוש בכפתור "רענן"/"נקה" מפורש בפאנל
+    uasNotamZones = [];
+    uasNotamActive = false;
+    uasNotamError = null;
     notifyListeners();
   }
 }
