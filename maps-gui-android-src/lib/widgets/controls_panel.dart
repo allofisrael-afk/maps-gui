@@ -452,12 +452,19 @@ class LayersPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
     final cs = Theme.of(context).colorScheme;
+    // גובה מוגבל במפורש: ב-isScrollControlled=true בלי הגבלה הגיליון מנסה לגדול לפי
+    // התוכן ולא מקבל scroll physics אמיתי — זו הסיבה שפריטים בסוף הרשימה (כמו "אזורי
+    // רחפנים") ננעלו מתחת לפס הניווט הקבוע של סמסונג ולא ניתן היה לגלול אליהם.
+    final navBarH = MediaQuery.of(context).padding.bottom; // גובה פס הניווט הפיזי/הג'סטורה
+    final maxH = MediaQuery.of(context).size.height * 0.85;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        shrinkWrap: true,
-        children: [
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + navBarH), // ריפוד תחתון נוסף כדי שהפריט האחרון לא ייחסם ע"י פס הניווט
+          shrinkWrap: true,
+          children: [
           _sheetHandle(cs),
           _SectionLabel('שכבת רקע', cs),
           const SizedBox(height: 8),
@@ -585,6 +592,7 @@ class LayersPanel extends StatelessWidget {
             ]),
           ],
         ],
+        ),
       ),
     );
   }
@@ -596,19 +604,27 @@ class LocationPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
     final cs = Theme.of(context).colorScheme;
+    // ריפוד תחתון חייב לכלול גם את פס הניווט הקבוע (padding.bottom) וגם את המקלדת
+    // (viewInsets.bottom) — לא רק את המקלדת כמו קודם. זו אותה בעיה שתוקנה ב-LayersPanel:
+    // ב-useSafeArea של showModalBottomSheet יש הגנה אמינה רק על החלק העליון (status bar),
+    // לא על פס הניווט התחתון בפועל במכשירים כמו סמסונג.
+    final bottomInset = MediaQuery.of(context).padding.bottom + MediaQuery.of(context).viewInsets.bottom;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sheetHandle(cs),
-            _SectionLabel('מיקום', cs),
-            const SizedBox(height: 8),
-            _LocationSection(state: state, cs: cs),
-          ],
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        child: SingleChildScrollView( // מגן גם מ-overflow אם המקלדת פתוחה ותוכן ההיסטוריה ארוך
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHandle(cs),
+              _SectionLabel('מיקום', cs),
+              const SizedBox(height: 8),
+              _LocationSection(state: state, cs: cs),
+            ],
+          ),
         ),
       ),
     );
@@ -621,19 +637,23 @@ class FlightPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
     final cs = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.of(context).padding.bottom + MediaQuery.of(context).viewInsets.bottom;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sheetHandle(cs),
-            _SectionLabel('מסלול טיסה', cs),
-            const SizedBox(height: 8),
-            _FlightSearch(state: state, cs: cs),
-          ],
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHandle(cs),
+              _SectionLabel('מסלול טיסה', cs),
+              const SizedBox(height: 8),
+              _FlightSearch(state: state, cs: cs),
+            ],
+          ),
         ),
       ),
     );

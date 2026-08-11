@@ -159,7 +159,7 @@ class _MapScreenState extends State<MapScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _NavBtn(icon: Icons.layers_outlined, label: 'שכבות', onTap: () => _openSheet(context, const LayersPanel())),
+              _NavBtn(icon: Icons.layers_outlined, label: 'שכבות', onTap: () => _openSheet(context, const LayersPanel(), scrollControlled: true)),
               _NavBtn(icon: Icons.my_location_outlined, label: 'מיקום', onTap: () => _openSheet(context, const LocationPanel(), scrollControlled: true)),
               _NavBtn(icon: Icons.flight_outlined, label: 'טיסות', onTap: () => _openSheet(context, const FlightPanel(), scrollControlled: true)),
             ],
