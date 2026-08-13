@@ -137,7 +137,8 @@ class MapState extends ChangeNotifier {
   // ── חיפוש עיר ────────────────────────────────────────────────────────────
   bool citySearchLoading = false;
   String? citySearchError;
-  LatLngBounds? cityBounds;   // גבולות העיר לציור מלבן על המפה — null אם אין/נוקה
+  LatLngBounds? cityBounds;   // תיבה מלבנית — לקפיצת מצלמה, ול-fallback אם אין גבול אמיתי
+  List<List<LatLng>> cityBoundaryRings = []; // גבול העיר בפועל (OSM) — ריק אם לא זמין
   LatLng? cityFocusPoint;     // טריגר חד-פעמי לקפיצת מפה, מתאפס לאחר צריכה
 
   Future<void> searchCity(String name) async {
@@ -146,6 +147,7 @@ class MapState extends ChangeNotifier {
     try {
       final result = await ApiService.geocodeCity(name.trim());
       cityBounds = result.bounds;
+      cityBoundaryRings = result.boundaryRings;
       cityFocusPoint = result.center;
       unawaited(_pushHistory('city_search_history', citySearchHistory, name.trim()));
     } catch (e) {
@@ -155,7 +157,7 @@ class MapState extends ChangeNotifier {
   }
 
   void consumeCityFocus() { cityFocusPoint = null; }
-  void clearCitySearch() { cityBounds = null; citySearchError = null; notifyListeners(); }
+  void clearCitySearch() { cityBounds = null; cityBoundaryRings = []; citySearchError = null; notifyListeners(); }
 
   Map<String, dynamic>? weatherData;
   LatLng? weatherPoint;

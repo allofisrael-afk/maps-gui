@@ -21,31 +21,74 @@ app = Flask(__name__)
 CORS(app)
 register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
 
-# קבלת המפתחות ל-OpenWeather ו-Google API
+# מפתח ה-API ל-OpenWeather (מזג אוויר בפועל) — הגיאוקודינג (חיפוש עיר/אזור) עבר ל-Nominatim, חינמי וללא מפתח
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-def get_city_boundary(region):
-    """פונקציה לקבלת גבולות העיר מ-Google Geocoding API"""
-    url = f"https://maps.googleapis.com/maps/api/geocode/json"
-    params = {"address": region, "key": GOOGLE_API_KEY}
+def geocode_region_nominatim(region):
+    """
+    מחליף את Google Geocoding — משתמש ב-OSM/Nominatim (חינמי, ללא מפתח).
+    חשוב: Google לא מזהה כלל מונחים כמו "שטח A"/"שטח B"/"שטח C" (בדוק ידנית —
+    מחזיר ZERO_RESULTS או נופל לגבולות כל הגדה המערבית בלי הבחנה), בעוד Nominatim
+    מזהה אותם נכון כפוליגוני גבול מנהליים אמיתיים (boundary/administrative ב-OSM).
+    מחזיר (lat, lon, boundary) — boundary כולל גם bbox (northeast/southwest, לתאימות
+    לאחור) וגם 'rings' (רשימת טבעות קואורדינטות אמיתיות, אם השירות החזיר geojson) —
+    (lat, lon, None) אם המקום נמצא בלי boundingbox, או (None, None, None) אם לא נמצא כלל.
+    """
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": region, "format": "json", "limit": 1, "polygon_geojson": 1}
+    headers = {"User-Agent": "maps-gui-desktop/1.0"}  # נדרש ע"י מדיניות השימוש של Nominatim
 
     try:
-        response = requests.get(url, params=params)
-        data = response.json()
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        response.raise_for_status()
+        results = response.json()
+        if not results:
+            return None, None, None
+        r = results[0]
+        lat = float(r["lat"])
+        lon = float(r["lon"])
 
-        if response.status_code == 200 and "results" in data and len(data["results"]) > 0:
-            geometry = data["results"][0]["geometry"]
-            bounds = geometry.get("bounds")  # לא כל תוצאה כוללת bounds (למשל כתובת מדויקת בלי "אזור")
-            if bounds:
-                return {
-                    "northeast": bounds["northeast"],
-                    "southwest": bounds["southwest"]
-                }
-        return None  # לא נמצאו תוצאות, או שאין bounds — לא נחשב שגיאה, פשוט אין מסגרת לצייר
+        boundary = None
+        bbox = r.get("boundingbox")  # סדר Nominatim: [south, north, west, east], כל הערכים כ-strings
+        if bbox and len(bbox) == 4:
+            south, north, west, east = (float(v) for v in bbox)
+            boundary = {
+                "northeast": {"lat": north, "lng": east},
+                "southwest": {"lat": south, "lng": west},
+            }
+
+        geojson = r.get("geojson")
+        rings = _extract_boundary_rings(geojson) if geojson else []
+        if rings:
+            boundary = boundary or {}
+            boundary["rings"] = rings
+
+        return lat, lon, boundary
     except Exception as e:
-        logging.error(f"שגיאה בקבלת גבולות העיר: {e}")
-        return None
+        logging.error(f"שגיאה בגיאוקודינג דרך Nominatim: {e}")
+        return None, None, None
+
+
+def _extract_boundary_rings(geojson):
+    """
+    ממיר geojson['geometry'] מ-Nominatim (Polygon/MultiPolygon בלבד — טיפוסים אחרים
+    כמו Point אין להם צורת שטח להציג) לרשימת טבעות [[lat, lon], ...] — מקביל בדיוק
+    ל-_extractBoundaryRings ב-city_result.dart (גרסת האנדרואיד).
+    """
+    try:
+        gtype = geojson.get("type")
+        coords = geojson.get("coordinates")
+        if gtype == "Polygon":
+            return [[[pt[1], pt[0]] for pt in ring] for ring in coords]
+        if gtype == "MultiPolygon":
+            rings = []
+            for polygon in coords:
+                for ring in polygon:
+                    rings.append([[pt[1], pt[0]] for pt in ring])
+            return rings
+    except Exception:
+        pass
+    return []
 
 @app.route("/weather", methods=["GET"])
 def get_weather():
@@ -62,18 +105,28 @@ def get_weather():
         logging.error(error_message)  # רישום שגיאה
         return jsonify({"error": error_message}), 400
 
+    # אם חיפשו לפי שם — קודם מגאוקדים דרך Nominatim (מזהה גם "שטח A/B/C" ומחזיר גבול
+    # אמיתי, מה ש-Google לא עשה — ר' geocode_region_nominatim). אם נמצא, ממשיכים עם
+    # הקואורדינטות שהתקבלו (עובד גם לישויות שאינן "עיר" ב-OpenWeather, כמו אזור מנהלי).
+    # אם לא נמצא, נופלים חזרה לחיפוש הישן של OpenWeather לפי שם — לא שוברים חיפושים קיימים.
+    boundary = None
+    if region:
+        nomi_lat, nomi_lon, boundary = geocode_region_nominatim(region)
+        if nomi_lat is not None:
+            lat, lon = nomi_lat, nomi_lon
+
     # הגדרת פרמטרים לבקשה
-    if region:  # OpenWeather API: q=שם עיר
+    if lat and lon:  # OpenWeather API: lat/lon ישירים — גם למקור lat/lon מקורי, וגם לתוצאת גיאוקוד לפי שם
         params = {
-            "q": region,
+            "lat": lat,
+            "lon": lon,
             "appid": OPENWEATHER_API_KEY,
             "units": "metric",
             "lang": "he"
         }
-    elif lat and lon:  # OpenWeather API: lat/lon ישירים
+    elif region:  # Nominatim לא מצא — נפילה חזרה לחיפוש OpenWeather הישן לפי שם עיר
         params = {
-            "lat": lat,
-            "lon": lon,
+            "q": region,
             "appid": OPENWEATHER_API_KEY,
             "units": "metric",
             "lang": "he"
@@ -88,9 +141,6 @@ def get_weather():
         url = f"http://api.openweathermap.org/data/2.5/weather"
         response = requests.get(url, params=params)
         data = response.json()
-
-        # בקשה לגבולות העיר מ-Google Geocoding
-        boundary = get_city_boundary(region) if region else None  # רק כשחיפשו לפי שם עיר — אין "גבול" לנקודת lat/lon בודדת
 
         # תיעוד התגובה שהתקבלה
         if response.status_code == 200:

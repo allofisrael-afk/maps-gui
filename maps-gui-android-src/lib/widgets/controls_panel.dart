@@ -452,18 +452,20 @@ class LayersPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
     final cs = Theme.of(context).colorScheme;
-    // גובה מוגבל במפורש: ב-isScrollControlled=true בלי הגבלה הגיליון מנסה לגדול לפי
-    // התוכן ולא מקבל scroll physics אמיתי — זו הסיבה שפריטים בסוף הרשימה (כמו "אזורי
-    // רחפנים") ננעלו מתחת לפס הניווט הקבוע של סמסונג ולא ניתן היה לגלול אליהם.
-    final navBarH = MediaQuery.of(context).padding.bottom; // גובה פס הניווט הפיזי/הג'סטורה
+    // גובה מוגבל במפורש + SingleChildScrollView (לא ListView(shrinkWrap:true)) — אותה תבנית
+    // שתוקנה ב-LocationPanel/FlightPanel: ListView+shrinkWrap לא נתן גלילה אמיתית בפועל,
+    // ופריטים בסוף הרשימה (כמו "אזורי תיאום") ננעלו מתחת לפס הניווט הקבוע ולא ניתן היה לגלול אליהם.
+    final bottomInset = MediaQuery.of(context).padding.bottom + MediaQuery.of(context).viewInsets.bottom;
     final maxH = MediaQuery.of(context).size.height * 0.85;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxH),
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + navBarH), // ריפוד תחתון נוסף כדי שהפריט האחרון לא ייחסם ע"י פס הניווט
-          shrinkWrap: true,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset), // ריפוד תחתון נוסף כדי שהפריט האחרון לא ייחסם ע"י פס הניווט
+          child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
           _sheetHandle(cs),
           _SectionLabel('שכבת רקע', cs),
@@ -612,6 +614,7 @@ class LayersPanel extends StatelessWidget {
             cs: cs,
           ),
         ],
+        ),
         ),
       ),
     );

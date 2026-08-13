@@ -1,16 +1,19 @@
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_map/flutter_map.dart';
 
-// תוצאת חיפוש עיר: מיקום מרכזי ואופציונלית גבולות (bounding box) לציור מלבן על המפה
+// תוצאת חיפוש עיר: מיקום מרכזי, גבולות (bounding box) לקפיצת מצלמה, ואופציונלית
+// גבול העיר בפועל (טבעות פוליגון אמיתיות) לציור מודגש על המפה
 class CityResult {
   final String displayName;   // השם המלא שהוחזר מהשירות, לתצוגה/היסטוריה
   final LatLng center;        // נקודת המרכז לקפיצת המפה
-  final LatLngBounds? bounds; // גבולות העיר; null אם השירות לא החזיר boundingbox
+  final LatLngBounds? bounds; // תיבה מלבנית — לקפיצת מצלמה/fallback אם אין גבול אמיתי
+  final List<List<LatLng>> boundaryRings; // גבול/גבולות העיר בפועל מ-OSM; ריק אם השירות לא החזיר geojson
 
   const CityResult({
     required this.displayName,
     required this.center,
     this.bounds,
+    this.boundaryRings = const [],
   });
 
   // בניית אובייקט מתגובת ה-JSON של Nominatim (רשימה, לוקחים את האיבר הראשון)
@@ -31,6 +34,36 @@ class CityResult {
       displayName: j['display_name'] as String? ?? '',
       center: LatLng(lat, lon),
       bounds: bounds,
+      boundaryRings: _extractBoundaryRings(j['geojson'] as Map<String, dynamic>?),
     );
+  }
+
+  // ממיר geojson.geometry (Polygon/MultiPolygon בלבד — כל היתר, כמו Point לעיר קטנה
+  // בלי גבול OSM ידוע, מוחזר ריק ונופל חזרה לתיבה המלבנית) לרשימת טבעות LatLng.
+  // כל טבעת (חיצונית וגם חורים פנימיים, אם יש) מצוירת בנפרד — פשוט וממוקד לתצוגה בלבד.
+  static List<List<LatLng>> _extractBoundaryRings(Map<String, dynamic>? geojson) {
+    if (geojson == null) return const [];
+    final type = geojson['type'] as String?;
+    final coords = geojson['coordinates'];
+    List<LatLng> ringFrom(List<dynamic> ring) => ring
+        .map((p) => LatLng(((p as List)[1] as num).toDouble(), (p[0] as num).toDouble()))
+        .toList();
+    try {
+      if (type == 'Polygon' && coords is List) {
+        return coords.map((ring) => ringFrom(ring as List<dynamic>)).toList();
+      }
+      if (type == 'MultiPolygon' && coords is List) {
+        final rings = <List<LatLng>>[];
+        for (final polygon in coords) {
+          for (final ring in polygon as List<dynamic>) {
+            rings.add(ringFrom(ring as List<dynamic>));
+          }
+        }
+        return rings;
+      }
+    } catch (_) {
+      return const []; // geojson מעוות/לא צפוי — נופלים חזרה בשקט לתיבה המלבנית
+    }
+    return const []; // Point/LineString וכד' — אין גבול שטח להציג
   }
 }

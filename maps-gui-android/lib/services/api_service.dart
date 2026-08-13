@@ -15,8 +15,10 @@ class ApiService {
 
   // ── חיפוש עיר (geocoding) — Nominatim/OSM, חינמי וללא מפתח ────────────────
   static Future<CityResult> geocodeCity(String name) async {
+    // polygon_geojson=1 — מבקש את גבולות העיר בפועל (Polygon/MultiPolygon), לא רק תיבה מלבנית;
+    // לא כל תוצאה כוללת זאת (תלוי בכיסוי OSM), ולכן CityResult נופל חזרה למלבן אם אין geojson
     final uri = Uri.parse(
-      '$_geocodeBase?q=${Uri.encodeComponent(name)}&format=json&limit=1&addressdetails=0',
+      '$_geocodeBase?q=${Uri.encodeComponent(name)}&format=json&limit=1&addressdetails=0&polygon_geojson=1',
     );
     // Nominatim דורש User-Agent מזהה לפי מדיניות השימוש שלו
     final response = await http

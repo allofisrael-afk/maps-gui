@@ -209,7 +209,19 @@ class _MapScreenState extends State<MapScreen> {
                     imageProvider: MemoryImage(state.manualHeatImageBytes!),
                   ),
                 ]),
-              if (state.cityBounds != null)
+              // גבול עיר: אם יש טבעות גבול אמיתיות מ-OSM (polygon_geojson) מציירים אותן מודגשות;
+              // אחרת נופלים חזרה לתיבה המלבנית (bounds) — עדיין עדיף על כלום
+              if (state.cityBoundaryRings.isNotEmpty)
+                PolygonLayer(polygons: [
+                  for (final ring in state.cityBoundaryRings)
+                    Polygon(
+                      points: ring,
+                      color: cs.tertiary.withAlpha(40),
+                      borderColor: cs.tertiary,
+                      borderStrokeWidth: 3.5,
+                    ),
+                ])
+              else if (state.cityBounds != null)
                 PolygonLayer(polygons: [
                   Polygon(
                     points: [
@@ -218,9 +230,9 @@ class _MapScreenState extends State<MapScreen> {
                       LatLng(state.cityBounds!.north, state.cityBounds!.east),
                       LatLng(state.cityBounds!.north, state.cityBounds!.west),
                     ],
-                    color: Colors.transparent,
+                    color: cs.tertiary.withAlpha(25),
                     borderColor: cs.tertiary,
-                    borderStrokeWidth: 2.5,
+                    borderStrokeWidth: 3.5,
                   ),
                 ]),
               // ── שכבת "אזורי פעילות רחפנים (NOTAM)" — צורות + סמני פרטים לחיצים ──
@@ -480,18 +492,6 @@ class _MapScreenState extends State<MapScreen> {
           if (!_selectMode && state.selectionStart != null && state.selectionEnd != null)
             _buildHandlesOverlay(state, cs),
 
-          // ── כרטיס גובה (נקודה נלחצה בשכבת גבהים) ──
-          if (state.tappedElevPoint != null)
-            _ElevationCard(state: state, cs: cs),
-
-          // ── כרטיס מזג אוויר ──
-          if (state.weatherPoint != null)
-            _WeatherCard(state: state, cs: cs),
-
-          // ── כרטיס מדידה ──
-          if (state.rulerPoints.length >= 2)
-            _RulerCard(state: state, cs: cs),
-
           // ── פאנל פרופיל קו ראייה (תחתית) ──
           if (state.losSessions.any((s) => s.points.isNotEmpty)) // הצג רק אם יש סשן מחושב
             _LosProfilePanel(state: state, cs: cs),
@@ -573,13 +573,26 @@ class _MapScreenState extends State<MapScreen> {
             ),
 
           // ── מקראות שכבות רחפנים + הודעת כלל VLOS — עמודה אחת כדי שלא יתנגשו זו בזו ──
+          // viewPadding.bottom = גובה פס הניווט הפיזי של אנדרואיד (לא רק BottomAppBar של האפליקציה) —
+          // בלעדיו האלמנטים האלה נחסמים חלקית/לגמרי מאחורי פס הניווט במכשירים edge-to-edge (ר' _LosProfilePanel)
+          // ── עמודת bottom-left: כרטיס מדידה + כרטיס גובה + מקראות שכבות + VLOS ──
+          // כולם מורכבים בעמודה אחת (ולא כ-Positioned נפרדים עם קיזוזי bottom שונים)
+          // כדי שלעולם לא יחפפו זה את זה — כשל שחזר על עצמו כמה פעמים עם קיזוזים ידניים
           Positioned(
-            bottom: 14,
+            bottom: 14 + MediaQuery.of(context).viewPadding.bottom,
             left: 12,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (state.rulerPoints.length >= 2) ...[
+                  _RulerCard(state: state, cs: cs),
+                  const SizedBox(height: 6),
+                ],
+                if (state.tappedElevPoint != null) ...[
+                  _ElevationCard(state: state, cs: cs),
+                  const SizedBox(height: 6),
+                ],
                 if (state.uasCoordActive) ...[
                   const _UasCoordLegend(),
                   const SizedBox(height: 6),
@@ -593,11 +606,21 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // ── סרגל קנה-מידה ──
+          // ── עמודת bottom-right: כרטיס מזג אוויר + סרגל קנה-מידה ──
           Positioned(
-            bottom: 14,
+            bottom: 14 + MediaQuery.of(context).viewPadding.bottom,
             right: 12,
-            child: _ScaleBar(mapController: _mapController),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (state.weatherPoint != null) ...[
+                  _WeatherCard(state: state, cs: cs),
+                  const SizedBox(height: 6),
+                ],
+                _ScaleBar(mapController: _mapController),
+              ],
+            ),
           ),
         ],
       ),
@@ -765,7 +788,8 @@ class _MapScreenState extends State<MapScreen> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            // useSafeArea בלבד לא תמיד מספיק להגנה על פס הניווט התחתון של אנדרואיד — הוספת padding.bottom מפורש
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -824,7 +848,8 @@ class _MapScreenState extends State<MapScreen> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            // useSafeArea בלבד לא תמיד מספיק להגנה על פס הניווט התחתון של אנדרואיד — הוספת padding.bottom מפורש
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1035,43 +1060,41 @@ class _ElevationCard extends StatelessWidget {
   final MapState state;
   final ColorScheme cs;
   @override
-  Widget build(BuildContext context) => Positioned(
-    bottom: 20,
-    left: 12,
-    child: Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(14),
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: SizedBox(
-          width: 160,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(children: [
-                Icon(Icons.terrain, size: 14, color: cs.primary),
-                const SizedBox(width: 4),
-                Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
-                const Spacer(),
-                GestureDetector(
-                  onTap: state.closeElevTap,
-                  child: Icon(Icons.close, size: 15, color: cs.outline),
-                ),
-              ]),
-              const SizedBox(height: 6),
-              Text(
-                '${state.tappedElevPoint!.value.toStringAsFixed(0)} מ\'',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: cs.onSurface),
+  // אין self-positioning — הורכב בתוך עמודת bottom-left משותפת עם שאר הכרטיסים/המקראות
+  // (ר' ה-Stack הראשי) כדי שלעולם לא יחפפו זה את זה, במקום קיזוזי bottom נפרדים
+  Widget build(BuildContext context) => Material(
+    color: cs.surfaceContainerHigh,
+    borderRadius: BorderRadius.circular(14),
+    elevation: 4,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: SizedBox(
+        width: 160,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              Icon(Icons.terrain, size: 14, color: cs.primary),
+              const SizedBox(width: 4),
+              Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
+              const Spacer(),
+              GestureDetector(
+                onTap: state.closeElevTap,
+                child: Icon(Icons.close, size: 15, color: cs.outline),
               ),
-              const SizedBox(height: 2),
-              Text(
-                '${state.tappedElevPoint!.lat.toStringAsFixed(4)}, ${state.tappedElevPoint!.lon.toStringAsFixed(4)}',
-                style: TextStyle(fontSize: 10, color: cs.outline),
-              ),
-            ],
-          ),
+            ]),
+            const SizedBox(height: 6),
+            Text(
+              '${state.tappedElevPoint!.value.toStringAsFixed(0)} מ\'',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: cs.onSurface),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${state.tappedElevPoint!.lat.toStringAsFixed(4)}, ${state.tappedElevPoint!.lon.toStringAsFixed(4)}',
+              style: TextStyle(fontSize: 10, color: cs.outline),
+            ),
+          ],
         ),
       ),
     ),
@@ -1112,50 +1135,48 @@ class _WeatherCard extends StatelessWidget {
     71:'שלג קל', 73:'שלג', 80:'מקלחות', 95:'סופת רעמים',
   };
 
+  // אין self-positioning — הורכב בתוך עמודת bottom-right משותפת עם ScaleBar (ר' ה-Stack
+  // הראשי) כדי שלעולם לא יחפפו זה את זה, במקום קיזוזי bottom נפרדים שכן חפפו בפועל
   @override
-  Widget build(BuildContext context) => Positioned(
-    bottom: 20,
-    right: 12,
-    child: Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(14),
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: SizedBox(
-          width: 160,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(children: [
-                Text('מזג אוויר', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
-                const Spacer(),
-                GestureDetector(
-                  onTap: state.closeWeather,
-                  child: Icon(Icons.close, size: 15, color: cs.outline),
+  Widget build(BuildContext context) => Material(
+    color: cs.surfaceContainerHigh,
+    borderRadius: BorderRadius.circular(14),
+    elevation: 4,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: SizedBox(
+        width: 160,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              Text('מזג אוויר', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
+              const Spacer(),
+              GestureDetector(
+                onTap: state.closeWeather,
+                child: Icon(Icons.close, size: 15, color: cs.outline),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            if (state.weatherLoading)
+              const Center(child: CircularProgressIndicator(strokeWidth: 2))
+            else if (state.weatherData == null)
+              Text('שגיאה', style: TextStyle(color: cs.error, fontSize: 11))
+            else
+              Directionality(
+                textDirection: TextDirection.rtl,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _WRow(Icons.thermostat, '${state.weatherData!['temp']}°C', cs),
+                    _WRow(Icons.water_drop, '${state.weatherData!['humidity']}%', cs),
+                    _WRow(Icons.air, '${state.weatherData!['wind']} km/h', cs),
+                    _WRow(Icons.wb_cloudy, _wmo[state.weatherData!['code'] as int] ?? 'לא ידוע', cs),
+                  ],
                 ),
-              ]),
-              const SizedBox(height: 6),
-              if (state.weatherLoading)
-                const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              else if (state.weatherData == null)
-                Text('שגיאה', style: TextStyle(color: cs.error, fontSize: 11))
-              else
-                Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _WRow(Icons.thermostat, '${state.weatherData!['temp']}°C', cs),
-                      _WRow(Icons.water_drop, '${state.weatherData!['humidity']}%', cs),
-                      _WRow(Icons.air, '${state.weatherData!['wind']} km/h', cs),
-                      _WRow(Icons.wb_cloudy, _wmo[state.weatherData!['code'] as int] ?? 'לא ידוע', cs),
-                    ],
-                  ),
-                ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     ),
@@ -1192,36 +1213,34 @@ class _RulerCard extends StatelessWidget {
     return '$kmStr  /  $nmStr';
   }
 
+  // אין self-positioning — הורכב בתוך עמודת bottom-left משותפת עם שאר הכרטיסים/המקראות
+  // (ר' ה-Stack הראשי) כדי שלעולם לא יחפפו זה את זה, במקום קיזוזי bottom נפרדים
   @override
-  Widget build(BuildContext context) => Positioned(
-    bottom: 50,
-    left: 12,
-    child: Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(14),
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(children: [
-              Icon(Icons.straighten, size: 13, color: cs.primary),
-              const SizedBox(width: 4),
-              Text('מרחק', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 12)),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: state.clearRuler,
-                child: Icon(Icons.close, size: 14, color: cs.outline),
-              ),
-            ]),
-            const SizedBox(height: 4),
-            Text(_fmt(state.rulerTotalMeters),
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: cs.onSurface)),
-            Text('${state.rulerPoints.length} נקודות', style: TextStyle(fontSize: 10, color: cs.outline)),
-          ],
-        ),
+  Widget build(BuildContext context) => Material(
+    color: cs.surfaceContainerHigh,
+    borderRadius: BorderRadius.circular(14),
+    elevation: 4,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(children: [
+            Icon(Icons.straighten, size: 13, color: cs.primary),
+            const SizedBox(width: 4),
+            Text('מרחק', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 12)),
+            const SizedBox(width: 12),
+            GestureDetector(
+              onTap: state.clearRuler,
+              child: Icon(Icons.close, size: 14, color: cs.outline),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(_fmt(state.rulerTotalMeters),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: cs.onSurface)),
+          Text('${state.rulerPoints.length} נקודות', style: TextStyle(fontSize: 10, color: cs.outline)),
+        ],
       ),
     ),
   );
@@ -1570,7 +1589,8 @@ class _VlosInfoButton extends StatelessWidget {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            // useSafeArea בלבד לא תמיד מספיק להגנה על פס הניווט התחתון של אנדרואיד — הוספת padding.bottom מפורש
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,

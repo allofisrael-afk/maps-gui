@@ -1,3 +1,4 @@
+import json  # הזרקת טבעות גבול עיר (Nominatim) כליטרל JS
 import logging  # רישום אירועים לקובץ לוג
 import math  # חישוב זוויות למחוג שעוני הסקירה בדשבורד
 import os  # גישה לנתיבי קבצים ומשתני סביבה
@@ -1974,29 +1975,45 @@ class MapApp(QMainWindow):
             # בדיקה אם נתוני גבולות העיר קיימים בתגובה
             boundary = weather_data.get("boundary")
             if boundary:
-                # שליפת נתוני הנקודות הצפונית-מזרחית והדרומית-מערבית
-                ne = boundary["northeast"]
-                sw = boundary["southwest"]
-
-                # קוד JavaScript ליצירת מלבן Leaflet שמייצג את גבולות העיר
-                js_code_polygon = f"""
-                        var cityRect = L.rectangle(
-                            [[{sw['lat']}, {sw['lng']}], [{ne['lat']}, {ne['lng']}]],
-                            {{
-                                color:       '#FF0000',  /* צבע קו המסגרת */
-                                weight:      2,          /* עובי הקו */
-                                opacity:     0.8,        /* שקיפות הקו */
-                                fillColor:   '#FF0000',  /* צבע המילוי */
-                                fillOpacity: 0.25        /* שקיפות המילוי */
-                            }}
-                        ).addTo(map);
-                        allMarkers.push(cityRect);  /* רישום לניקוי עתידי */
-                        """
-                # הרצת קוד ה-JavaScript להצגת המלבן על המפה
-                self.map_view.page().runJavaScript(js_code_polygon)
-
-                # תיעוד בלוג שגבולות העיר סומנו בהצלחה
-                self.log_action("גבולות העיר סומנו בהצלחה.")
+                rings = boundary.get("rings")  # טבעות גבול אמיתיות מ-Nominatim (עשוי לכלול כמה עשרות/מאות — אזורי A/B/C מפוצלים לאנקלבים רבים)
+                if rings:
+                    # ציור הצורה האמיתית — כל טבעת כפוליגון נפרד, מקובצים יחד לניקוי אחיד
+                    rings_json = json.dumps(rings)  # [[[lat,lon],...], ...] — כבר בסדר lat/lon התואם ל-Leaflet
+                    js_code_polygon = f"""
+                            var cityRings = {rings_json};
+                            var cityShapes = cityRings.map(function(ring) {{
+                                return L.polygon(ring, {{
+                                    color:       '#e64553',  /* צבע קו המסגרת — מודגש */
+                                    weight:      3.5,
+                                    opacity:     0.85,
+                                    fillColor:   '#e64553',
+                                    fillOpacity: 0.18
+                                }});
+                            }});
+                            var cityBoundaryLayer = L.layerGroup(cityShapes).addTo(map);
+                            allMarkers.push(cityBoundaryLayer);  /* רישום לניקוי עתידי */
+                            """
+                    self.map_view.page().runJavaScript(js_code_polygon)
+                    self.log_action(f"גבולות העיר סומנו בהצלחה ({len(rings)} חלקים).", is_success=True)
+                else:
+                    # נפילה חזרה למלבן — לא כל תוצאה כוללת geojson עם צורה אמיתית
+                    ne = boundary["northeast"]
+                    sw = boundary["southwest"]
+                    js_code_polygon = f"""
+                            var cityRect = L.rectangle(
+                                [[{sw['lat']}, {sw['lng']}], [{ne['lat']}, {ne['lng']}]],
+                                {{
+                                    color:       '#e64553',
+                                    weight:      3.5,
+                                    opacity:     0.85,
+                                    fillColor:   '#e64553',
+                                    fillOpacity: 0.18
+                                }}
+                            ).addTo(map);
+                            allMarkers.push(cityRect);  /* רישום לניקוי עתידי */
+                            """
+                    self.map_view.page().runJavaScript(js_code_polygon)
+                    self.log_action("גבולות העיר סומנו (מלבן בלבד — אין צורה מדויקת זמינה).", is_success=True)
             else:
                 # תיעוד בלוג במקרה שנתוני הגבולות לא נמצאו
                 self.log_action("גבולות העיר לא נמצאו.")
