@@ -1203,6 +1203,15 @@ class MapApp(QMainWindow):
         self.uas_notam_button.clicked.connect(self.toggle_uas_notam_layer)  # חיבור לפונקציית הפעלה/כיבוי
         top_layout.addWidget(self.uas_notam_button)  # הוספת הכפתור לפאנל הכלים
 
+        self.uas_coord_button = QPushButton('🛡️ אזורי תיאום כטב"ם')  # שכבת "אזורי תיאום" — נתונים סטטיים, ללא תלות בשרת
+        self.uas_coord_button.setFixedSize(200, 34)
+        self.uas_coord_button.setEnabled(False)  # נעול עד ליצירת מפה (לא תלוי בשרתים — ר' start/stop_servers)
+        self.uas_coord_button.setCheckable(True)
+        self.uas_coord_button.setToolTip(
+            'אזורים שניתן לבקש לפעול בהם — כל אזור דורש אישור יחידת הנת"א מראש, לא אזור חופשי לטיסה')
+        self.uas_coord_button.clicked.connect(self.toggle_uas_coord_layer)
+        top_layout.addWidget(self.uas_coord_button)
+
         lbl_measure = QLabel("מדידה")
         lbl_measure.setObjectName("sectionLabel")
         top_layout.addWidget(lbl_measure)
@@ -1435,6 +1444,7 @@ class MapApp(QMainWindow):
             self.heatmap_pick_button.setEnabled(True)
             self.elevation_button.setEnabled(True)
             self.uas_notam_button.setEnabled(True)
+            self.uas_coord_button.setEnabled(True)  # שכבה סטטית — מופעלת יחד עם שאר שכבות המפה, לא תלויה בשרתים
             self.ruler_button.setEnabled(True)
             self.opacity_slider.setEnabled(True)
             if not getattr(self, '_title_connected', False):
@@ -1454,6 +1464,8 @@ class MapApp(QMainWindow):
         self.elevation_button.setText("שכבת גבהים")
         self.uas_notam_button.setChecked(False)
         self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
+        self.uas_coord_button.setChecked(False)
+        self.uas_coord_button.setText('🛡️ אזורי תיאום כטב"ם')
         self.heatmap_pick_button.setChecked(False)
         self.heatmap_pick_button.setText("בחר נקודות")
         self.heatmap_clear_points_button.setEnabled(False)
@@ -1531,6 +1543,7 @@ class MapApp(QMainWindow):
             self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
             self.heatmap_button.setEnabled(True)  # שחזור נעילת שכבת חום
             self.uas_notam_button.setEnabled(True)  # שחזור נעילת שכבת NOTAM רחפנים
+            # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, לא נעלת ע"י stop_servers
             self.opacity_slider.setEnabled(True)  # שחזור נעילת ה-slider
 
     @staticmethod
@@ -1588,6 +1601,7 @@ class MapApp(QMainWindow):
         self.Find_a_location.setEnabled(False)  # נעילת דקירת נ.צ
         self.heatmap_button.setEnabled(False)  # נעילת שכבת חום
         self.uas_notam_button.setEnabled(False)  # נעילת שכבת NOTAM רחפנים
+        # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, נשארת פעילה גם כששרתי GeoServer/... כבויים
         self.opacity_slider.setEnabled(False)  # נעילת Slider
         self.show_flight_button.setEnabled(False)  # נעילת כפתור הצגת מסלול
         self.flight_input.setEnabled(False)  # נעילת שדה מספר הטיסה
@@ -1846,6 +1860,18 @@ class MapApp(QMainWindow):
         else:
             self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
             self.log_action("שכבת NOTAM רחפנים כובתה")
+
+    def toggle_uas_coord_layer(self, checked):
+        """ הפעלה/כיבוי שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים (לא נשלפים בזמן ריצה),
+        כל אזור דורש אישור יחידת הנת"א מראש. שכבה סינכרונית לגמרי — אין מצב טעינה/שגיאה
+        כי הנתונים כבר מוטמעים בדף. ר' uas_coordination_zones.py. """
+        self.map_view.page().runJavaScript("toggleUasCoordZonesLayer();")
+        if checked:
+            self.uas_coord_button.setText("🛡️ הסתר אזורי תיאום")
+            self.log_action('שכבת "אזורי תיאום כטב"ם" הופעלה — כל אזור דורש אישור נת"א מראש', is_success=True)
+        else:
+            self.uas_coord_button.setText('🛡️ אזורי תיאום כטב"ם')
+            self.log_action('שכבת "אזורי תיאום כטב"ם" כובתה')
 
     def save_logs_to_file(self):
         """ שמירה של הלוגים לקובץ טקסט במערכת הקבצים. """

@@ -1,5 +1,7 @@
 import os
+import json  # שימוש יחיד: הזרקת נתוני אזורי התיאום הסטטיים כליטרל JS (ר' בהמשך)
 from dotenv import load_dotenv  # טעינת משתני סביבה (נשמר לתאימות עתידית)
+from uas_coordination_zones import UAS_COORDINATION_ZONES  # נתוני "אזורי תיאום כטב"ם" — סטטיים, לא נשלפים בזמן ריצה
 
 load_dotenv()
 
@@ -10,6 +12,8 @@ def create_map():
     תומך בעברית מובנית לישראל, heatmap, מסלולי טיסה וסמני מזג אוויר.
     """
     map_file = "map.html"  # שם קובץ הפלט
+    # JSON של אזורי התיאום — מוזרק פעם אחת כליטרל JS קבוע (לא fetch בזמן ריצה, הנתונים סטטיים)
+    coord_zones_json = json.dumps(UAS_COORDINATION_ZONES, ensure_ascii=False)
 
     with open(map_file, "w", encoding="utf-8") as f:
         f.write(f"""<!DOCTYPE html>
@@ -135,8 +139,20 @@ def create_map():
         var losCurObsMk = null;   // סמן תצפית זמני של הצמד הנוכחי (לפני בחירת היעד)
         var losPanelEl  = null;   // אלמנט פאנל גרפים תחתון
         var _losBtnEl   = null;   // הפניה לכפתור 👁 לצורך שינוי צבעו
+        var _losObsInput = null; // שדה קלט גובה הצופה מעל הקרקע (מ')
+        var _losTgtInput = null; // שדה קלט גובה היעד מעל הקרקע (מ')
         // פלטת צבעים — כל סשן מקבל צבע אחר לסמניו ולכותרת גרפו
         var _losPalette = ['#4488ff','#ffaa00','#cc44ff','#00cccc','#ff4488','#88ff44'];
+
+        // בניית אייקון עגול לסמן LOS ניתן לגרירה — עיגול מלא לתצפית, מקווקו ליעד
+        function _losMarkerIcon(col, dashed) {{
+            var border = dashed ? 'dashed' : 'solid';
+            var opac   = dashed ? 0.6 : 0.9;
+            var html   = '<div style="width:16px;height:16px;border-radius:50%;' +
+                         'background:' + col + ';opacity:' + opac + ';' +
+                         'border:2px ' + border + ' ' + col + ';box-sizing:border-box;cursor:grab;"></div>';
+            return L.divIcon({{ className: 'los-marker-icon', html: html, iconSize: [16,16], iconAnchor: [8,8] }});
+        }}
 
         function _normToColor(n, grad) {{
             for (var i = 1; i < grad.length; i++) {{
@@ -717,6 +733,11 @@ def create_map():
                     '<div style="background:rgba(250,179,135,0.15);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
                     '&#9888; אזור פעילות רחפנים מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית</div>' +
                     (z.altitude_text ? '<div><b>גובה:</b> ' + _escHtml(z.altitude_text) + '</div>' : '') +
+                    (z.hebrew_gloss ?
+                        '<div style="background:rgba(99,102,241,0.12);border-radius:4px;padding:4px 6px;margin-top:6px;font-size:11px;">' +
+                        '<b>תרגום גס לעברית (לנוחות בלבד)</b><br>' + _escHtml(z.hebrew_gloss) +
+                        '<div style="color:#a6adc8;font-size:10px;margin-top:3px;">הטקסט האנגלי המקורי הוא הקובע — התרגום הוא כלי עזר בלבד ועלול להכיל טעויות או השמטות.</div>' +
+                        '</div>' : '') +
                     '<div style="margin-top:6px;color:#a6adc8;font-size:11px;">' + _escHtml(z.text) + '</div>' +
                     '</div>';
                 shape.bindPopup(popup);
@@ -734,10 +755,81 @@ def create_map():
             uasNotamActive = false;
         }}
 
+        // ── שכבת "אזורי תיאום כטב"ם" ──
+        // חשוב: אלה אזורים שניתן *לבקש* לפעול בהם, לא אזורי "מותר לטוס" — כל אזור דורש
+        // אישור יחידת הנת"א מראש. נתונים סטטיים (לא נשלפים בזמן ריצה) — ר' uas_coordination_zones.py.
+        // uasCoordZonesData היא נקודת ההזרקה הדינמית היחידה בתבנית הזו (json.dumps בפייתון) —
+        // כל שאר הקוד כאן משתמש בסוגריים מסולסלות כפולות {{ }} כליטרל JS רגיל.
+        var uasCoordZonesData = {coord_zones_json};
+        var uasCoordLayer = null;
+        var uasCoordActive = false;
+        var uasCoordLegendControl = null;
+
+        var UasCoordLegend = L.Control.extend({{
+            options: {{ position: 'bottomleft' }},
+            onAdd: function() {{
+                var d = L.DomUtil.create('div', '');
+                d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
+                    + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
+                    + 'direction:rtl;max-width:230px;';
+                d.innerHTML =
+                    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
+                    + '<span style="display:inline-block;width:14px;height:14px;background:#6366f1;'
+                    + 'border-radius:3px;flex-shrink:0;"></span>'
+                    + '<b>&#128737; אזורי תיאום כטב"ם — דורש אישור נת"א</b></div>'
+                    + '<div style="color:#a6adc8;">כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א הרלוונטית — לא אזור חופשי לטיסה. לחץ על צורה לפרטים.</div>';
+                return d;
+            }}
+        }});
+
+        function toggleUasCoordZonesLayer() {{
+            // סינכרוני לגמרי — הנתונים כבר בעמוד (uasCoordZonesData), אין fetch/loading/error
+            if (uasCoordActive) {{
+                clearUasCoordZonesLayer();
+            }} else {{
+                _drawUasCoordZones(uasCoordZonesData);
+            }}
+        }}
+
+        function _drawUasCoordZones(zones) {{
+            clearUasCoordZonesLayer();  // מנקה ציור קודם לפני ציור מחדש — מונע כפילות שכבות
+            var style = {{ color: '#6366f1', weight: 2, fillColor: '#6366f1', fillOpacity: 0.18 }};
+            var shapes = zones.map(function(z) {{
+                var shape;
+                if (z.geometry.type === 'circle') {{
+                    shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));
+                }} else {{
+                    shape = L.polygon(z.geometry.points, style);
+                }}
+                var popup =
+                    '<div style="direction:rtl;font-family:Arial;font-size:13px;max-width:280px;">' +
+                    '<div style="font-size:14px;font-weight:bold;margin-bottom:4px;color:#6366f1;">&#128737; ' + _escHtml(z.name) + '</div>' +
+                    '<div style="background:rgba(99,102,241,0.15);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
+                    'תחילת פעילות בכל אזור דורשת אישור יחידת הנת"א. אין להיכנס לפעילות ללא תיאום מראש.</div>' +
+                    '<div><b>גובה מרבי:</b> ' + _escHtml(z.altitude_label) + '</div>' +
+                    (z.notes ? '<div style="margin-top:6px;color:#a6adc8;font-size:11px;">' + _escHtml(z.notes) + '</div>' : '') +
+                    '</div>';
+                shape.bindPopup(popup);
+                return shape;
+            }});
+            uasCoordLayer = L.layerGroup(shapes).addTo(map);
+            if (!uasCoordLegendControl) {{
+                uasCoordLegendControl = new UasCoordLegend().addTo(map);
+            }}
+            uasCoordActive = true;
+        }}
+
+        function clearUasCoordZonesLayer() {{
+            if (uasCoordLayer) {{ map.removeLayer(uasCoordLayer); uasCoordLayer = null; }}
+            if (uasCoordLegendControl) {{ map.removeControl(uasCoordLegendControl); uasCoordLegendControl = null; }}
+            uasCoordActive = false;
+        }}
+
         // ── איפוס מצב המפה ──
         function resetMapState() {{
             clearFlightRoute();
             clearUasNotamLayer();
+            clearUasCoordZonesLayer();
             clearTempHeatmap();
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות
             if (losActive) {{ toggleLos(); }}  // כיבוי מצב LOS אם פעיל, כדי לאפס cursor וכפתור
@@ -1155,21 +1247,31 @@ def create_map():
                     var sIdx     = losSessions.length;                          // מספר הסשן הבא (לכותרת ולצבע)
                     var col      = _losPalette[sIdx % _losPalette.length];      // צבע ייחודי מהפלטה
                     if (losCurObsMk) {{ map.removeLayer(losCurObsMk); }}        // ניקוי סמן ביניים ישן
-                    // ציור סמן עגול מוצק בצבע הסשן בנקודת התצפית
-                    losCurObsMk = L.circleMarker(e.latlng, {{radius:8, color:col, fillColor:col, fillOpacity:0.9, weight:2}}).addTo(map);
+                    // ציור סמן עגול מוצק בצבע הסשן בנקודת התצפית — ניתן לגרירה
+                    losCurObsMk = L.marker(e.latlng, {{icon: _losMarkerIcon(col, false), draggable: true}}).addTo(map);
                     losCurObsMk.bindTooltip('תצפית ' + (sIdx + 1), {{permanent:false, direction:'top'}});
                 }} else {{
                     // לחיצה שנייה — שמירת היעד, יצירת הסשן ושיגור החישוב
                     var sIdx    = losSessions.length;
                     var col     = _losPalette[sIdx % _losPalette.length];       // אותו צבע כמו סמן התצפית
-                    // ציור סמן יעד עם מתאר מנוקד להבחנה ויזואלית מסמן התצפית
-                    var tgtMk   = L.circleMarker(e.latlng, {{radius:8, color:col, fillColor:col, fillOpacity:0.6, weight:2, dashArray:'5,4'}}).addTo(map);
+                    // ציור סמן יעד עם מתאר מקווקו להבחנה ויזואלית מסמן התצפית — ניתן לגרירה
+                    var tgtMk   = L.marker(e.latlng, {{icon: _losMarkerIcon(col, true), draggable: true}}).addTo(map);
                     tgtMk.bindTooltip('יעד ' + (sIdx + 1), {{permanent:false, direction:'top'}});
+                    // קריאת גובה הצופה/היעד משדות הקלט בעת יצירת הצמד — נשמר על הסשן ומשמש גם לחישובים חוזרים אחרי גרירה
+                    var obsH = _losObsInput ? parseFloat(_losObsInput.value) : NaN;
+                    var tgtH = _losTgtInput ? parseFloat(_losTgtInput.value) : NaN;
+                    if (isNaN(obsH)) obsH = 11;
+                    if (isNaN(tgtH)) tgtH = 0;
+                    losCurObsMk.setTooltipContent('תצפית ' + (sIdx + 1) + ' (+' + obsH + 'מ\\')');
+                    tgtMk.setTooltipContent('יעד ' + (sIdx + 1) + ' (+' + tgtH + 'מ\\')');
                     // יצירת אובייקט הסשן — data=null עד שהשרת יחזיר תשובה
-                    var session = {{obsMk:losCurObsMk, tgtMk:tgtMk, lineLayers:[], data:null, color:col, idx:sIdx + 1}};
+                    var session = {{obsMk:losCurObsMk, tgtMk:tgtMk, lineLayers:[], data:null, color:col, idx:sIdx + 1, obsH:obsH, tgtH:tgtH}};
                     losSessions.push(session);               // הוספה למערך הסשנים
                     var obsPoint = losCurObs;                 // שמירת נקודת התצפית לפני האיפוס
                     losCurObs = null; losCurObsMk = null;    // איפוס — מוכן לצמד הבא מיד
+                    // גרירת סמן תצפית או יעד — חישוב מחדש אוטומטי של קו הראייה, ללא צורך ביצירת קו חדש
+                    session.obsMk.on('dragend', function() {{ _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session); }});
+                    session.tgtMk.on('dragend', function() {{ _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session); }});
                     _runLos(obsPoint, e.latlng, session);    // הפעלת חישוב LOS עם הצמד שנבחר
                 }}
             }} else if (elevationActive && elevationPoints.length > 0) {{
@@ -1353,9 +1455,11 @@ def create_map():
         // obs = LatLng תצפית, tgt = LatLng יעד, session = אובייקט הסשן לעדכון
         function _runLos(obs, tgt, session) {{
             document.title = '__los_loading__';  // איתות ל-Python: חישוב החל
-            // בניית URL עם קואורדינטות שתי הנקודות
+            // בניית URL עם קואורדינטות שתי הנקודות וגבהי הצופה/היעד שנשמרו על הסשן ביצירתו
             var url = 'http://localhost:5002/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
-                      '&lat2=' + tgt.lat + '&lon2=' + tgt.lng;
+                      '&lat2=' + tgt.lat + '&lon2=' + tgt.lng +
+                      '&obs_h=' + (session.obsH != null ? session.obsH : 11) +
+                      '&tgt_h=' + (session.tgtH != null ? session.tgtH : 0);
             fetch(url)
             .then(function(r) {{
                 if (!r.ok) throw new Error('HTTP ' + r.status);  // שגיאת HTTP
@@ -1367,12 +1471,15 @@ def create_map():
                 _drawLosOnMap(session);            // ציור קווים על המפה עבור הסשן הזה
                 _redrawPanel();                    // בניית מחדש של הפאנל עם כל הסשנים
             }}).catch(function(err) {{
-                // כישלון — הסרת הסשן שנוצר כי אין לו נתונים להציג
-                var sIdx = losSessions.indexOf(session);
-                if (sIdx !== -1) {{
-                    if (session.obsMk) map.removeLayer(session.obsMk);  // ניקוי סמן תצפית
-                    if (session.tgtMk) map.removeLayer(session.tgtMk);  // ניקוי סמן יעד
-                    losSessions.splice(sIdx, 1);  // הסרה מהמערך
+                // כישלון בחישוב ראשוני (לסשן שעדיין אין לו נתונים) — הסרת הסשן כי אין לו מה להציג
+                // כישלון בחישוב מחדש אחרי גרירה (יש כבר data קודם) — משאירים את הסשן והקווים הישנים במקום
+                if (!session.data) {{
+                    var sIdx = losSessions.indexOf(session);
+                    if (sIdx !== -1) {{
+                        if (session.obsMk) map.removeLayer(session.obsMk);  // ניקוי סמן תצפית
+                        if (session.tgtMk) map.removeLayer(session.tgtMk);  // ניקוי סמן יעד
+                        losSessions.splice(sIdx, 1);  // הסרה מהמערך
+                    }}
                 }}
                 document.title = '__los_error__';  // איתות ל-Python: שגיאה
                 console.error('LOS error:', err);
@@ -1565,14 +1672,17 @@ def create_map():
             options: {{ position: 'topright' }},  // מיקום על המפה
             // onAdd נקרא ע"י Leaflet כשה-Control מתווסף למפה — מחזיר אלמנט DOM
             onAdd: function() {{
-                // מיכל עם מחלקות Leaflet לסגנון אחיד עם כפתורי הזום הקיימים
-                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                // מיכל בסגנון חופשי (לא leaflet-bar) כדי לאפשר שילוב כפתור + שדות קלט בשורה אחת
+                var container = L.DomUtil.create('div', 'leaflet-control');
+                container.style.cssText = 'display:flex;align-items:center;gap:5px;background:white;' +
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:3px 6px;font-family:Arial;';
+
                 var btn = L.DomUtil.create('a', '', container);
                 btn.href  = '#';           // ללא ניווט — מונע גלילה לראש הדף
                 btn.title = 'קו ראייה';   // tooltip בעת hover
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;' +
-                    'width:34px;height:34px;font-size:16px;background:white;color:#333;text-decoration:none;' +
-                    'border-radius:4px;cursor:pointer;';
+                    'width:28px;height:28px;font-size:15px;background:white;color:#333;text-decoration:none;' +
+                    'border-radius:4px;cursor:pointer;flex-shrink:0;';
                 btn.innerHTML = '&#128065;';  // קוד Unicode לאייקון 👁
                 _losBtnEl = btn;              // שמירת הפניה לשינוי צבע ב-toggleLos
                 // stopPropagation — מניעת הגעת הלחיצה ל-map.on('click') שהייתה בוחרת נקודת LOS
@@ -1581,11 +1691,64 @@ def create_map():
                     L.DomEvent.preventDefault(e);
                     toggleLos();
                 }});
+
+                // שדות גובה הצופה/היעד — נקראים בעת יצירת כל צמד תצפית/יעד חדש (לפני התחלת מצב LOS)
+                function _mkHeightField(labelText, defaultVal, tip) {{
+                    var wrap = L.DomUtil.create('label', '', container);
+                    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;font-size:9px;color:#666;line-height:1.2;';
+                    wrap.title = tip;
+                    var lbl = L.DomUtil.create('span', '', wrap);
+                    lbl.textContent = labelText;
+                    var inp = L.DomUtil.create('input', '', wrap);
+                    inp.type = 'number'; inp.value = defaultVal; inp.step = '1';
+                    inp.style.cssText = 'width:36px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
+                    return inp;
+                }}
+                _losObsInput = _mkHeightField('צופה (מ\\')', 11, 'גובה הצופה מעל הקרקע, במטרים');
+                _losTgtInput = _mkHeightField('יעד (מ\\')',  0,  'גובה היעד מעל הקרקע, במטרים');
+
                 L.DomEvent.disableClickPropagation(container);  // הגנה נוספת על כל ה-Control
+                L.DomEvent.disableScrollPropagation(container); // מניעת זום במפה בעת גלילה/שינוי ערך בשדה המספרי
                 return container;
             }}
         }});
         new LosControl().addTo(map);  // הוספת ה-Control למפה
+
+        // ── הודעת מידע — כלל טיסת VLOS ──
+        // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,
+        // רק כלל רגולטורי כללי (פמ"ת פנים ארצי, פרק ב'-09, סעיפים 7.ד-7.ה). תמיד מוצג, לא תלוי בשכבה פעילה.
+        var VlosInfoControl = L.Control.extend({{
+            options: {{ position: 'bottomleft' }},
+            onAdd: function() {{
+                var d = L.DomUtil.create('div', '');
+                d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
+                    + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
+                    + 'direction:rtl;max-width:260px;cursor:pointer;';
+                var header = L.DomUtil.create('div', '', d);
+                header.style.cssText = 'font-weight:bold;';
+                header.innerHTML = '&#8505; כלל טיסת VLOS';
+                var body = L.DomUtil.create('div', '', d);
+                body.style.cssText = 'display:none;color:#a6adc8;margin-top:5px;white-space:pre-line;';
+                body.textContent =
+                    'טיסת כטב"ם בקשר עין (VLOS) פטורה מדרישת סגירה אווירית והגשת תוכנית טיסה כאשר\\n' +
+                    'מתקיימים כל התנאים הבאים:\\n' +
+                    '• גובה שאינו עולה על 100 מטר מעל פני הקרקע\\n' +
+                    '• מחוץ לאזורים אסורים/מוגבלים/מסוכנים (אלא אם התקבל אישור מאחראי האזור)\\n' +
+                    '• במרחק הגדול מ-500 רגל מבסיס ענן\\n' +
+                    '• בתנאי ראות אופקית העולים על 3 ק"מ\\n' +
+                    '• מחוץ לתשתית תעופתית (נתיבים)\\n\\n' +
+                    'שימו לב: הפטור מסגירה אווירית/תוכנית טיסה אינו מבטל את הצורך באישור נפרד\\n' +
+                    'להפעלה באזור פיקוח שדה תעופה (CTR) או באזור מנחת (ATZ) — פירוט מלא: פמ"ת\\n' +
+                    'פנים ארצי, פרק ב\\'-09.';
+                L.DomEvent.on(d, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e);
+                    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+                }});
+                L.DomEvent.disableClickPropagation(d);
+                return d;
+            }}
+        }});
+        new VlosInfoControl().addTo(map);  // תמיד מוצג — לא תלוי בשכבה פעילה
 
     </script>
 </body>

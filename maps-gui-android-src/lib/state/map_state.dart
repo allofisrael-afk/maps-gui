@@ -435,4 +435,14 @@ class MapState extends ChangeNotifier {
     uasNotamError = null;
     notifyListeners();
   }
+
+  // ── שכבת "אזורי תיאום כטב"ם" ──
+  // חשוב: אלה אזורים שניתן *לבקש* לפעול בהם, לא "מותר לטוס" — כל אזור דורש אישור
+  // יחידת הנת"א מראש. נתונים סטטיים (kUasCoordinationZones) — אין fetch/loading/error.
+  bool uasCoordActive = false;
+
+  void toggleUasCoordZonesLayer() {
+    uasCoordActive = !uasCoordActive;
+    notifyListeners();
+  }
 }

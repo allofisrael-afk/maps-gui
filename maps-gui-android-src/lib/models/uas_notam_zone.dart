@@ -12,6 +12,8 @@ class UasNotamZone {
     required this.text,
     required this.altitudeText,
     required this.geometryType,
+    this.hebrewGloss = '',
+    this.altitudeGloss = '',
     this.center,
     this.radiusM,
     this.points = const [],
@@ -21,6 +23,8 @@ class UasNotamZone {
   final String icao;           // קוד מיקום, למשל LLLL
   final String text;           // טקסט ה-NOTAM המלא (לתצוגה בכרטיס הפרטים)
   final String altitudeText;   // משפט הגובה הגולמי, למשל "FM GND UP TO 250M AGL"
+  final String hebrewGloss;    // תרגום גס לעברית של text — תמיד לצד המקור, לא במקומו
+  final String altitudeGloss;  // תרגום גס לעברית של altitudeText
   final UasNotamGeometryType geometryType;
   final LatLng? center;        // מרכז — רק לגיאומטריית מעגל
   final double? radiusM;       // רדיוס במטרים — רק לגיאומטריית מעגל

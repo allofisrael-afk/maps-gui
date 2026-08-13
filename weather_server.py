@@ -351,9 +351,17 @@ def line_of_sight():
     except (TypeError, ValueError):
         return jsonify({"error": "פרמטרים חסרים"}), 400
 
+    try:
+        obs_h = float(request.args.get('obs_h', 11.0))  # גובה הצופה מעל הקרקע (מ') — ברירת מחדל 11
+    except (TypeError, ValueError):
+        obs_h = 11.0
+    try:
+        tgt_h = float(request.args.get('tgt_h', 0.0))  # גובה היעד מעל הקרקע (מ') — ברירת מחדל קרקע
+    except (TypeError, ValueError):
+        tgt_h = 0.0
+
     R      = 6371000.0  # רדיוס כדור הארץ, במטרים
     k      = 0.13       # מקדם שבירה אטמוספרי
-    obs_h  = 11.0       # גובה מצפה מעל הקרקע (מ')
     step_m = 5000.0     # דגימת גובה כל 5 ק"מ לאורך הקו
     max_m  = 500000.0   # תקרת מרחק — 500 ק"מ
 
@@ -389,10 +397,11 @@ def line_of_sight():
     result = []
 
     for i, p in enumerate(pts):
-        elev = elevs[i]
-        d    = p['dist_m']
-        drop = d * d / (2 * R) * (1 - k)  # ירידת קו הראייה בגלל עקמומיות כדור הארץ, מתוקנת לשבירה אטמוספרית (k)
-        corr = elev - drop  # גובה "אפקטיבי" של הקרקע בנקודה הזו, כאילו כדור הארץ שטוח
+        elev  = elevs[i]
+        d     = p['dist_m']
+        h_off = tgt_h if i == n - 1 else 0.0  # גובה היעד מתווסף רק לנקודה האחרונה — נקודות ביניים נשארות גובה קרקע (מכשולים)
+        drop  = d * d / (2 * R) * (1 - k)  # ירידת קו הראייה בגלל עקמומיות כדור הארץ, מתוקנת לשבירה אטמוספרית (k)
+        corr  = elev + h_off - drop  # גובה "אפקטיבי" של הקרקע (או היעד) בנקודה הזו, כאילו כדור הארץ שטוח
 
         if d == 0:
             visible = True
@@ -421,6 +430,8 @@ def line_of_sight():
         'total_km':       round(total_m / 1000, 2),
         'observer_elev':  elevs[0],
         'observer_h':     round(h_obs, 1),
+        'target_elev':    elevs[-1],
+        'target_h':       round(elevs[-1] + tgt_h, 1),
         'first_block_km': round(first_block_m / 1000, 2) if first_block_m is not None else None,
         'all_visible':    first_block_m is None
     })

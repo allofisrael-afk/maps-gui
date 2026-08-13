@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה לפרופיל ולמפה
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
+import '../models/uas_coordination_zone.dart'; // מודל אזור תיאום כטב"ם
+import '../data/uas_coordination_zones.dart'; // נתוני אזורי התיאום הסטטיים
 import '../state/map_state.dart';
 import '../widgets/controls_panel.dart';
 
@@ -223,6 +225,8 @@ class _MapScreenState extends State<MapScreen> {
                 ]),
               // ── שכבת "אזורי פעילות רחפנים (NOTAM)" — צורות + סמני פרטים לחיצים ──
               if (state.uasNotamActive) ..._buildUasNotamLayers(state),
+              // ── שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים, לא תלויים ב-state ──
+              if (state.uasCoordActive) ..._buildUasCoordZonesLayers(),
               if (state.flightData != null) ...[
                 if (state.flightData!.path.length >= 2)
                   PolylineLayer(polylines: [
@@ -568,13 +572,26 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // ── מקרא שכבת NOTAM רחפנים — מוצג רק כשהשכבה פעילה ──
-          if (state.uasNotamActive)
-            Positioned(
-              bottom: 14,
-              left: 12,
-              child: _UasNotamLegend(),
+          // ── מקראות שכבות רחפנים + הודעת כלל VLOS — עמודה אחת כדי שלא יתנגשו זו בזו ──
+          Positioned(
+            bottom: 14,
+            left: 12,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (state.uasCoordActive) ...[
+                  const _UasCoordLegend(),
+                  const SizedBox(height: 6),
+                ],
+                if (state.uasNotamActive) ...[
+                  const _UasNotamLegend(),
+                  const SizedBox(height: 6),
+                ],
+                const _VlosInfoButton(),
+              ],
             ),
+          ),
 
           // ── סרגל קנה-מידה ──
           Positioned(
@@ -690,6 +707,112 @@ class _MapScreenState extends State<MapScreen> {
     ];
   }
 
+  // בניית שכבות "אזורי תיאום כטב"ם" — נתונים סטטיים (kUasCoordinationZones), לא תלוי ב-state
+  List<Widget> _buildUasCoordZonesLayers() {
+    const color = Color(0xFF6366F1); // אינדיגו — מובחן מכתום ה-NOTAM, מסמן "דורש תיאום" ולא "הימנעות"
+    final circles = kUasCoordinationZones
+        .where((z) => z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null)
+        .map((z) => CircleMarker(
+              point: z.center!,
+              radius: z.radiusM!,
+              useRadiusInMeter: true,
+              color: color.withAlpha(55),
+              borderColor: color,
+              borderStrokeWidth: 2,
+            ))
+        .toList();
+    final polygons = kUasCoordinationZones
+        .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
+        .map((z) => Polygon(
+              points: z.points,
+              color: color.withAlpha(55),
+              borderColor: color,
+              borderStrokeWidth: 2,
+            ))
+        .toList();
+    final markers = kUasCoordinationZones
+        .map((z) => Marker(
+              point: z.anchor,
+              width: 30, height: 30,
+              child: GestureDetector(
+                onTap: () => _showUasCoordDetails(z),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.shield_outlined, size: 16, color: Colors.white),
+                ),
+              ),
+            ))
+        .toList();
+    return [
+      if (circles.isNotEmpty) CircleLayer(circles: circles),
+      if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
+      if (markers.isNotEmpty) MarkerLayer(markers: markers),
+    ];
+  }
+
+  // כרטיס פרטים לאזור תיאום בודד — נפתח בלחיצה על הסמן האינדיגו
+  void _showUasCoordDetails(UasCoordinationZone z) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(children: [
+                  const Icon(Icons.shield_outlined, color: Color(0xFF6366F1)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(z.name,
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: cs.onSurface)),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withAlpha(35),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'תחילת פעילות בכל אזור דורשת אישור יחידת הנת"א. אין להיכנס לפעילות ללא תיאום מראש.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('גובה מרבי', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                Text(z.altitudeLabel, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+                if (z.notes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text('הערות', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                  Text(z.notes, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // כרטיס פרטים לאזור NOTAM בודד — נפתח בלחיצה על הסמן הכתום
   void _showUasNotamDetails(UasNotamZone z) {
     showModalBottomSheet(
@@ -738,6 +861,30 @@ class _MapScreenState extends State<MapScreen> {
                   const SizedBox(height: 10),
                   Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
                   Text(z.altitudeText, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+                ],
+                if (z.hebrewGloss.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withAlpha(30),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('תרגום גס לעברית (לנוחות בלבד)',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                        const SizedBox(height: 4),
+                        Text(z.hebrewGloss, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'הטקסט האנגלי המקורי הוא הקובע — התרגום הוא כלי עזר בלבד ועלול להכיל טעויות או השמטות.',
+                          style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 10),
                 Text('פרטי ה-NOTAM', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
@@ -1351,6 +1498,119 @@ class _UasNotamLegend extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── מקרא שכבת "אזורי תיאום כטב"ם" ────────────────────────
+class _UasCoordLegend extends StatelessWidget {
+  const _UasCoordLegend();
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: cs.surface.withAlpha(230),
+        borderRadius: BorderRadius.circular(8),
+        elevation: 3,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    width: 12, height: 12,
+                    decoration: const BoxDecoration(color: Color(0xFF6366F1), shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('אזורי תיאום כטב"ם — דורש אישור נת"א',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                ]),
+                const SizedBox(height: 2),
+                Text('כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א — לא אזור חופשי לטיסה',
+                    style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── כפתור מידע — כלל טיסת VLOS — תוכן טקסטואלי סטטי, תמיד מוצג ──
+class _VlosInfoButton extends StatelessWidget {
+  const _VlosInfoButton();
+
+  static const _vlosText =
+      'טיסת כטב"ם בקשר עין (VLOS) פטורה מדרישת סגירה אווירית והגשת תוכנית טיסה כאשר '
+      'מתקיימים כל התנאים הבאים:\n\n'
+      '• גובה שאינו עולה על 100 מטר מעל פני הקרקע\n'
+      '• מחוץ לאזורים אסורים/מוגבלים/מסוכנים (אלא אם התקבל אישור מאחראי האזור)\n'
+      '• במרחק הגדול מ-500 רגל מבסיס ענן\n'
+      '• בתנאי ראות אופקית העולים על 3 ק"מ\n'
+      '• מחוץ לתשתית תעופתית (נתיבים)\n\n'
+      'שימו לב: הפטור מסגירה אווירית/תוכנית טיסה אינו מבטל את הצורך באישור נפרד '
+      'להפעלה באזור פיקוח שדה תעופה (CTR) או באזור מנחת (ATZ) — פירוט מלא: פמ"ת פנים ארצי, פרק ב\'-09.';
+
+  void _showVlosInfoSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(children: [
+                  Icon(Icons.info_outline, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Text('כלל טיסת VLOS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: cs.onSurface)),
+                ]),
+                const SizedBox(height: 10),
+                Text(_vlosText, style: TextStyle(fontSize: 13, color: cs.onSurface, height: 1.5)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surface.withAlpha(230),
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => _showVlosInfoSheet(context),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(Icons.info_outline, size: 18, color: cs.primary),
         ),
       ),
     );

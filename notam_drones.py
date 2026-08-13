@@ -16,6 +16,8 @@ import time  # מדידת גיל ה-cache
 
 import requests  # שליפת דף ה-NOTAM מרשות שדות התעופה
 
+from icao_glossary import render_hebrew_gloss  # תרגום גס לעברית — ר' icao_glossary.py לאזהרת הבטיחות
+
 _NOTAM_URL = "https://brin.iaa.gov.il/aeroinfo/AeroInfo.aspx?msgType=Notam"  # דף NOTAM ציבורי — לא דורש מפתח API
 _REQUEST_TIMEOUT = 20  # שניות — האתר לפעמים איטי בגלל ה-WAF שמגן עליו
 _CACHE_TTL_SEC = 20 * 60  # 20 דקות — מספיק "חי" לתמונת מצב, לא מציף את השרת המוגן
@@ -104,12 +106,15 @@ def _fetch_and_parse():
         if geometry is None:
             text_only_count += 1  # רשומת UAS/UAV אמיתית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
             continue
+        altitude_text = _extract_altitude_text(n["text"])
         zones.append({
             "id": n["id"],
             "icao": n["icao"],
             "text": n["text"],
-            "altitude_text": _extract_altitude_text(n["text"]),
+            "altitude_text": altitude_text,
             "geometry": geometry,
+            "hebrew_gloss": render_hebrew_gloss(n["text"]),  # תרגום גס — תמיד לצד המקור האנגלי, לא במקומו
+            "altitude_gloss": render_hebrew_gloss(altitude_text),
         })
     return zones, text_only_count
 
