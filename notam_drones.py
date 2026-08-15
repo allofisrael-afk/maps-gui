@@ -1,6 +1,8 @@
 """
-שכבת "אזורי פעילות רחפנים (NOTAM)" — שולף ומפרש NOTAMs מ-brin.iaa.gov.il (רשות שדות
-התעופה), מסונן לרשומות UAS/UAV בלבד, ומחלץ גיאומטריה (מעגל/פוליגון) וגובה מהטקסט החופשי.
+שכבת "אזורי פעילות טיסה (NOTAM)" — שולף ומפרש NOTAMs מ-brin.iaa.gov.il (רשות שדות
+התעופה), מסונן ל-7 קטגוריות (ר' notam_categories.py — בהשראת מסך השכבות של DronesIL
+הרשמית), ומחלץ גיאומטריה (מעגל/פוליגון) וגובה מהטקסט החופשי. NOTAM בודד עשוי להתאים
+ליותר מקטגוריה אחת (למשל "UAS PROHIBITED" מתאים גם ל-uas וגם ל-prohibited).
 
 חשוב — סמנטיקה: רשומת "UAS/UAV ACT WILL TAKE PLACE... CLSD FM GND UP TO Xft" מתארת
 פעילות רחפנים *מאושרת של מפעיל אחר* שהמרחב האווירי סביבה סגור לתעבורה אחרת עד לגובה
@@ -17,6 +19,7 @@ import time  # מדידת גיל ה-cache
 import requests  # שליפת דף ה-NOTAM מרשות שדות התעופה
 
 from icao_glossary import render_hebrew_gloss  # תרגום גס לעברית — ר' icao_glossary.py לאזהרת הבטיחות
+from notam_categories import classify_notam  # סיווג NOTAM ל-7 קטגוריות — ר' notam_categories.py
 
 _NOTAM_URL = "https://brin.iaa.gov.il/aeroinfo/AeroInfo.aspx?msgType=Notam"  # דף NOTAM ציבורי — לא דורש מפתח API
 _REQUEST_TIMEOUT = 20  # שניות — האתר לפעמים איטי בגלל ה-WAF שמגן עליו
@@ -100,11 +103,12 @@ def _fetch_and_parse():
     zones = []
     text_only_count = 0
     for n in notams:
-        if "UAS" not in n["text"] and "UAV" not in n["text"]:
-            continue  # לא רשומת רחפנים — לא רלוונטית לשכבה הזו
+        categories = classify_notam(n["text"])  # התאמה ל-0 או יותר מ-7 הקטגוריות (ר' notam_categories.py)
+        if not categories:
+            continue  # לא תואם אף קטגוריה רלוונטית — לא נכלל בשכבה (מרחיב את UAS/UAV-בלבד הקודם ל-7 הקטגוריות)
         geometry = _extract_geometry(n["text"])
         if geometry is None:
-            text_only_count += 1  # רשומת UAS/UAV אמיתית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
+            text_only_count += 1  # רשומה רלוונטית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
             continue
         altitude_text = _extract_altitude_text(n["text"])
         zones.append({
@@ -113,6 +117,7 @@ def _fetch_and_parse():
             "text": n["text"],
             "altitude_text": altitude_text,
             "geometry": geometry,
+            "categories": categories,  # רשימת id-ים — שימוש בסינון/צביעה לפי קטגוריה בצד הלקוח
             "hebrew_gloss": render_hebrew_gloss(n["text"]),  # תרגום גס — תמיד לצד המקור האנגלי, לא במקומו
             "altitude_gloss": render_hebrew_gloss(altitude_text),
         })

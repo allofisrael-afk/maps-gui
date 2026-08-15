@@ -7,6 +7,7 @@ import '../models/los_session.dart'; // מודל נקודות ופרופיל ק�
 import '../models/city_result.dart'; // מודל תוצאת חיפוש עיר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../data/icao_glossary.dart'; // תרגום גס לעברית לטקסט NOTAM
+import '../data/notam_categories.dart'; // סיווג NOTAM ל-7 קטגוריות
 
 class ApiService {
   static const String _elevBase = 'https://api.open-meteo.com/v1/elevation';
@@ -510,15 +511,17 @@ class ApiService {
     final notams = _parseNotamBlocks(resp.body);
     final zones = <UasNotamZone>[];
     for (final n in notams) {
-      if (!n.text.contains('UAS') && !n.text.contains('UAV')) continue; // לא רשומת רחפנים — לא רלוונטית
+      final categories = classifyNotam(n.text); // התאמה ל-0 או יותר מ-7 הקטגוריות (ר' data/notam_categories.dart)
+      if (categories.isEmpty) continue; // לא תואם אף קטגוריה רלוונטית — לא נכלל בשכבה
       final geo = _extractGeometry(n.text);
-      if (geo == null) continue; // רשומת UAS/UAV אמיתית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
+      if (geo == null) continue; // רשומה רלוונטית, אבל בלי גיאומטריה ניתנת לחילוץ מהטקסט
       final altText = _extractAltitudeText(n.text);
       zones.add(UasNotamZone(
         id: n.id,
         icao: n.icao,
         text: n.text,
         altitudeText: altText,
+        categories: categories, // רשימת id-ים — שימוש בסינון/צביעה לפי קטגוריה בצד הלקוח
         hebrewGloss: renderHebrewGloss(n.text), // תרגום גס — תמיד לצד המקור האנגלי, לא במקומו
         altitudeGloss: renderHebrewGloss(altText),
         geometryType: geo.type,

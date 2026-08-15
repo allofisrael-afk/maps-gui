@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../state/map_state.dart';
+import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 
 class ControlsPanel extends StatelessWidget {
   const ControlsPanel({super.key});
@@ -554,29 +555,37 @@ class LayersPanel extends StatelessWidget {
             ),
           ],
           const Divider(height: 24),
-          _SectionLabel('אזורי רחפנים (NOTAM)', cs),
+          _SectionLabel('אזורי פעילות טיסה (NOTAM)', cs),
           const SizedBox(height: 4),
           Row(children: [
             Icon(Icons.info_outline, size: 12, color: cs.outline),
             const SizedBox(width: 4),
             Expanded(
-              child: Text('אזור פעילות מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית',
+              child: Text('אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית. אפשר לסמן כמה קטגוריות',
                   style: TextStyle(fontSize: 10, color: cs.outline)),
             ),
           ]),
           const SizedBox(height: 6),
-          _ActionBtn(
-            label: state.uasNotamLoading
-                ? 'טוען...'
-                : state.uasNotamActive
-                    ? 'הסתר שכבה'
-                    : 'הצג אזורי רחפנים',
-            icon: Icons.warning_amber_rounded,
-            enabled: !state.uasNotamLoading,
-            active: state.uasNotamActive,
-            onTap: state.toggleUasNotamLayer,
-            cs: cs,
-          ),
+          // תיבת סימון לכל קטגוריה — אפשר להפעיל כמה בו-זמנית (בניגוד לכפתור בודד קודם).
+          // הטעינה הראשונה מהשרת חד-פעמית ומשותפת לכל 7 הקטגוריות (ר' toggleNotamCategory)
+          for (final cat in kNotamCategories)
+            CheckboxListTile(
+              value: state.activeNotamCategories.contains(cat.id),
+              onChanged: state.uasNotamLoading ? null : (_) => state.toggleNotamCategory(cat.id),
+              activeColor: Color(cat.color),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(cat.label, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+            ),
+          if (state.uasNotamLoading) ...[
+            const SizedBox(height: 4),
+            Row(children: [
+              const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+              const SizedBox(width: 8),
+              Text('טוען נתוני NOTAM...', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+            ]),
+          ],
           if (state.uasNotamError != null) _ErrText(state.uasNotamError!, cs),
           if (state.uasNotamZones.isNotEmpty) ...[
             const SizedBox(height: 6),

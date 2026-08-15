@@ -401,39 +401,49 @@ class MapState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── שכבת "אזורי פעילות רחפנים (NOTAM)" ──
-  // חשוב: אזורים שבהם *מישהו אחר* קיבל אישור לפעילות רחפנים — שכבת הימנעות/מודעות,
-  // לא "מותר לך לטוס כאן". ר' ApiService.fetchUasNotamZones להסבר המקור.
-  List<UasNotamZone> uasNotamZones = []; // נשמר בזיכרון אחרי טעינה ראשונה — לחיצה חוזרת רק מחליפה תצוגה
-  bool uasNotamActive  = false;          // האם השכבה מוצגת כרגע על המפה
+  // ── שכבת "אזורי פעילות טיסה (NOTAM)" — 7 קטגוריות, בהשראת מסך השכבות של DronesIL ──
+  // חשוב: אזורים שבהם *מישהו אחר* קיבל אישור/פעילות מוכרזת — שכבת הימנעות/מודעות,
+  // לא "מותר לך לטוס כאן". ר' ApiService.fetchUasNotamZones להסבר המקור ו-
+  // data/notam_categories.dart לרשימת הקטגוריות. NOTAM בודד עשוי להתאים ליותר מקטגוריה אחת.
+  List<UasNotamZone> uasNotamZones = []; // המידע הגולמי מהשרת — נטען פעם אחת, משותף לכל 7 הקטגוריות
+  bool uasNotamLoaded  = false;          // האם הטעינה החד-פעמית כבר הצליחה
   bool uasNotamLoading = false;          // בקשת רשת פעילה ברקע
   String? uasNotamError;                 // הודעת השגיאה מהניסיון האחרון, אם נכשל
+  Set<String> activeNotamCategories = {}; // אילו id-ים של קטגוריות מסומנים כרגע (תיבות סימון בפאנל)
+  bool notamFitPending = false; // טריגר חד-פעמי — "יש קטגוריה חדשה שהופעלה, יש להתאים תצוגת מפה" — נצרך ע"י map_screen.dart
 
-  Future<void> toggleUasNotamLayer() async {
-    if (uasNotamActive) {
-      uasNotamActive = false; // כבר טעונה ומוצגת — לחיצה שנייה רק מסתירה, לא מוחקת מהזיכרון
-      notifyListeners();
+  Future<void> toggleNotamCategory(String catId) async {
+    if (!uasNotamLoaded) {
+      // סימון ראשון אי-פעם — מפעיל טעינה מהשרת, משותפת לכל 7 הקטגוריות
+      uasNotamLoading = true; uasNotamError = null; notifyListeners();
+      try {
+        uasNotamZones = await ApiService.fetchUasNotamZones();
+        uasNotamLoaded = true;
+        activeNotamCategories.add(catId); // הקטגוריה שסומנה ברגע שהפעילה את הטעינה
+        notamFitPending = true; // אזורים חדשים על המפה — יש להתאים את התצוגה אליהם
+      } catch (e) {
+        uasNotamError = e.toString().replaceFirst('Exception: ', '');
+      }
+      uasNotamLoading = false; notifyListeners();
       return;
     }
-    if (uasNotamZones.isNotEmpty) {
-      uasNotamActive = true; // כבר נטענה קודם באותה הפעלה — מציגים מיד בלי בקשת רשת נוספת
-      notifyListeners();
-      return;
+    // כבר נטען בעבר — toggle סינכרוני בלבד, בלי בקשת רשת נוספת
+    if (activeNotamCategories.contains(catId)) {
+      activeNotamCategories.remove(catId); // כיבוי — לא מתאים תצוגה מחדש, כדי לא "לקפוץ" עם המצלמה בלי צורך
+    } else {
+      activeNotamCategories.add(catId);
+      notamFitPending = true; // הופעלה קטגוריה חדשה — אזורים קטנים (מאות מטרים) לא ייראו כפוליגון בזום ארצי בלי התאמה
     }
-    uasNotamLoading = true; uasNotamError = null; notifyListeners();
-    try {
-      uasNotamZones = await ApiService.fetchUasNotamZones();
-      uasNotamActive = true;
-    } catch (e) {
-      uasNotamError = e.toString().replaceFirst('Exception: ', '');
-    }
-    uasNotamLoading = false; notifyListeners();
+    notifyListeners();
   }
 
+  void consumeNotamFit() { notamFitPending = false; }
+
   void clearUasNotamCache() {
-    // מנקה גם את המטמון (לא רק מסתיר) — לשימוש בכפתור "רענן"/"נקה" מפורש בפאנל
+    // מנקה גם את המטמון (לא רק את הבחירה) — לשימוש בכפתור "רענן" מפורש בפאנל
     uasNotamZones = [];
-    uasNotamActive = false;
+    uasNotamLoaded = false;
+    activeNotamCategories.clear();
     uasNotamError = null;
     notifyListeners();
   }

@@ -12,6 +12,7 @@ from datetime import datetime  # חישוב פקיעת cache לפי זמן
 from MAP import create_map  # ייבוא פונקציית יצירת המפה
 from test_requests import run_health_checks, summarize  # בדיקת תקינות שרתים לדשבורד
 from security_checks import run_security_checks, summarize_findings  # סריקת אבטחה/חשיפה לדשבורד
+from notam_categories import NOTAM_CATEGORIES  # 7 קטגוריות סיווג NOTAM — מקור אמת יחיד, גם ל-MAP.py וגם לתפריט כאן
 from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה
     Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
 )
@@ -21,7 +22,8 @@ from PyQt5.QtWidgets import (  # רכיבי ממשק גרפי
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QGridLayout,
     QTextEdit, QFileDialog, QSplitter, QSizePolicy, QDoubleSpinBox,
     QMessageBox, QLabel, QTabWidget, QSlider, QComboBox, QFrame,  # QLabel לכותרות, QTabWidget ללשוניות, QSlider לשקיפות, QComboBox להיסטוריה, QFrame להפרדה
-    QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # רכיבי דשבורד התהליכים
+    QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,  # רכיבי דשבורד התהליכים
+    QToolButton, QMenu, QCheckBox, QWidgetAction  # תפריט "toolbox" נגלל לבחירת קטגוריות NOTAM מרובות
 )
 from PyQt5.QtCore import QSettings  # שמירת הגדרות והיסטוריית ערים בין הפעלות
 
@@ -1195,14 +1197,33 @@ class MapApp(QMainWindow):
         sep_measure.setObjectName("separator")
         top_layout.addWidget(sep_measure)
 
-        self.uas_notam_button = QPushButton("🚁 אזורי רחפנים (NOTAM)")  # שכבת NOTAM UAS/UAV מ-GeoServer
-        self.uas_notam_button.setFixedSize(210, 34)  # גודל מותאם לטקסט הארוך ביותר
-        self.uas_notam_button.setEnabled(False)  # נעול עד ליצירת מפה
-        self.uas_notam_button.setCheckable(True)  # כפתור דו-מצבי: לחיצה ראשונה טוענת, שנייה מכבה
-        self.uas_notam_button.setToolTip(
-            "אזורים שבהם גורם אחר קיבל אישור לפעילות רחפנים (NOTAM) — להימנעות/מודעות, לא \"מותר לך לטוס כאן\"")
-        self.uas_notam_button.clicked.connect(self.toggle_uas_notam_layer)  # חיבור לפונקציית הפעלה/כיבוי
-        top_layout.addWidget(self.uas_notam_button)  # הוספת הכפתור לפאנל הכלים
+        # תפריט "toolbox" נגלל לבחירת קטגוריות NOTAM מרובות — QToolButton+QMenu נפתח/נסגר בלחיצה
+        # (לא פתוח כל הזמן, בניגוד לכפתורים הרגילים) כדי לא לצופף את המסך ב-7 כפתורים קבועים.
+        # אפשר לסמן כמה קטגוריות בו-זמנית — QMenu לא נסגר אוטומטית בלחיצה על QCheckBox בתוכו.
+        self.notam_menu_button = QToolButton()
+        self.notam_menu_button.setText("✈️ NOTAM")
+        self.notam_menu_button.setFixedSize(140, 34)
+        self.notam_menu_button.setEnabled(False)  # נעול עד ליצירת מפה
+        self.notam_menu_button.setToolTip(
+            'אזורי פעילות/הגבלת טיסה מוכרזים (NOTAM) — להימנעות/מודעות, לא "מותר לך לטוס כאן". אפשר לסמן כמה קטגוריות')
+        self.notam_menu_button.setPopupMode(QToolButton.InstantPopup)  # לחיצה אחת פותחת את התפריט, לא לחיצה-והחזקה
+        notam_menu = QMenu(self.notam_menu_button)  # ה"כותרת" של הכפתור עצמו משמשת ככותרת התפריט — אין צורך בכותרת נפרדת בתוך ה-QMenu
+        self.notam_checkboxes = {}  # id קטגוריה -> QCheckBox, לשימוש בכל שאר הפונקציות (איפוס/נעילה/וכו')
+        self._notam_loaded = False  # תואם ל-uasNotamLoaded ב-JS — האם הטעינה החד-פעמית מהשרת כבר הצליחה
+        for cat in NOTAM_CATEGORIES:  # בונה תיבת סימון אחת לכל קטגוריה, מאותו מקור נתונים כמו MAP.py (notam_categories.py)
+            checkbox = QCheckBox(cat["label"])
+            checkbox.setStyleSheet(  # מרובע צבע בתוך תיבת הסימון עצמה — תואם ויזואלית לצבע הצורה על המפה
+                f"QCheckBox {{ padding: 4px 10px; }} "
+                f"QCheckBox::indicator:checked {{ background-color: {cat['color']}; border: 1px solid {cat['color']}; }}"
+            )
+            # cat_id=cat["id"] בברירת המחדל של הלמבדה — קושר את הערך הנוכחי, לא את המשתנה שממשיך להשתנות בלולאה
+            checkbox.stateChanged.connect(lambda state, cat_id=cat["id"]: self.toggle_notam_category(cat_id, state))
+            action = QWidgetAction(notam_menu)  # עטיפה הכרחית — QMenu.addWidget לא קיים, רק addAction עם QWidgetAction
+            action.setDefaultWidget(checkbox)
+            notam_menu.addAction(action)
+            self.notam_checkboxes[cat["id"]] = checkbox
+        self.notam_menu_button.setMenu(notam_menu)
+        top_layout.addWidget(self.notam_menu_button)  # הוספת הכפתור לפאנל הכלים
 
         self.uas_coord_button = QPushButton('🛡️ אזורי תיאום כטב"ם')  # שכבת "אזורי תיאום" — נתונים סטטיים, ללא תלות בשרת
         self.uas_coord_button.setFixedSize(200, 34)
@@ -1444,7 +1465,7 @@ class MapApp(QMainWindow):
             self.heatmap_button.setEnabled(True)
             self.heatmap_pick_button.setEnabled(True)
             self.elevation_button.setEnabled(True)
-            self.uas_notam_button.setEnabled(True)
+            self.notam_menu_button.setEnabled(True)
             self.uas_coord_button.setEnabled(True)  # שכבה סטטית — מופעלת יחד עם שאר שכבות המפה, לא תלויה בשרתים
             self.ruler_button.setEnabled(True)
             self.opacity_slider.setEnabled(True)
@@ -1463,8 +1484,12 @@ class MapApp(QMainWindow):
         self.heatmap_button.setText("שכבת חום")
         self.elevation_button.setChecked(False)
         self.elevation_button.setText("שכבת גבהים")
-        self.uas_notam_button.setChecked(False)
-        self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
+        # חוסם סיגנלים בזמן האיפוס — resetMapState() ב-JS כבר מנקה את activeNotamCategories דרך
+        # clearAllNotamCategories(), כך שאין צורך (ולא רצוי) שכל תיבת סימון תפעיל שוב toggleNotamCategory
+        for checkbox in self.notam_checkboxes.values():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
         self.uas_coord_button.setChecked(False)
         self.uas_coord_button.setText('🛡️ אזורי תיאום כטב"ם')
         self.heatmap_pick_button.setChecked(False)
@@ -1543,7 +1568,7 @@ class MapApp(QMainWindow):
         if self._map_created:  # אם המפה כבר נוצרה בעבר, יש לשחזר כפתורים שנעלו ע"י stop_servers
             self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
             self.heatmap_button.setEnabled(True)  # שחזור נעילת שכבת חום
-            self.uas_notam_button.setEnabled(True)  # שחזור נעילת שכבת NOTAM רחפנים
+            self.notam_menu_button.setEnabled(True)  # שחזור נעילת תפריט קטגוריות NOTAM
             # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, לא נעלת ע"י stop_servers
             self.opacity_slider.setEnabled(True)  # שחזור נעילת ה-slider
 
@@ -1601,7 +1626,7 @@ class MapApp(QMainWindow):
         self.load_map_button.setEnabled(False)  # נעילת יצירת מפה
         self.Find_a_location.setEnabled(False)  # נעילת דקירת נ.צ
         self.heatmap_button.setEnabled(False)  # נעילת שכבת חום
-        self.uas_notam_button.setEnabled(False)  # נעילת שכבת NOTAM רחפנים
+        self.notam_menu_button.setEnabled(False)  # נעילת תפריט קטגוריות NOTAM
         # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, נשארת פעילה גם כששרתי GeoServer/... כבויים
         self.opacity_slider.setEnabled(False)  # נעילת Slider
         self.show_flight_button.setEnabled(False)  # נעילת כפתור הצגת מסלול
@@ -1771,18 +1796,26 @@ class MapApp(QMainWindow):
             self.log_action("שגיאה בחישוב קו ראייה — בדוק חיבור רשת", is_success=False)
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
         elif title == '__uas_notam_loading__':
-            self.log_action("טוען שכבת NOTAM רחפנים...")
+            self.log_action("טוען נתוני NOTAM...")
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
         elif title.startswith('__uas_notam_loaded__:'):
             count = title[len('__uas_notam_loaded__:'):]
-            self.uas_notam_button.setText("🚁 נקה שכבת רחפנים")
+            self._notam_loaded = True  # תואם ל-uasNotamLoaded ב-JS — הטעינה החד-פעמית הצליחה, אין fetch נוסף מעכשיו
+            for checkbox in self.notam_checkboxes.values():
+                checkbox.setEnabled(True)  # שחרור הנעילה שהוטלה בתחילת הטעינה ב-toggle_notam_category
             self.log_action(
-                f"שכבת NOTAM רחפנים נטענה — {count} אזורים (להימנעות, לא לטיסה חופשית)", is_success=True)
+                f"נתוני NOTAM נטענו — {count} אזורים (להימנעות, לא לטיסה חופשית)", is_success=True)
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__uas_notam_error__':
-            self.uas_notam_button.setChecked(False)
-            self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
-            self.log_action("שגיאה בטעינת שכבת NOTAM רחפנים — בדוק חיבור רשת", is_success=False)
+        elif title.startswith('__uas_notam_error__:'):
+            failed_cat_id = title[len('__uas_notam_error__:'):]  # מזהה הקטגוריה שהטעינה שלה נכשלה — ר' toggleNotamCategory ב-JS
+            checkbox = self.notam_checkboxes.get(failed_cat_id)
+            if checkbox:
+                checkbox.blockSignals(True)  # מונע הפעלה חוזרת של toggle_notam_category בעת ביטול הסימון התכנותי
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+            for cb in self.notam_checkboxes.values():
+                cb.setEnabled(True)  # שחרור הנעילה גם על שאר התיבות, לא רק זו שנכשלה
+            self.log_action("שגיאה בטעינת נתוני NOTAM — בדוק חיבור רשת", is_success=False)
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
 
     def toggle_heatmap(self):
@@ -1851,16 +1884,21 @@ class MapApp(QMainWindow):
             for btn in (self.elev_mode_heat_btn, self.elev_mode_grid_btn, self.elev_mode_dots_btn):
                 btn.setEnabled(False)
 
-    def toggle_uas_notam_layer(self, checked):
-        """ הפעלה/כיבוי שכבת NOTAM רחפנים — אזורי פעילות רחפנים מאושרת של גורמים אחרים
-        (סגורים לתעבורה אחרת עד לגובה מסוים) שנשלפים מ-NOTAM של רשות שדות התעופה —
-        שכבת הימנעות/מודעות, לא "מותר לך לטוס כאן". ר' notam_drones.py. """
-        self.map_view.page().runJavaScript("toggleUasNotamLayer();")
-        if checked:
-            self.uas_notam_button.setText("🚁 טוען...")
+    def toggle_notam_category(self, cat_id, state):
+        """ הפעלה/כיבוי קטגוריית NOTAM בודדת (מתוך 7 — ר' notam_categories.py) בתפריט ה-toolbox.
+        אזורי פעילות/הגבלת טיסה מוכרזים — שכבת הימנעות/מודעות, לא "מותר לך לטוס כאן".
+        הטעינה מהשרת חד-פעמית ומשותפת לכל הקטגוריות (ר' toggleNotamCategory ב-MAP.py). """
+        self.map_view.page().runJavaScript(f"toggleNotamCategory('{cat_id}');")
+        checked = state == Qt.Checked
+        if checked and not self._notam_loaded:
+            # סימון ראשון אי-פעם — מפעיל טעינה מהשרת; נועלים את שאר התיבות עד שהיא מסתיימת
+            # (הצלחה/כישלון) כדי למנוע race condition של כמה סימונים בו-זמנית לפני שהנתונים נטענו
+            for checkbox in self.notam_checkboxes.values():
+                checkbox.setEnabled(False)
+            self.log_action("טוען נתוני NOTAM...")
         else:
-            self.uas_notam_button.setText("🚁 אזורי רחפנים (NOTAM)")
-            self.log_action("שכבת NOTAM רחפנים כובתה")
+            label = self.notam_checkboxes[cat_id].text()  # תווית עברית לתצוגה בלוג, במקום ה-id הטכני
+            self.log_action(f"קטגוריית NOTAM \"{label}\" {'הופעלה' if checked else 'כובתה'}")
 
     def toggle_uas_coord_layer(self, checked):
         """ הפעלה/כיבוי שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים (לא נשלפים בזמן ריצה),

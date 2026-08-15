@@ -6,9 +6,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה לפרופיל ולמפה
-import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
+import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM
 import '../models/uas_coordination_zone.dart'; // מודל אזור תיאום כטב"ם
 import '../data/uas_coordination_zones.dart'; // נתוני אזורי התיאום הסטטיים
+import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../state/map_state.dart';
 import '../widgets/controls_panel.dart';
 
@@ -151,6 +152,22 @@ class _MapScreenState extends State<MapScreen> {
       });
     }
 
+    if (state.notamFitPending) {
+      // בלי זה, אזורי NOTAM קטנים (500 מ'-כמה ק"מ) נראים כנקודה זעירה מתחת לסמן ולא
+      // כפוליגון/מעגל בזום ארצי רגיל — מתאים את התצוגה לגבולות כל האזורים המוצגים כרגע
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final bounds = _notamVisibleBounds(state);
+        if (bounds != null) {
+          _mapController.fitCamera(CameraFit.bounds(
+            bounds: bounds,
+            padding: const EdgeInsets.all(40),
+            maxZoom: 14, // מונע התקרבות מוגזמת כשמוצג רק אזור בודד קטן מאוד
+          ));
+        }
+        state.consumeNotamFit();
+      });
+    }
+
     return Scaffold(
       resizeToAvoidBottomInset: true,
       bottomNavigationBar: BottomAppBar(
@@ -236,7 +253,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ]),
               // ── שכבת "אזורי פעילות רחפנים (NOTAM)" — צורות + סמני פרטים לחיצים ──
-              if (state.uasNotamActive) ..._buildUasNotamLayers(state),
+              if (state.activeNotamCategories.isNotEmpty) ..._buildUasNotamLayers(state),
               // ── שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים, לא תלויים ב-state ──
               if (state.uasCoordActive) ..._buildUasCoordZonesLayers(),
               if (state.flightData != null) ...[
@@ -597,8 +614,8 @@ class _MapScreenState extends State<MapScreen> {
                   const _UasCoordLegend(),
                   const SizedBox(height: 6),
                 ],
-                if (state.uasNotamActive) ...[
-                  const _UasNotamLegend(),
+                if (state.activeNotamCategories.isNotEmpty) ...[
+                  _UasNotamLegend(activeCategories: state.activeNotamCategories),
                   const SizedBox(height: 6),
                 ],
                 const _VlosInfoButton(),
@@ -681,47 +698,99 @@ class _MapScreenState extends State<MapScreen> {
     return layers; // רשימת שכבות לכל הסשנים
   }
 
-  // בונה את שכבות המפה לאזורי NOTAM לרחפנים: צורות (מעגל/פוליגון) כתומות + סמן לחיץ בכל אזור לפתיחת פרטים
+  // גבולות כל אזורי ה-NOTAM המוצגים כרגע (לפי הקטגוריות המסומנות) — לשימוש בהתאמת תצוגת המפה.
+  // מעגלים מקורבים ע"י ניפוח נקודת המרכז ברדיוס (במעלות, גס מספיק למטרת fitBounds בלבד).
+  LatLngBounds? _notamVisibleBounds(MapState state) {
+    final visible = state.uasNotamZones.where((z) => z.categories.any(state.activeNotamCategories.contains));
+    final points = <LatLng>[];
+    for (final z in visible) {
+      if (z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null) {
+        final degDelta = z.radiusM! / 111000; // קירוב גס: 1 מעלה ≈ 111 ק"מ
+        points.add(LatLng(z.center!.latitude - degDelta, z.center!.longitude - degDelta));
+        points.add(LatLng(z.center!.latitude + degDelta, z.center!.longitude + degDelta));
+      } else {
+        points.addAll(z.points);
+      }
+    }
+    if (points.isEmpty) return null;
+    return LatLngBounds.fromPoints(points);
+  }
+
+  // אייקון ייחודי לכל קטגוריה — לזיהוי גם בלי להסתמך רק על צבע (נגישות + הבחנה ברורה יותר בין קטגוריות)
+  static const Map<String, IconData> _notamCategoryIcons = {
+    'prohibited': Icons.block,
+    'restricted': Icons.warning_amber_rounded,
+    'danger': Icons.dangerous,
+    'uas': Icons.flight,
+    'heliport_control': Icons.flight_land,
+    'helicopter': Icons.flight_takeoff,
+    'airport_control': Icons.local_airport,
+  };
+
+  // קטגוריה "ראשית" לצביעה/אייקון — הראשונה בסדר kNotamCategories ששייכת גם לאזור וגם מסומנת כרגע —
+  // תמיד תואמת לאחת הקטגוריות שהמשתמש בפועל סימן, גם כשלאזור יש כמה קטגוריות (למשל UAS+PROHIBITED)
+  NotamCategory _notamZonePrimaryCategory(UasNotamZone z, Set<String> active) {
+    for (final cat in kNotamCategories) {
+      if (z.categories.contains(cat.id) && active.contains(cat.id)) return cat;
+    }
+    return kNotamCategories.first; // לא אמור לקרות בפועל כי השכבה מסוננת מראש לפי active
+  }
+
+  // בונה את שכבות המפה לאזורי NOTAM: צורות (מעגל/פוליגון) צבועות לפי קטגוריה + סמן לחיץ בכל אזור לפתיחת פרטים
   List<Widget> _buildUasNotamLayers(MapState state) {
-    const color = Color(0xFFFAB387); // כתום — מסמן "הימנעות/מודעות", לא ירוק "מותר"
-    final circles = state.uasNotamZones
-        .where((z) => z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null)
-        .map((z) => CircleMarker(
-              point: z.center!,
-              radius: z.radiusM!,
-              useRadiusInMeter: true, // רדיוס אמיתי במטרים, לא פיקסלים — קנה מידה נכון בכל זום
-              color: color.withAlpha(55),
-              borderColor: color,
-              borderStrokeWidth: 2,
-            ))
+    // מסונן לפי הקטגוריות המסומנות כרגע — NOTAM בודד מוצג אם לפחות אחת מהקטגוריות שלו מסומנת
+    final visible = state.uasNotamZones
+        .where((z) => z.categories.any(state.activeNotamCategories.contains))
         .toList();
-    final polygons = state.uasNotamZones
+    final circles = visible
+        .where((z) => z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null)
+        .map((z) {
+          final color = Color(_notamZonePrimaryCategory(z, state.activeNotamCategories).color);
+          return CircleMarker(
+            point: z.center!,
+            radius: z.radiusM!,
+            useRadiusInMeter: true, // רדיוס אמיתי במטרים, לא פיקסלים — קנה מידה נכון בכל זום
+            color: color.withAlpha(90), // מוגבר מ-55 — בולט יותר על רקע המפה
+            borderColor: color,
+            borderStrokeWidth: 3, // מוגבר מ-2
+          );
+        })
+        .toList();
+    final polygons = visible
         .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
-        .map((z) => Polygon(
-              points: z.points,
-              color: color.withAlpha(55),
-              borderColor: color,
-              borderStrokeWidth: 2,
-            ))
+        .map((z) {
+          final color = Color(_notamZonePrimaryCategory(z, state.activeNotamCategories).color);
+          return Polygon(
+            points: z.points,
+            color: color.withAlpha(90),
+            borderColor: color,
+            borderStrokeWidth: 3,
+          );
+        })
         .toList();
     // סמן קטן בכל אזור — הדרך הפשוטה והאמינה ביותר ב-flutter_map לתמוך בלחיצה לפרטים
     // (בניגוד ל-Polygon/CircleMarker שדורשים hit-testing ידני מורכב יותר)
-    final markers = state.uasNotamZones
-        .map((z) => Marker(
-              point: z.anchor,
-              width: 30, height: 30,
-              child: GestureDetector(
-                onTap: () => _showUasNotamDetails(z),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: const Icon(Icons.warning_amber_rounded, size: 16, color: Colors.black87),
+    final markers = visible
+        .map((z) {
+          final cat = _notamZonePrimaryCategory(z, state.activeNotamCategories);
+          final color = Color(cat.color);
+          final icon = _notamCategoryIcons[cat.id] ?? Icons.warning_amber_rounded;
+          return Marker(
+            point: z.anchor,
+            width: 30, height: 30,
+            child: GestureDetector(
+              onTap: () => _showUasNotamDetails(z),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
                 ),
+                child: Icon(icon, size: 16, color: Colors.white), // אייקון שונה לכל קטגוריה — לא רק צבע
               ),
-            ))
+            ),
+          );
+        })
         .toList();
     return [
       if (circles.isNotEmpty) CircleLayer(circles: circles),
@@ -839,6 +908,15 @@ class _MapScreenState extends State<MapScreen> {
 
   // כרטיס פרטים לאזור NOTAM בודד — נפתח בלחיצה על הסמן הכתום
   void _showUasNotamDetails(UasNotamZone z) {
+    // קטגוריה "ראשית" לצביעת האייקון — הראשונה בסדר kNotamCategories ששייכת לאזור (יכול להיות יותר מאחת בפועל)
+    final primaryCat = kNotamCategories.firstWhere(
+      (c) => z.categories.contains(c.id),
+      orElse: () => kNotamCategories.first,
+    );
+    final color = Color(primaryCat.color);
+    final categoryLabels = z.categories
+        .map((id) => kNotamCategories.firstWhere((c) => c.id == id, orElse: () => primaryCat).label)
+        .join(', ');
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
@@ -863,22 +941,24 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
                 Row(children: [
-                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFFAB387)),
+                  Icon(Icons.warning_amber_rounded, color: color),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text('${z.id}  (${z.icao})',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: cs.onSurface)),
                   ),
                 ]),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                Text('קטגוריות: $categoryLabels', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 6),
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFAB387).withAlpha(35),
+                    color: color.withAlpha(35),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    'אזור פעילות רחפנים מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית',
+                    'אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
@@ -1483,11 +1563,14 @@ class _LosProfilePainter extends CustomPainter {
 }
 
 // ── מקרא שכבת NOTAM רחפנים ─────────────────────────────────
+// מקרא דינמי — שורת צבע+תווית לכל קטגוריה שמסומנת כרגע (ולא רשימה קבועה של קטגוריה אחת)
 class _UasNotamLegend extends StatelessWidget {
-  const _UasNotamLegend();
+  const _UasNotamLegend({required this.activeCategories});
+  final Set<String> activeCategories;
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final activeCats = kNotamCategories.where((c) => activeCategories.contains(c.id)).toList();
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Material(
@@ -1502,17 +1585,22 @@ class _UasNotamLegend extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 12, height: 12,
-                    decoration: const BoxDecoration(color: Color(0xFFFAB387), shape: BoxShape.circle),
+                Text('✈ אזורי פעילות טיסה (NOTAM)',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                for (final cat in activeCats)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Container(
+                        width: 12, height: 12,
+                        decoration: BoxDecoration(color: Color(cat.color), shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(cat.label, style: TextStyle(fontSize: 10, color: cs.onSurface)),
+                    ]),
                   ),
-                  const SizedBox(width: 6),
-                  Text('אזורי NOTAM רחפנים',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
-                ]),
                 const SizedBox(height: 2),
-                Text('פעילות מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית',
+                Text('אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית',
                     style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
               ],
             ),

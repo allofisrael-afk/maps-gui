@@ -1,7 +1,8 @@
 import os
-import json  # שימוש יחיד: הזרקת נתוני אזורי התיאום הסטטיים כליטרל JS (ר' בהמשך)
+import json  # הזרקת נתונים סטטיים (אזורי תיאום, קטגוריות NOTAM) כליטרלי JS — ר' בהמשך
 from dotenv import load_dotenv  # טעינת משתני סביבה (נשמר לתאימות עתידית)
 from uas_coordination_zones import UAS_COORDINATION_ZONES  # נתוני "אזורי תיאום כטב"ם" — סטטיים, לא נשלפים בזמן ריצה
+from notam_categories import NOTAM_CATEGORIES  # 7 קטגוריות סיווג NOTAM (id/label/color) — סטטי, ר' notam_categories.py
 
 load_dotenv()
 
@@ -12,8 +13,9 @@ def create_map():
     תומך בעברית מובנית לישראל, heatmap, מסלולי טיסה וסמני מזג אוויר.
     """
     map_file = "map.html"  # שם קובץ הפלט
-    # JSON של אזורי התיאום — מוזרק פעם אחת כליטרל JS קבוע (לא fetch בזמן ריצה, הנתונים סטטיים)
+    # JSON של אזורי התיאום וקטגוריות ה-NOTAM — מוזרקים פעם אחת כליטרלי JS קבועים (לא fetch בזמן ריצה, נתונים סטטיים)
     coord_zones_json = json.dumps(UAS_COORDINATION_ZONES, ensure_ascii=False)
+    notam_categories_json = json.dumps(NOTAM_CATEGORIES, ensure_ascii=False)
 
     with open(map_file, "w", encoding="utf-8") as f:
         f.write(f"""<!DOCTYPE html>
@@ -662,13 +664,30 @@ def create_map():
             if (flightMarker)   {{ flightMarker.remove();   flightMarker   = null; }}
         }}
 
-        // ── שכבת "אזורי פעילות רחפנים (NOTAM)" ──
-        // חשוב: אלה אזורים שבהם *מישהו אחר* קיבל אישור לפעילות רחפנים, והמרחב סגור
-        // לתעבורה אחרת עד לגובה מסוים — שכבת הימנעות/מודעות, לא "מותר לך לטוס כאן".
-        // ר' notam_drones.py לפרטי המקור (NOTAM של רשות שדות התעופה, מסונן ל-UAS/UAV).
-        var uasNotamLayer  = null;   // L.layerGroup עם כל צורות ה-NOTAM הפעילות
-        var uasNotamActive = false;
-        var uasNotamLegendControl = null;  // תיבת מקרא — מתווספת/מוסרת יחד עם השכבה עצמה
+        // ── שכבת "אזורי פעילות טיסה (NOTAM)" — 7 קטגוריות, בהשראת מסך השכבות של DronesIL ──
+        // חשוב: אלה אזורים שבהם *מישהו אחר* קיבל אישור/פעילות מוכרזת, והמרחב סגור/מוגבל
+        // לתעבורה אחרת — שכבת הימנעות/מודעות, לא "מותר לך לטוס כאן". NOTAM בודד עשוי
+        // להתאים ליותר מקטגוריה אחת (למשל "UAS PROHIBITED"). ר' notam_drones.py לפרטי
+        // המקור ו-notam_categories.py לרשימת הקטגוריות (id/תווית/צבע).
+        var NOTAM_CATEGORIES = {notam_categories_json};  // הזרקה סטטית — נתון קבוע, לא fetch בזמן ריצה
+        var uasNotamZones     = [];     // המידע הגולמי מהשרת — נטען פעם אחת, משותף לכל 7 הקטגוריות
+        var uasNotamLoaded    = false;  // האם הטעינה הראשונית הסתיימה בהצלחה
+        var activeNotamCategories = new Set();  // אילו id-ים של קטגוריות מסומנים כרגע (מתיבות הסימון ב-toolbox)
+        var uasNotamLayer  = null;   // L.layerGroup עם כל צורות ה-NOTAM הפעילות כרגע
+        var uasNotamLegendControl = null;  // תיבת מקרא — מוצגת רק כשיש לפחות קטגוריה אחת פעילה
+
+        function _notamCategoryById(id) {{
+            // חיפוש רשומת קטגוריה לפי id — נעשה בלולאה כי NOTAM_CATEGORIES קטן (7 איברים), אין צורך ב-Map
+            for (var i = 0; i < NOTAM_CATEGORIES.length; i++) {{
+                if (NOTAM_CATEGORIES[i].id === id) return NOTAM_CATEGORIES[i];
+            }}
+            return null;
+        }}
+
+        function _escHtml(s) {{
+            // מונע HTML injection דרך טקסט ה-NOTAM (גם אם המקור ממשלתי — הגנה בכל מקרה) בטרם הכנסה ל-innerHTML של הפופאפ
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }}
 
         var UasNotamLegend = L.Control.extend({{
             options: {{ position: 'bottomleft' }},
@@ -677,61 +696,82 @@ def create_map():
                 d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
                     + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
                     + 'direction:rtl;max-width:230px;';
+                var rows = '';  // שורת צבע+תווית לכל קטגוריה שמסומנת כרגע — מקרא דינמי, לא קבוע
+                activeNotamCategories.forEach(function(id) {{
+                    var cat = _notamCategoryById(id);
+                    if (!cat) return;
+                    rows += '<div style="display:flex;align-items:center;gap:6px;margin-top:2px;">'
+                        + '<span style="display:inline-block;width:12px;height:12px;background:' + cat.color + ';'
+                        + 'border-radius:3px;flex-shrink:0;"></span><span>' + _escHtml(cat.label) + '</span></div>';
+                }});
                 d.innerHTML =
-                    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
-                    + '<span style="display:inline-block;width:14px;height:14px;background:#fab387;'
-                    + 'border-radius:3px;flex-shrink:0;"></span>'
-                    + '<b>&#128257; אזורי פעילות רחפנים (NOTAM)</b></div>'
-                    + '<div style="color:#a6adc8;">אזור פעילות מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית. לחץ על צורה לפרטים.</div>';
+                    '<div style="font-weight:bold;">&#9992; אזורי פעילות טיסה (NOTAM)</div>'
+                    + rows
+                    + '<div style="color:#a6adc8;margin-top:4px;">אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית. לחץ על צורה לפרטים.</div>';
                 return d;
             }}
         }});
 
-        function toggleUasNotamLayer() {{
-            if (uasNotamActive) {{  // כבר טעונה — לחיצה שנייה מכבה במקום לטעון שוב
-                clearUasNotamLayer();
+        // הפעלה/כיבוי קטגוריה בודדת — הטעינה מהשרת חד-פעמית ומשותפת לכל 7 הקטגוריות (לא נטען מחדש בכל תיבת-סימון)
+        function toggleNotamCategory(catId) {{
+            if (!uasNotamLoaded) {{
+                document.title = '__uas_notam_loading__';  // איתות ל-Python (main.py) שהטעינה החלה — נתפס ב-_on_title_changed
+                fetch('http://localhost:5003/uas_notams')
+                    .then(function(r) {{
+                        if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
+                        return r.json();
+                    }})
+                    .then(function(data) {{
+                        if (data.error && (!data.zones || !data.zones.length)) {{  // שגיאה בלי אפילו cache ישן — אין מה להציג
+                            throw new Error(data.error);
+                        }}
+                        uasNotamZones  = data.zones || [];
+                        uasNotamLoaded = true;
+                        activeNotamCategories.add(catId);  // הקטגוריה שסומנה ברגע שהפעילה את הטעינה
+                        _redrawNotamLayer();
+                        document.title = '__uas_notam_loaded__:' + uasNotamZones.length;  // מספר האזורים מוטמע בכותרת עצמה
+                    }})
+                    .catch(function(err) {{
+                        console.error('שגיאת שכבת NOTAM:', err);
+                        document.title = '__uas_notam_error__:' + catId;  // מזהה הקטגוריה שנכשלה — כדי שרק תיבת הסימון שלה תוחזר ללא-מסומן
+                    }});
                 return;
             }}
-            document.title = '__uas_notam_loading__';  // איתות ל-Python (main.py) שהטעינה החלה — נתפס ב-_on_title_changed
-            fetch('http://localhost:5003/uas_notams')
-                .then(function(r) {{
-                    if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
-                    return r.json();
-                }})
-                .then(function(data) {{
-                    if (data.error && (!data.zones || !data.zones.length)) {{  // שגיאה בלי אפילו cache ישן — אין מה להציג
-                        throw new Error(data.error);
-                    }}
-                    _drawUasNotamZones(data.zones || []);
-                    uasNotamActive = true;
-                    document.title = '__uas_notam_loaded__:' + (data.zones ? data.zones.length : 0);  // מספר האזורים מוטמע בכותרת עצמה
-                }})
-                .catch(function(err) {{
-                    console.error('שגיאת שכבת NOTAM רחפנים:', err);
-                    document.title = '__uas_notam_error__';
-                }});
+            // כבר נטען בעבר — toggle סינכרוני בלבד, בלי בקשת רשת נוספת
+            if (activeNotamCategories.has(catId)) {{ activeNotamCategories.delete(catId); }}
+            else {{ activeNotamCategories.add(catId); }}
+            _redrawNotamLayer();
         }}
 
-        function _escHtml(s) {{
-            // מונע HTML injection דרך טקסט ה-NOTAM (גם אם המקור ממשלתי — הגנה בכל מקרה) בטרם הכנסה ל-innerHTML של הפופאפ
-            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }}
-
-        function _drawUasNotamZones(zones) {{
-            clearUasNotamLayer();  // מנקה ציור קודם לפני ציור מחדש — מונע כפילות שכבות
-            var shapes = zones.map(function(z) {{
-                var style = {{ color: '#fab387', weight: 2, fillColor: '#fab387', fillOpacity: 0.22 }};
+        function _redrawNotamLayer() {{
+            clearUasNotamLayer();  // מנקה ציור/מקרא קודמים לפני ציור מחדש — מונע כפילות שכבות
+            if (activeNotamCategories.size === 0) return;  // אין קטגוריה מסומנת — אין מה לצייר
+            var visible = uasNotamZones.filter(function(z) {{
+                return z.categories.some(function(c) {{ return activeNotamCategories.has(c); }});  // תואם לפחות קטגוריה אחת מסומנת
+            }});
+            var shapes = visible.map(function(z) {{
+                // צביעה לפי הקטגוריה הראשונה (בסדר NOTAM_CATEGORIES) ששייכת גם לאזור וגם מסומנת כרגע
+                var primaryCat = NOTAM_CATEGORIES.filter(function(c) {{
+                    return z.categories.indexOf(c.id) !== -1 && activeNotamCategories.has(c.id);
+                }})[0];
+                var color = primaryCat ? primaryCat.color : '#fab387';
+                var style = {{ color: color, weight: 3, fillColor: color, fillOpacity: 0.4 }};  // weight/fillOpacity מוגברים — בולט יותר על רקע המפה הכהה
                 var shape;
                 if (z.geometry.type === 'circle') {{
                     shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));  // מעגל: "X NM RADIUS CENTERED ON PSN"
                 }} else {{
                     shape = L.polygon(z.geometry.points, style);  // פוליגון: "AN AREA BTN FLW PSN" עם 3+ קואורדינטות
                 }}
+                var catLabels = z.categories.map(function(id) {{
+                    var c = _notamCategoryById(id);
+                    return c ? c.label : id;
+                }}).join(', ');
                 var popup =
                     '<div style="direction:rtl;font-family:Arial;font-size:13px;max-width:280px;">' +
-                    '<div style="font-size:14px;font-weight:bold;margin-bottom:4px;color:#fab387;">&#128257; ' + _escHtml(z.id) + ' (' + _escHtml(z.icao) + ')</div>' +
-                    '<div style="background:rgba(250,179,135,0.15);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
-                    '&#9888; אזור פעילות רחפנים מאושרת של גורם אחר — להימנעות, לא לטיסה חופשית</div>' +
+                    '<div style="font-size:14px;font-weight:bold;margin-bottom:4px;color:' + color + ';">&#9992; ' + _escHtml(z.id) + ' (' + _escHtml(z.icao) + ')</div>' +
+                    '<div style="font-size:11px;color:#a6adc8;margin-bottom:4px;"><b>קטגוריות:</b> ' + _escHtml(catLabels) + '</div>' +
+                    '<div style="background:rgba(0,0,0,0.18);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
+                    '&#9888; אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית</div>' +
                     (z.altitude_text ? '<div><b>גובה:</b> ' + _escHtml(z.altitude_text) + '</div>' : '') +
                     (z.hebrew_gloss ?
                         '<div style="background:rgba(99,102,241,0.12);border-radius:4px;padding:4px 6px;margin-top:6px;font-size:11px;">' +
@@ -744,15 +784,24 @@ def create_map():
                 return shape;
             }});
             uasNotamLayer = L.layerGroup(shapes).addTo(map);
-            if (!uasNotamLegendControl) {{  // מונע הוספת תיבת מקרא כפולה אם הפונקציה נקראת שוב בזמן שהשכבה כבר פעילה
-                uasNotamLegendControl = new UasNotamLegend().addTo(map);
+            uasNotamLegendControl = new UasNotamLegend().addTo(map);
+            // התאמת תצוגת המפה לאזורים שהוצגו — בלי זה, אזורים קטנים (500 מ'-כמה ק"מ) נראים
+            // כנקודה זעירה ולא כפוליגון/מעגל בזום ארצי רגיל. maxZoom מונע התקרבות מוגזמת כשמוצג רק אזור בודד קטן.
+            if (shapes.length > 0) {{
+                map.fitBounds(uasNotamLayer.getBounds(), {{ padding: [40, 40], maxZoom: 14 }});
             }}
         }}
 
         function clearUasNotamLayer() {{
+            // מנקה רק את הציור/המקרא — לא נוגע ב-activeNotamCategories (שימוש ב-_redrawNotamLayer/מצב תיבות סימון)
             if (uasNotamLayer) {{ map.removeLayer(uasNotamLayer); uasNotamLayer = null; }}
             if (uasNotamLegendControl) {{ map.removeControl(uasNotamLegendControl); uasNotamLegendControl = null; }}
-            uasNotamActive = false;
+        }}
+
+        function clearAllNotamCategories() {{
+            // איפוס מלא — כולל בחירת הקטגוריות עצמה, לא רק הציור. נקרא מ-resetMapState (איפוס מפה מלא)
+            activeNotamCategories.clear();
+            clearUasNotamLayer();
         }}
 
         // ── שכבת "אזורי תיאום כטב"ם" ──
@@ -828,7 +877,7 @@ def create_map():
         // ── איפוס מצב המפה ──
         function resetMapState() {{
             clearFlightRoute();
-            clearUasNotamLayer();
+            clearAllNotamCategories();  // מנקה גם את בחירת קטגוריות ה-NOTAM עצמה, לא רק את הציור (ר' clearUasNotamLayer)
             clearUasCoordZonesLayer();
             clearTempHeatmap();
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות
