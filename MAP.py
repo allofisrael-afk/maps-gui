@@ -642,13 +642,59 @@ def create_map():
             return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }}
 
+        // מצב תצוגה (מצומצם/מורחב) של כל מקרא — משתנה גלובלי כדי שהבחירה של המשתמש תישרד
+        // ציור מחדש של השכבה (למשל toggle של קטגוריית NOTAM נוספת יוצר מחדש את ה-Control).
+        var notamLegendExpanded = false;    // מצב מקרא ה-NOTAM — מצומצם כברירת מחדל, לא חוסם את המפה
+        var uasCoordLegendExpanded = false; // מצב מקרא אזורי התיאום — מצומצם כברירת מחדל
+
+        // יוצר div של מקרא הניתן לצמצום לסמל עגול קטן — משותף לשני מקראות השכבות (NOTAM/תיאום).
+        // getExpanded/setExpanded הן פונקציות-גישה למשתנה הגלובלי הספציפי של המקרא הזה, כדי
+        // שהמצב המורחב/מצומצם ישרוד ציור מחדש (redraw) של השכבה עצמה.
+        function _makeCollapsibleLegend(iconHtml, bodyHtml, getExpanded, setExpanded) {{
+            var d = L.DomUtil.create('div', '');  // אלמנט ה-div שישמש את ה-Control של Leaflet
+            L.DomEvent.disableClickPropagation(d);  // מונע ממחוות עכבר/מגע על המקרא להגיע גם למפה עצמה (כלים אחרים כמו סרגל/הצבת נקודה)
+
+            function render() {{  // בונה מחדש רק את התוכן/עיצוב של ה-div לפי המצב — לא נוגע במאזיני האירועים כלל
+                if (getExpanded()) {{
+                    // מצב מורחב — תיבה עם התוכן המלא וכפתור X לצמצום
+                    d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
+                        + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
+                        + 'direction:rtl;max-width:230px;cursor:default;';
+                    d.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">'
+                        + '<div style="flex:1;">' + bodyHtml + '</div>'
+                        + '<span class="_legendCollapseBtn" style="cursor:pointer;opacity:.65;font-size:13px;flex-shrink:0;">&#10005;</span>'
+                        + '</div>';
+                }} else {{
+                    // מצב מצומצם — עיגול קטן בלבד, לא חוסם את תצוגת המפה
+                    d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;width:30px;height:30px;'
+                        + 'border-radius:50%;border:1px solid #45475a;display:flex;align-items:center;'
+                        + 'justify-content:center;font-size:15px;cursor:pointer;';
+                    d.innerHTML = iconHtml;
+                }}
+            }}
+
+            // מאזין יציב יחיד על d עצמו, נרשם פעם אחת בלבד (לא בתוך render) — קורא את המצב
+            // הנוכחי בזמן הלחיצה עצמה, במקום להחליף מאזינים בכל render. הגישה הקודמת (קביעת
+            // d.onclick/span.onclick מחדש בכל render) יצרה מירוץ: שינוי ה-DOM וההאזנות באמצע
+            // הפצת (dispatch) אותה לחיצה עצמה גרם ללחיצה אחת להתפרש כפתיחה-וסגירה גם יחד,
+            // ולעיתים "לדלוף" למפה (הצבת נקודה). setTimeout דוחה את השינוי בפועל לטיק הבא,
+            // אחרי שהלחיצה הנוכחית סיימה להיות מטופלת במלואה על ידי הדפדפן.
+            d.addEventListener('click', function(evt) {{
+                L.DomEvent.stopPropagation(evt);  // הגנה מפורשת נוספת, מעבר ל-disableClickPropagation
+                var expanded = getExpanded();  // המצב הנוכחי ברגע הלחיצה עצמה, לא ברגע רישום המאזין
+                var clickedCollapseBtn = evt.target && evt.target.classList && evt.target.classList.contains('_legendCollapseBtn');
+                if (expanded && !clickedCollapseBtn) return;  // לחיצה בתוך התוכן המורחב (לא על כפתור ה-X) — לא עושה כלום
+                setExpanded(!expanded);  // הופך את המצב: פותח אם היה סגור, סוגר אם היה פתוח
+                setTimeout(render, 0);  // עדכון התצוגה בפועל בטיק הבא — לא באמצע הפצת הלחיצה הנוכחית
+            }});
+
+            render();  // בנייה ראשונית לפי המצב הנוכחי (מצומצם כברירת מחדל)
+            return d;
+        }}
+
         var UasNotamLegend = L.Control.extend({{
             options: {{ position: 'bottomleft' }},
             onAdd: function() {{
-                var d = L.DomUtil.create('div', '');
-                d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
-                    + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
-                    + 'direction:rtl;max-width:230px;';
                 var rows = '';  // שורת צבע+תווית לכל קטגוריה שמסומנת כרגע — מקרא דינמי, לא קבוע
                 activeNotamCategories.forEach(function(id) {{
                     var cat = _notamCategoryById(id);
@@ -657,11 +703,13 @@ def create_map():
                         + '<span style="display:inline-block;width:12px;height:12px;background:' + cat.color + ';'
                         + 'border-radius:3px;flex-shrink:0;"></span><span>' + _escHtml(cat.label) + '</span></div>';
                 }});
-                d.innerHTML =
+                var bodyHtml =
                     '<div style="font-weight:bold;">&#9992; אזורי פעילות טיסה (NOTAM)</div>'
                     + rows
                     + '<div style="color:#a6adc8;margin-top:4px;">אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית. לחץ על צורה לפרטים.</div>';
-                return d;
+                return _makeCollapsibleLegend('&#9992;', bodyHtml,  // סמל מטוס לעיגול המצומצם
+                    function() {{ return notamLegendExpanded; }},
+                    function(v) {{ notamLegendExpanded = v; }});
             }}
         }});
 
@@ -770,17 +818,15 @@ def create_map():
         var UasCoordLegend = L.Control.extend({{
             options: {{ position: 'bottomleft' }},
             onAdd: function() {{
-                var d = L.DomUtil.create('div', '');
-                d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;padding:6px 10px;'
-                    + 'border-radius:7px;font-size:11px;font-family:Arial;border:1px solid #45475a;'
-                    + 'direction:rtl;max-width:230px;';
-                d.innerHTML =
+                var bodyHtml =
                     '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
                     + '<span style="display:inline-block;width:14px;height:14px;background:#6366f1;'
                     + 'border-radius:3px;flex-shrink:0;"></span>'
                     + '<b>&#128737; אזורי תיאום כטב"ם — דורש אישור נת"א</b></div>'
                     + '<div style="color:#a6adc8;">כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א הרלוונטית — לא אזור חופשי לטיסה. לחץ על צורה לפרטים.</div>';
-                return d;
+                return _makeCollapsibleLegend('&#128737;', bodyHtml,  // סמל מגן לעיגול המצומצם
+                    function() {{ return uasCoordLegendExpanded; }},
+                    function(v) {{ uasCoordLegendExpanded = v; }});
             }}
         }});
 

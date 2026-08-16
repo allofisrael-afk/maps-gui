@@ -90,8 +90,12 @@ class MapState extends ChangeNotifier {
   bool locationLoading = false;
   String? locationError;
 
-  Future<void> goToMyLocation() async {
+  // מחזיר את הקואורדינטה שנמצאה (או null בכישלון) — כדי שהקורא (למשל שדות LAT/LON
+  // בפאנל המיקום) יוכל להציג אותה ישירות, בלי תלות בטריגר lastPinnedPoint המשותף
+  // (שגם דקירה ידנית מפעילה, ונצרך/מתאפס בנפרד ע"י map_screen.dart לצורך קפיצת מצלמה).
+  Future<LatLng?> goToMyLocation() async {
     locationLoading = true; locationError = null; notifyListeners();
+    LatLng? result; // הערך שיוחזר לקורא — נשאר null אם קרתה שגיאה
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) throw Exception('שירות המיקום כבוי במכשיר');
@@ -102,11 +106,13 @@ class MapState extends ChangeNotifier {
       }
       if (perm == LocationPermission.deniedForever) throw Exception('הרשאת מיקום חסומה — אפשר בהגדרות');
       final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
-      pinCoordinate(pos.latitude, pos.longitude);
+      pinCoordinate(pos.latitude, pos.longitude); // מוסיף סיכה על המפה ומפעיל קפיצת מצלמה, כרגיל
+      result = LatLng(pos.latitude, pos.longitude); // נשמר להחזרה — עותק עצמאי, לא מושפע מצריכת lastPinnedPoint
     } catch (e) {
       locationError = e.toString().replaceFirst('Exception: ', '');
     }
     locationLoading = false; notifyListeners();
+    return result;
   }
 
   // Flight
@@ -456,5 +462,32 @@ class MapState extends ChangeNotifier {
   void toggleUasCoordZonesLayer() {
     uasCoordActive = !uasCoordActive;
     notifyListeners();
+  }
+
+  // ── איפוס מפה מלא ─────────────────────────────────────────────────────────
+  // מקביל ל-resetMapState() בגרסת הדסקטופ — מנקה את כל השכבות/הכלים/הסימונים
+  // הפעילים ומחזיר את המצלמה למרכז ברירת המחדל. לא נוגע בהיסטוריית החיפוש
+  // השמורה (citySearchHistory/flightHistory) — זו העדפת משתמש, לא מצב מפה.
+  LatLng? resetFocusPoint; // טריגר חד-פעמי לקפיצת מצלמה בעת איפוס — נצרך ונמחק ע"י map_screen.dart
+  void consumeResetFocus() { resetFocusPoint = null; } // מסמן שהקפיצה כבר בוצעה, מונע קפיצה חוזרת ברינדור הבא
+
+  void resetMap() {
+    selectionStart = null; selectionEnd = null; // ביטול בחירת אזור פעילה (גבהים/טמפרטורה)
+    elevPoints = []; elevHeatBytes = null; elevError = null; // ניקוי שכבת גבהים שנטענה
+    tempPoints = []; tempHeatBytes = null; tempError = null; // ניקוי שכבת טמפרטורה שנטענה
+    activeLayer = LayerType.none; // אין יותר שכבת גבהים/טמפרטורה מוצגת
+    manualHeatMode = false; // כיבוי מצב בחירת נקודות חום ידנית
+    manualHeatPoints = []; manualHeatImageBytes = null; manualHeatBounds = null; // ניקוי נקודות החום הידניות שסומנו
+    tappedElevPoint = null; tappedElevLatLng = null; // סגירת כרטיס גובה פתוח, אם קיים
+    weatherData = null; weatherPoint = null; // סגירת כרטיס מזג אוויר פתוח, אם קיים
+    rulerMode = false; rulerPoints = []; rulerTotalMeters = 0; // כיבוי כלי המדידה וניקוי הנקודות שסומנו
+    losMode = false; losSessions = []; losCurObs = null; losError = null; // כיבוי מצב LOS וניקוי כל סשני קו הראייה
+    activeNotamCategories = {}; // ביטול סימון קטגוריות NOTAM — המטמון (uasNotamZones) נשאר כדי שלא יידרש fetch חוזר בהפעלה הבאה
+    uasCoordActive = false; // כיבוי שכבת אזורי התיאום
+    flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
+    pinnedPoints = []; lastPinnedPoint = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
+    cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת
+    resetFocusPoint = const LatLng(31.5, 34.9); // אותה נקודת פתיחה כמו initialCenter ב-map_screen.dart — מחזיר את המצלמה למרכז
+    notifyListeners(); // עדכון כל ה-widgets שמאזינים ל-state בבת אחת
   }
 }

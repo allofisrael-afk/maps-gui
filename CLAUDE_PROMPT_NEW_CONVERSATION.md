@@ -27,11 +27,25 @@ d:\PY-IS\maps-gui\
 הפרויקט מורכב משני חלקים עצמאיים (לא חולקים קוד ביניהם):
 
 **1. Desktop (Python 3.14, PyQt5) — `d:\PY-IS\maps-gui\`**
-- `main.py` — GUI ראשי, QWebEngineView + Leaflet.js, ניהול 3 תהליכי Flask כ-subprocess, ודשבורד מעקב תהליכים נפרד (`ProcessDashboard` + `MetricsWorker` — thread נפרד למניעת הקפאת ה-GUI)
-- `MAP.py` — גנרטור `map.html`: heatmap, שכבות גבהים/טמפרטורה (heat/grid/dots + tooltip בהעברת עכבר), מסלולי טיסה, כלי מדידת מרחק (Ruler), קו ראייה (LOS) עם פאנל פרופיל גובה
-- `apipyqt.py` — קוד legacy, **לא בשימוש בפועל** ע"י `main.py` (הוא עושה קריאות `requests` ישירות)
-- `metrics.py` — מודול משותף שמוסיף `GET /metrics` לכל שרת Flask (ספירת קריאות/שגיאות/latency), נצרך ע"י הדשבורד
-- שרתי Flask: `geo_server.py` (5003), `weather_server.py` (5002 — מכיל גם `/elevation`, `/temp_grid`, `/los`), `flight_server.py` (5004)
+
+*אפליקציה + generator:*
+- `main.py` — GUI ראשי, QWebEngineView + Leaflet.js, ניהול 3 תהליכי Flask כ-subprocess, ודשבורד מעקב תהליכים נפרד (`ProcessDashboard` + `MetricsWorker`/`HealthCheckWorker`/`SecurityCheckWorker` — כל אחד ב-thread נפרד למניעת הקפאת ה-GUI). קריאות רשת חוסמות (מזג אוויר/טיסות) גם הן על thread נפרד — `WeatherFetchWorker`/`FlightFetchWorker`.
+- `MAP.py` — גנרטור `map.html` (f-string אחד ענק, ~1750 שורות): heatmap, שכבות גבהים/טמפרטורה (heat/grid/dots + tooltip), מסלולי טיסה, ruler, LOS עם פאנל פרופיל גובה, 7 קטגוריות NOTAM, אזורי תיאום כטב"ם. **זהירות בעריכה:** שגיאת escaping יחידה (למשל `\n` במקום `\\n` בתוך f-string) שוברת את כל תג ה-`<script>` ביחד — כל שינוי דורש רגנרציה (`python -c "import MAP; MAP.create_map()"`) ובדיקה.
+
+*תשתית משותפת:*
+- `ports.py` — קבועי `GEO_PORT`/`WEATHER_PORT`/`FLIGHT_PORT` (מקור אמת יחיד, נצרך ע"י `main.py`, שלושת השרתים, `test_requests.py`, `security_checks.py`)
+- `server_common.py` — `create_app(name)` — Flask app אחיד (.env/logging/CORS/`/metrics`) לשלושת השרתים
+- `metrics.py` — `register_metrics(app)`, נצרך ע"י `server_common.py`
+- `security_types.py` — `SecurityFinding` (dataclass) בלבד — קיים כדי ש-`security_checks.py` ו-`cis_checks.py` לא ייבאו זה מזה במעגל
+
+*שרתי Flask:* `geo_server.py` (5003 — geocoding + NOTAM כטב"ם), `weather_server.py` (5002 — גם `/elevation`, `/temp_grid`, `/los`), `flight_server.py` (5004 — מסלולי טיסה דרך FlightRadar24)
+
+*נתונים/עזר:* `notam_categories.py` (7 קטגוריות סיווג — מקור אמת גם ל-`MAP.py`), `notam_drones.py` (שליפה/פרסור/cache NOTAM כטב"ם מ-brin.iaa.gov.il), `uas_coordination_zones.py` (אזורי תיאום סטטיים), `icao_glossary.py` (גלוסר עברי גס ל-ICAO)
+
+*בדיקות/אבטחה:* `test_requests.py` (health checks לשלושת השרתים + עומס), `security_checks.py` (debug console/סודות/CORS/CVEs/APK), `cis_checks.py` (25 בדיקות הקשחת Windows CIS L1/L2 דרך registry/PowerShell)
+
+*הוסרו לגמרי (קוד מת מאומת — היה קיים בעבר, נמחק):* `apipyqt.py`, `weather_tool.py`, `heatmap_layer.py` — ואם אתה רואה אזכור שלהם במקום אחר, זה מיושן.
+
 - **סביבה:** `.venv/` (Python 3.14, נוצר עם `virtualenv` — לא stdlib `venv`!). `.venv/Scripts/python.exe` הוא launcher stub שמבצע re-exec לתהליך האמיתי; Flask עם `debug=True` מוסיף עוד שכבת reloader — כל שרת הוא בפועל שרשרת של 2-4 תהליכי OS. **חובה** להשתמש ב-`sys.executable` (לא `"python"` גולמי) בכל `subprocess.Popen`, ולעצור/למדוד תהליכים דרך כל העץ (`psutil` + `children(recursive=True)`) ולא רק ה-PID השמור — אחרת תהליכים נשארים תקועים ותופסים פורטים אחרי "עצירה".
 
 **2. Android (Flutter)**
@@ -105,9 +119,10 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 7. **http package בלבד** — לא dio
 8. **Java 17** — `JavaVersion.VERSION_17` ב-build.gradle.kts
 9. **אל תוסיף פיצ'רים שלא ביקשתי**
-10. **אל תוסיף הערות לקוד** אלא אם ה-WHY אינו ברור כלל
-11. **אחרי כל שינוי לאנדרואיד** — ייצר APK חדש (ותמיד ערוך ב-`maps-gui-android-src\`, לא ב-`maps-gui-android\`)
+10. **כל שורה שאתה מתקן או מוסיף — חייבת הערה שמסבירה מה השורה עושה** (לא רק WHY לא-ברור — גם WHAT). זה חלק מתהליך הלמידה של המשתמש, וזה דורס את ברירת המחדל הרגילה של "בלי הערות"
+11. **תמיד ערוך רק ב-`maps-gui-android-src\`, אף פעם ב-`maps-gui-android\`** — ובנה APK **רק** דרך `build_apk.ps1`. **אל תבנה APK אוטומטית אחרי שינוי** — רק כשהמשתמש מבקש זאת במפורש, בכל פעם מחדש (אישור קודם לא תקף לשינוי הבא)
 12. **הפרויקט כן ב-git** — `origin/main` על GitHub. אל תדחוף בלי אישור מפורש בכל פעם, ואל תעשה force-push
+13. **עדכן תמיד את `MAPS-GUI_README.md` ו-`MAPS-GUI_SRS.md`** — על כל שינוי בקוד (פיצ'ר/באג/ריפקטור/קובץ שנוסף-נמחק), לפני שהשינוי נחשב "הושלם" — לא רק כשמתבקש במפורש
 
 ### ⚡ אילוצים טכניים ידועים
 - FlightRadar24 חוסם Cloudflare — לכן יש 3 שלבי fallback (Android) / אימות מדורג עם FR24_TOKEN קודם (Desktop)
@@ -119,7 +134,7 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 
 ---
 
-### 📍 מצב נוכחי (07/08/2026)
+### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:
 - [x] מפה (OSM / ESRI Satellite / CartoDB Dark) — Dropdown selector
 - [x] שכבת גבהים — heat / grid / dots
@@ -140,6 +155,8 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 פיצ'רים פעילים ב-**Desktop**:
 - [x] כל הנ"ל (במימוש Leaflet.js/JS נפרד, ללא שיתוף קוד עם Android)
 - [x] דשבורד מעקב תהליכים (`📊 דשבורד תהליכים`) — סטטוס/PID/uptime/CPU/RAM לכל שרת, מטריקות קריאות API, יומן חי
+
+**תוכנית שיפור קוד רב-שלבית (בוצעה 16/08/2026):** שלבים 1-4 הושלמו — תיקוני באגים, קריאות רשת ל-thread נפרד, צמצום כפילות קוד (Python+Dart), תשתית משותפת (`ports.py`/`server_common.py`/`security_types.py`) + מחיקת קוד מת. **שלב 5** (פיצול קבצים גדולים — `MAP.py`/`map_screen.dart`/`map_state.dart`) **דולג במפורש לפי בקשה** — אל תציע לפצל את הקבצים האלה בלי לשאול קודם. שלבים 6-8 (ביצועים/UX/כיסוי בדיקות) עדיין לא בוצעו.
 
 **מסמכים מלאים לפירוט נוסף:** `MAPS-GUI_README.md`, `MAPS-GUI_SRS.md` (כולל רשימת קוד מת/פערים ידועים).
 

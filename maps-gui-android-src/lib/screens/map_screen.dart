@@ -64,6 +64,23 @@ class _MapScreenState extends State<MapScreen> {
     return result ?? false;
   }
 
+  // דיאלוג אישור לפני איפוס מפה מלא — פעולה הרסנית (מוחקת את כל השכבות/הכלים הפעילים),
+  // אז דורשת אישור מפורש בדיוק כמו _confirmNewSelection למעלה.
+  Future<bool> _confirmReset(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('איפוס מפה', textDirection: TextDirection.rtl),
+        content: const Text('כל השכבות, הסימונים והכלים הפעילים יימחקו.\nלהמשיך?', textDirection: TextDirection.rtl),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ביטול')), // ביטול — לא עושה כלום
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('אפס')), // אישור — ממשיך לאיפוס בפועל
+        ],
+      ),
+    );
+    return result ?? false; // סגירת הדיאלוג בלי בחירה (למשל לחיצה מחוץ לו) נחשבת ביטול
+  }
+
   void _dragHandle(int handleIdx, Offset globalPos, MapState state) {
     final pt = _globalToLatLng(globalPos);
     if (pt == null) return;
@@ -149,6 +166,14 @@ class _MapScreenState extends State<MapScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapController.move(state.cityFocusPoint!, 12);
         state.consumeCityFocus();
+      });
+    }
+
+    if (state.resetFocusPoint != null) {
+      // איפוס מפה בוצע — מחזיר את המצלמה למרכז ברירת המחדל, באותו דפוס כמו שאר טריגרי הקפיצה
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(state.resetFocusPoint!, 7); // אותו zoom כמו initialZoom בפתיחת האפליקציה
+        state.consumeResetFocus(); // מסמן שהקפיצה בוצעה, מונע קפיצה חוזרת ברינדור הבא
       });
     }
 
@@ -282,6 +307,15 @@ class _MapScreenState extends State<MapScreen> {
                     child: const Icon(Icons.place, color: Color(0xFFf38ba8), size: 28),
                   )).toList(),
                 ),
+              // סמן על נקודת הלחיצה למזג אוויר — היה חסר: הכרטיס נפתח בלי שום סימון חזותי על המפה עצמה
+              if (state.weatherPoint != null)
+                MarkerLayer(markers: [
+                  Marker(
+                    point: state.weatherPoint!, // נקודת הלחיצה ששלפה את מזג האוויר
+                    width: 30, height: 30, // אותו גודל כמו שאר הסמנים במפה, לעקביות
+                    child: const Icon(Icons.location_on, color: Color(0xFFf9e2af), size: 28), // צהוב — מבדיל מהסיכות הידניות (ורוד) ומהגובה
+                  ),
+                ]),
               if (state.rulerPoints.length >= 2)
                 PolylineLayer(polylines: [
                   Polyline(
@@ -412,6 +446,17 @@ class _MapScreenState extends State<MapScreen> {
                             ),
                           );
                         }
+                      },
+                    ),
+                    // כפתור איפוס מפה — מנקה את כל השכבות/הכלים/הסימונים ומחזיר למרכז ברירת המחדל
+                    IconButton(
+                      tooltip: 'איפוס מפה',
+                      icon: Icon(Icons.restart_alt, color: cs.onSurface), // אייקון "התחל מחדש" סטנדרטי, מזוהה מיד
+                      onPressed: () async {
+                        final ok = await _confirmReset(context); // פעולה הרסנית — דורשת אישור מפורש קודם
+                        if (!ok || !mounted) return; // המשתמש ביטל, או ה-widget הוסר בזמן ההמתנה לדיאלוג
+                        state.resetMap(); // ניקוי כל מצב המפה (MapState)
+                        setState(() { _selectMode = false; _isDragging = false; _draggingHandleIdx = null; }); // איפוס גם מצב הבחירה המקומי, שלא חי ב-MapState
                       },
                     ),
                   ],
@@ -1566,46 +1611,72 @@ class _LosProfilePainter extends CustomPainter {
       old.session != session; // צייר מחדש רק בשינוי נתונים
 }
 
-// ── מקרא שכבת NOTAM רחפנים ─────────────────────────────────
-// מקרא דינמי — שורת צבע+תווית לכל קטגוריה שמסומנת כרגע (ולא רשימה קבועה של קטגוריה אחת)
-class _UasNotamLegend extends StatelessWidget {
-  const _UasNotamLegend({required this.activeCategories});
-  final Set<String> activeCategories;
+// ── מעטפת מקרא הניתנת לצמצום — משותפת לכל מקראות המפה (NOTAM/אזורי תיאום) ──
+// ברירת מחדל מצומצמת (רק סמל קטן) כדי שהמקרא לא יחסום את תצוגת המפה — המשתמש בוחר
+// מתי לפתוח אותה, בהתאם לבקשה שהמקרא לא יהיה כפוי-תצוגה.
+class _CollapsibleLegend extends StatefulWidget {
+  const _CollapsibleLegend({required this.icon, required this.title, required this.body});
+  final String icon; // תו/אמוג'י המוצג בעיגול הקטן במצב מצומצם
+  final String title; // כותרת המוצגת בשורה העליונה כשהמקרא פתוח
+  final Widget body; // תוכן המקרא הספציפי (שורות הצבעים + הערת השוליים)
+
+  @override
+  State<_CollapsibleLegend> createState() => _CollapsibleLegendState();
+}
+
+class _CollapsibleLegendState extends State<_CollapsibleLegend> {
+  bool _expanded = false; // האם המקרא פתוח כרגע — מצומצם כברירת מחדל בכל הופעה מחדש
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final activeCats = kNotamCategories.where((c) => activeCategories.contains(c.id)).toList();
+    final cs = Theme.of(context).colorScheme; // ערכת הצבעים הנוכחית, לעיצוב עקבי עם שאר הכרטיסים הצפים
+
+    if (!_expanded) {
+      // מצב מצומצם — עיגול קטן בלבד, לא חוסם את המפה מתחתיו
+      return Material(
+        color: cs.surface.withAlpha(230), // רקע כמעט אטום, כמו שאר הכרטיסים הצפים על המפה
+        shape: const CircleBorder(), // צורת עיגול לכפתור המצומצם
+        elevation: 3, // צל קל שמרים את הכפתור מעל המפה
+        child: InkWell(
+          customBorder: const CircleBorder(), // אפקט הלחיצה עוקב אחרי צורת העיגול
+          onTap: () => setState(() => _expanded = true), // לחיצה פותחת את המקרא המלא
+          child: Padding(
+            padding: const EdgeInsets.all(6), // ריפוד סביב הסמל
+            child: Text(widget.icon, style: const TextStyle(fontSize: 16)), // הסמל הייעודי של המקרא הזה
+          ),
+        ),
+      );
+    }
+
+    // מצב פתוח — הכרטיס המלא: כותרת + כפתור סגירה + התוכן שהועבר מבחוץ דרך widget.body
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: TextDirection.rtl, // כיווניות עברית לכל תוכן המקרא הפתוח
       child: Material(
-        color: cs.surface.withAlpha(230),
-        borderRadius: BorderRadius.circular(8),
-        elevation: 3,
+        color: cs.surface.withAlpha(230), // אותו רקע כמו במצב מצומצם, לעקביות חזותית
+        borderRadius: BorderRadius.circular(8), // פינות מעוגלות לכרטיס הפתוח
+        elevation: 3, // צל תואם לשאר הכרטיסים הצפים
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), // ריפוד פנימי לכרטיס
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
+            constraints: const BoxConstraints(maxWidth: 220), // רוחב מקסימלי כמו במקרא המקורי
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start, // יישור התוכן לתחילת השורה (ימין ב-RTL)
+              mainAxisSize: MainAxisSize.min, // הכרטיס נדחס לגובה התוכן בלבד
               children: [
-                Text('✈ אזורי פעילות טיסה (NOTAM)',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
-                for (final cat in activeCats)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Container(
-                        width: 12, height: 12,
-                        decoration: BoxDecoration(color: Color(cat.color), shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(cat.label, style: TextStyle(fontSize: 10, color: cs.onSurface)),
-                    ]),
-                  ),
-                const SizedBox(height: 2),
-                Text('אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית',
-                    style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween, // כותרת בצד אחד, כפתור סגירה בצד השני
+                  children: [
+                    Expanded(
+                      child: Text(widget.title, // כותרת המקרא שהועברה מבחוץ
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                    ),
+                    InkWell(
+                      onTap: () => setState(() => _expanded = false), // לחיצה מצמצמת חזרה לסמל הקטן
+                      child: Icon(Icons.close, size: 14, color: cs.onSurfaceVariant), // אייקון סגירה קטן
+                    ),
+                  ],
+                ),
+                widget.body, // תוכן המקרא הספציפי (שורות צבעים + הערת שוליים) שהועבר מבחוץ
               ],
             ),
           ),
@@ -1615,42 +1686,71 @@ class _UasNotamLegend extends StatelessWidget {
   }
 }
 
+// ── מקרא שכבת NOTAM רחפנים ─────────────────────────────────
+// מקרא דינמי — שורת צבע+תווית לכל קטגוריה שמסומנת כרגע (ולא רשימה קבועה של קטגוריה אחת)
+class _UasNotamLegend extends StatelessWidget {
+  const _UasNotamLegend({required this.activeCategories});
+  final Set<String> activeCategories; // מזהי הקטגוריות המסומנות כרגע בתפריט ה-toolbox
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme; // ערכת הצבעים הנוכחית
+    final activeCats = kNotamCategories.where((c) => activeCategories.contains(c.id)).toList(); // רק הקטגוריות הפעילות כרגע
+
+    return _CollapsibleLegend(
+      icon: '✈', // סמל המקרא הזה במצב מצומצם
+      title: '✈ אזורי פעילות טיסה (NOTAM)', // כותרת המקרא במצב פתוח
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, // יישור שורות הצבעים לתחילת השורה
+        mainAxisSize: MainAxisSize.min, // התוכן נדחס לגובהו בלבד
+        children: [
+          for (final cat in activeCats) // שורת צבע+תווית לכל קטגוריה פעילה
+            Padding(
+              padding: const EdgeInsets.only(top: 2), // רווח קטן בין שורות
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 12, height: 12, // עיגול הצבע הקטן שמייצג את הקטגוריה
+                  decoration: BoxDecoration(color: Color(cat.color), shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 6), // רווח בין העיגול לטקסט
+                Text(cat.label, style: TextStyle(fontSize: 10, color: cs.onSurface)), // שם הקטגוריה בעברית
+              ]),
+            ),
+          const SizedBox(height: 2), // רווח לפני הערת השוליים
+          Text('אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית', // הבהרה שזה אזור להימנעות ולא אזור מותר
+              style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+}
+
 // ── מקרא שכבת "אזורי תיאום כטב"ם" ────────────────────────
 class _UasCoordLegend extends StatelessWidget {
   const _UasCoordLegend();
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Material(
-        color: cs.surface.withAlpha(230),
-        borderRadius: BorderRadius.circular(8),
-        elevation: 3,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 12, height: 12,
-                    decoration: const BoxDecoration(color: Color(0xFF6366F1), shape: BoxShape.circle),
-                  ),
-                  const SizedBox(width: 6),
-                  Text('אזורי תיאום כטב"ם — דורש אישור נת"א',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
-                ]),
-                const SizedBox(height: 2),
-                Text('כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א — לא אזור חופשי לטיסה',
-                    style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
-              ],
+    final cs = Theme.of(context).colorScheme; // ערכת הצבעים הנוכחית
+
+    return _CollapsibleLegend(
+      icon: '🛡', // סמל המקרא הזה במצב מצומצם — מגן, מסמל תיאום/אישור נדרש
+      title: 'אזורי תיאום כטב"ם — דורש אישור נת"א', // כותרת המקרא במצב פתוח
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, // יישור התוכן לתחילת השורה
+        mainAxisSize: MainAxisSize.min, // התוכן נדחס לגובהו בלבד
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 12, height: 12, // עיגול הצבע שמייצג את שכבת אזורי התיאום
+              decoration: const BoxDecoration(color: Color(0xFF6366F1), shape: BoxShape.circle),
             ),
-          ),
-        ),
+            const SizedBox(width: 6), // רווח אחרי עיגול הצבע
+          ]),
+          const SizedBox(height: 2), // רווח לפני הערת השוליים
+          Text('כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א — לא אזור חופשי לטיסה', // הבהרת המשמעות התפעולית
+              style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+        ],
       ),
     );
   }

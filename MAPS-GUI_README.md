@@ -1,5 +1,5 @@
 # מפה אינטראקטיבית — תיעוד מלא
-**תאריך עדכון:** 19/05/2026 | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
+**תאריך עדכון:** 16/08/2026 | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
 
 ---
 
@@ -20,21 +20,30 @@
 
 ## 1. סקירת הפרויקט
 
-אפליקציה גיאוגרפית-מטאורולוגית דו-פלטפורמית:
-- **Desktop (Windows):** PyQt5 + QWebEngineView + Leaflet.js
-- **Android:** Flutter 3.19+ עם flutter_map
+אפליקציה גיאוגרפית-מטאורולוגית דו-פלטפורמית, עם דגש נוסף על מודעות מרחב אווירי לכטב"ם (רחפנים):
+- **Desktop (Windows):** PyQt5 + QWebEngineView + Leaflet.js, כולל דשבורד מעקב תהליכים ודשבורד בדיקות אבטחה נפרדים.
+- **Android:** Flutter עם flutter_map.
+
+הפרויקט **כן** נמצא ב-git (`origin` → GitHub, branch `main`).
 
 ### פיצ'רים עיקריים
 | פיצ'ר | Desktop | Android |
 |--------|---------|---------|
 | מפה אינטראקטיבית | Leaflet.js (WebView) | flutter_map |
-| שכבת גבהים (heatmap) | leaflet.heat | open-meteo API |
-| שכבת טמפרטורות | OpenWeather API | open-meteo API |
-| מסלולי טיסות | FlightRadar24 API | FR24 + OpenSky + local server |
+| שכבת גבהים (heat/grid/dots) | Open-Meteo דרך שרת מקומי | Open-Meteo ישיר |
+| שכבת טמפרטורות (heat/grid/dots) | Open-Meteo דרך שרת מקומי | Open-Meteo ישיר |
+| מזג אוויר לנקודה/עיר | OpenWeather + Google Geocoding | Open-Meteo + Nominatim |
+| מסלולי טיסות | FlightRadar24 (שרת מקומי) | שרת מקומי → OpenSky → FR24 (fallback chain) |
+| כלי מדידת מרחק (Ruler) | כן | כן |
+| קו ראייה (LOS) | מחושב בשרת (`/los`), פאנל פרופיל גובה | מחושב **on-device** |
+| שכבת NOTAM — אזורי פעילות טיסה (7 קטגוריות) | כן, מקרא ניתן לצמצום | כן, מקרא ניתן לצמצום |
+| שכבת "אזורי תיאום כטב״ם" (סטטית) | כן, מקרא ניתן לצמצום | כן, מקרא ניתן לצמצום |
+| הודעת כלל טיסת VLOS | — | כפתור מידע ייעודי |
+| דשבורד מעקב תהליכים (3 שרתי Flask) | כן — סטטוס/PID/CPU/RAM/מטריקות | — |
+| דשבורד בדיקות אבטחה (חשיפה + CIS L1/L2) | כן | — |
 | GPS / מיקום עצמי | — | geolocator |
-| כלי מדידת מרחק | — | Haversine בלב האפליקציה |
-| תמיכת RTL עברית | מלאה | מלאה (Directionality.rtl) |
-| ערכת צבעים | Catppuccin Mocha (כהה) | Material 3, ThemeMode.dark |
+| תמיכת RTL עברית | מלאה | מלאה (`Locale('he','IL')` כפוי) |
+| ערכת צבעים | כהה (Catppuccin Mocha) | Material 3, `ThemeMode.dark` כפוי |
 
 ---
 
@@ -42,47 +51,50 @@
 
 ```
 d:\PY-IS\maps-gui\
-├── main.py                    ← Desktop GUI ראשי (PyQt5)
-├── MAP.py                     ← גנרטור map.html (Leaflet)
-├── apipyqt.py                 ← wrapper לקריאות API מה-GUI
-├── geo_server.py              ← Flask port 5003 (Google Geocoding)
-├── weather_server.py          ← Flask port 5002 (OpenWeather)
-├── flight_server.py           ← Flask port 5004 (FlightRadar24)
-├── weather_tool.py            ← כלי עזר מזג אוויר
-├── heatmap_layer.py           ← כלי עזר heatmap
+├── main.py                    ← Desktop GUI ראשי (PyQt5) — כולל ProcessDashboard + SecurityCheckWorker
+├── MAP.py                     ← גנרטור map.html (Leaflet, f-string אחד ~1750 שורות — ר' §9 לאזהרת עריכה)
+├── ports.py                   ← GEO_PORT/WEATHER_PORT/FLIGHT_PORT — מקור אמת יחיד לפורטים
+├── server_common.py           ← create_app(name) — Flask app אחיד (env/logging/CORS/metrics) לשלושת השרתים
+├── metrics.py                 ← register_metrics(app) — נקודת קצה GET /metrics משותפת
+├── geo_server.py              ← Flask :5003 — Google Geocoding + שכבת NOTAM כטב"ם
+├── weather_server.py          ← Flask :5002 — OpenWeather, /elevation, /temp_grid, /los, /heatmap_data
+├── flight_server.py           ← Flask :5004 — FlightRadar24
+├── notam_categories.py        ← 7 קטגוריות סיווג NOTAM — מקור אמת גם ל-MAP.py וגם לתפריט ב-main.py
+├── notam_drones.py            ← שליפה/פרסור/cache של NOTAM כטב"ם מ-brin.iaa.gov.il
+├── uas_coordination_zones.py  ← נתוני "אזורי תיאום כטב״ם" הסטטיים
+├── icao_glossary.py           ← גלוסר עברי גס למונחי ICAO בטקסט NOTAM
+├── security_checks.py         ← בדיקות חשיפה/סודות/CORS/CVEs/APK, נצרך ע"י דשבורד האבטחה
+├── security_types.py          ← SecurityFinding (dataclass) בלבד — פותר circular import עם cis_checks.py
+├── cis_checks.py              ← 25 בדיקות הקשחת Windows (CIS Level 1/2) דרך registry/PowerShell
+├── test_requests.py           ← health checks לשלושת השרתים + בדיקות עומס, נצרך גם ע"י הדשבורדים
 ├── requirements.txt           ← dependencies Python
 ├── .env                       ← מפתחות API (לא לגיט!)
 ├── .env.example               ← תבנית משתני סביבה
-├── map.html                   ← מפה Leaflet שנוצרת בריצה
-├── heatmap.html               ← heatmap עצמאי
-├── icons/                     ← bell_icon*.png
-├── maps-gui-android/          ← FLUTTER APP ← זה הייצור
-│   ├── pubspec.yaml
-│   ├── lib/
-│   │   ├── main.dart
-│   │   ├── screens/map_screen.dart
-│   │   ├── services/api_service.dart
-│   │   ├── state/map_state.dart
-│   │   ├── models/grid_point.dart
-│   │   ├── utils/heat_image.dart
-│   │   └── widgets/controls_panel.dart
-│   └── android/
-│       ├── app/build.gradle.kts
-│       ├── app/src/main/AndroidManifest.xml
-│       └── local.properties
-├── maps-gui-android-src/      ← גרסה חלופית/מקור (לא לייצור)
-├── maps-gui-secure/           ← העתק לבדיקות
-└── גירסה תקינה/               ← גיבוי גרסה יציבה
+├── map.html                   ← מפה Leaflet שנוצרת מחדש בכל create_map() — אין לערוך ידנית, נדרס
+├── maps-gui-android-src\      ← ⚠️ מקור האמת לקוד Flutter — כאן עורכים תמיד
+│   └── lib\
+│       ├── main.dart
+│       ├── screens\map_screen.dart      ← מסך יחיד: FlutterMap + סרגל עליון צף + BottomAppBar
+│       ├── services\api_service.dart    ← כל קריאות ה-HTTP (כולל fallback chain לטיסות, LOS on-device)
+│       ├── state\map_state.dart         ← MapState (ChangeNotifier, Provider) — 6 תחומים
+│       ├── widgets\controls_panel.dart  ← LayersPanel/LocationPanel/FlightPanel (bottom sheets)
+│       ├── models\*.dart                ← grid_point, los_session, city_result, uas_notam_zone, uas_coordination_zone
+│       ├── data\*.dart                  ← notam_categories, uas_coordination_zones, icao_glossary (נתונים סטטיים)
+│       └── utils\heat_image.dart        ← רינדור heat-image (PNG) בצד הלקוח
+├── maps-gui-android\          ← ⚠️ פרויקט ה-BUILD בלבד — נוצר/נדרס ע"י build_apk.ps1, אין לערוך כאן ישירות
+├── maps-gui-secure\           ← עותק נפרד עם חיזוקי אבטחה חלקיים — לא מתוחזק יחד עם הפרויקט הראשי
+└── build_apk.ps1              ← סקריפט הבנייה היחיד ל-Android — ר' §8
 ```
+
+**קבצים שנמחקו (קוד מת מאומת, לא קיימים יותר):** `apipyqt.py`, `weather_tool.py`, `heatmap_layer.py` — אם תראה אזכור שלהם במקום אחר (כולל תיעוד ישן), זה מיושן.
 
 ---
 
 ## 3. אפליקציית Desktop — Python/PyQt5
 
 ### קבצים עיקריים
-- **`main.py`** — חלון ראשי, QWebEngineView לטעינת map.html, ניהול 3 שרתי Flask כ-subprocess, היסטוריית ערים, ספינרי קואורדינטות עם debounce, לוג צבעוני, מערכת התראות (bell icon), cache מזג אוויר עם timestamp
-- **`MAP.py`** — יוצר map.html דינמי עם Leaflet.js, ערכת CartoDB Dark Matter, תמיכת RTL עברית, שכבת heatmap, מעקב טיסות, עמדות מזג אוויר
-- **`apipyqt.py`** — `fetch_weather_data()`, `fetch_geo_data()`, גרסה async
+- **`main.py`** — חלון ראשי, `QWebEngineView` לטעינת `map.html`, ניהול 3 שרתי Flask כ-subprocess, `ProcessDashboard` (מעקב תהליכים חי) ו-`SecurityCheckWorker`/`HealthCheckWorker`/`MetricsWorker` (כל אחד ב-thread נפרד למניעת הקפאת ה-GUI), `WeatherFetchWorker`/`FlightFetchWorker` (קריאות רשת חוסמות הועברו ל-thread נפרד).
+- **`MAP.py`** — יוצר `map.html` דינמי: heatmap, שכבות גבהים/טמפרטורה (heat/grid/dots + עריכת אזור בגרירה), מסלולי טיסה, כלי מדידה (Ruler), קו ראייה (LOS) עם פאנל פרופיל גובה, 7 קטגוריות NOTAM עם מקרא ניתן לצמצום, אזורי תיאום כטב"ם עם מקרא ניתן לצמצום.
 
 ### שרתים שמופעלים מה-Desktop
 ```
@@ -90,36 +102,42 @@ port 5002 → weather_server.py
 port 5003 → geo_server.py
 port 5004 → flight_server.py
 ```
-כל שרת: Flask + CORS, לוגים ל-`app_combined.log`, מנגנון kill zombie processes בהפעלה
+כל שרת נוצר דרך `server_common.create_app(name)` המשותף (env/logging/CORS/`/metrics`), הפורטים נגזרים מ-`ports.py`. לוגים ל-`app_combined.log`, מנגנון kill zombie processes בהפעלה.
 
 ### התקנה וריצה
 ```powershell
-# התקנת dependencies
 pip install -r requirements.txt
-
-# הרצה
 python main.py
 ```
 
 ### requirements.txt
 ```
-requests, PyQt5, PyQtWebEngine, python-dotenv, Flask, flask-cors, pandas, folium, tqdm, FlightRadar24
+requests, PyQt5, PyQtWebEngine, python-dotenv, Flask, flask-cors, FlightRadar24, psutil
 ```
+(`pandas`/`folium`/`tqdm` הוסרו — היו נחוצים רק לכלים המתים `weather_tool.py`/`heatmap_layer.py` שנמחקו.)
+
+### דשבורד מעקב תהליכים
+כפתור `📊 דשבורד תהליכים` — חלון נפרד (לא-מודלי): סטטוס/PID/uptime/CPU/RAM לכל אחד מ-3 השרתים (`psutil`, כולל תת-תהליכים), מטריקות קריאות API (`/metrics`), יומן חי. כל הפעולות החוסמות רצות ב-`MetricsWorker` על thread נפרד.
+
+### דשבורד בדיקות אבטחה
+כפתור `🔒 בדיקת אבטחה` — מריץ `security_checks.run_security_checks()`: חשיפת debug console, סריקת סודות בתגובות שרת, מדיניות CORS, סריקת CVEs (`pip-audit`), סודות קשיחים ב-APK, וכן 25 בדיקות הקשחת Windows (`cis_checks.py`, CIS Level 1/2 דרך registry/PowerShell).
 
 ---
 
 ## 4. אפליקציית Android — Flutter
 
-### מיקום: `d:\PY-IS\maps-gui\maps-gui-android\`
+### ⚠️ מקור האמת הוא `maps-gui-android-src\` — לא `maps-gui-android\`!
+הפרויקט הבר-בנייה (`maps-gui-android\`) הוא scaffold שנוצר/נדרס ע"י `build_apk.ps1`, שמעתיק אליו `lib/`, `pubspec.yaml` ו-`AndroidManifest.xml` מתוך `maps-gui-android-src\` בכל build. **תמיד לערוך ב-`-src`, אף פעם לא ישירות ב-`maps-gui-android\`.**
 
 ### Dependencies (pubspec.yaml)
 ```yaml
-flutter_map: ^7.0.2       # מפה
-latlong2: ^0.9.1          # קואורדינטות
-http: ^1.2.1              # HTTP calls
-provider: ^6.1.2          # State management
+flutter_map: ^7.0.2         # מפה
+latlong2: ^0.9.1            # קואורדינטות
+http: ^1.2.1                # HTTP
+provider: ^6.1.2            # State management
+geolocator: ^13.0.4         # GPS
 material_symbols_icons: ^4.2719.3
-geolocator: ^13.0.4       # GPS
+shared_preferences: ^2.2.2  # היסטוריית ערים/טיסות
 ```
 
 ### ארכיטקטורה
@@ -128,27 +146,18 @@ main.dart
   └── ChangeNotifierProvider(MapState)
         └── MapScreen (StatefulWidget)
               ├── FlutterMap (flutter_map)
-              ├── ControlsPanel (Drawer RTL)
-              └── Cards: Elevation, Weather, Ruler, Scale
+              ├── סרגל עליון צף + BottomAppBar (3 כפתורים → bottom sheets)
+              ├── LayersPanel / LocationPanel / FlightPanel (widgets/controls_panel.dart)
+              └── כרטיסים/מקראות צפים: גובה, מזג אוויר, מדידה, NOTAM, אזורי תיאום, VLOS
 ```
+
+**אין Drawer בפועל** — הניווט הוא `BottomAppBar` עם 3 כפתורים שפותחים modal bottom sheets (שכבות/מיקום/טיסות).
 
 ### State Management — `map_state.dart`
-מחלקת `MapState` (ChangeNotifier) מנהלת:
-- בחירת אזור (selectionStart/End) + bounds
-- שכבת גבהים (elevPoints, elevHeatBytes, elevMode)
-- שכבת טמפרטורות (tempPoints, tempHeatBytes, tempMode)
-- נתוני טיסה (FlightData: path, current, callsign, info)
-- נקודות מסומנות (pinnedPoints)
-- GPS (goToMyLocation)
-- כלי מדידה (rulerMode, rulerPoints, Haversine)
-- מזג אוויר לנקודה (weatherData, weatherPoint)
-- שכבת רקע (tileUrl, tileAttribution)
+מחלקת `MapState` (ChangeNotifier) יחידה, 460 שורות, 6 תחומים: חיפוש עיר, בחירת נקודות חום ידנית, כלי מדידה, LOS, NOTAM (7 קטגוריות), אזורי תיאום כטב"ם. `context.watch<MapState>()` נקרא מ-4 מקומות (`map_screen.dart` + 3× `controls_panel.dart`) — כל שינוי מרנדר מחדש את כולם (לא פוצל ל-state נפרדים בכוונה, ר' §11 בתוכנית השיפור).
 
-### מצבי תצוגה (DisplayMode)
-```dart
-enum DisplayMode { heat, grid, dots }
-enum LayerType { none, elevation, temperature }
-```
+### מקראות שכבות (NOTAM / אזורי תיאום)
+שני המקראות (`_UasNotamLegend`, `_UasCoordLegend`) בנויים על גבי `_CollapsibleLegend` משותף — **מצומצמים לסמל עגול קטן כברירת מחדל** (לא חוסמים את המפה), לחיצה פותחת את התוכן המלא, כפתור X מצמצם בחזרה.
 
 ### AndroidManifest.xml — הרשאות
 ```xml
@@ -158,30 +167,31 @@ android:usesCleartextTraffic="true"   ← חובה לחיבור לשרת desktop
 ```
 
 ### Build Config (app/build.gradle.kts)
-- `namespace = "com.mapsapp.maps_gui_android"`
-- `applicationId = "com.mapsapp.maps_gui_android"`
+- `namespace`/`applicationId` = `com.mapsapp.maps_gui_android`
 - Java 17, Kotlin JVM target 17
-- `signingConfig = signingConfigs.getByName("debug")` ← חתימה בdebug key (לפיתוח)
+- `signingConfig = signingConfigs.getByName("debug")` ← חתימה בדebug key (לא ייצור אמיתי, ר' §9)
 
 ---
 
 ## 5. שרתי Flask (Backend)
 
 ### geo_server.py — port 5003
-- Route: `GET /geo_data?location=<city>`
-- קורא Google Geocoding API
-- מחזיר: `{lat, lng, formatted_address}`
+- `GET /geo_data?location=<city>` — Google Geocoding API, מחזיר `{address, latitude, longitude}`
+- `GET /uas_notams` — שכבת NOTAM לרחפנים (מסונן UAS/UAV מתוך NOTAM ארצי, cache 20 דק', `?force=1` לעקיפה)
+- `GET /metrics` — מטריקות (משותף, דרך `server_common.py`)
 
 ### weather_server.py — port 5002
-- Routes: `GET /weather?region=<name>` או `GET /weather?lat=<>&lon=<>`
-- קורא OpenWeather API
-- מחזיר: `{temp, conditions, wind_speed, ...}`
+- `GET /weather?region=<name>` או `?lat=&lon=` — OpenWeather
+- `GET /heatmap_data` — נתוני heatmap קבועים/מקובץ CSV
+- `POST /elevation` — Open-Meteo Elevation (עד 100 נקודות, retry עם backoff)
+- `POST /temp_grid` — Open-Meteo Forecast (עד 500 נקודות, batches של 30 + השהיה)
+- `GET /los?lat1=&lon1=&lat2=&lon2=` — חישוב קו ראייה (עקמומיות + רפרקציה)
+- `GET /metrics`
 
 ### flight_server.py — port 5004
-- Route: `GET /flight_route?flight=<callsign>`
-- קורא FlightRadar24API (Python library)
-- ממפה IATA→ICAO (LY→ELY וכו')
-- מחזיר: `{trail:[{lat,lng}], lat, lng, callsign, origin_iata, dest_iata, aircraft}`
+- `GET /flight_route?flight=<callsign>` — FlightRadar24API, מיפוי IATA→ICAO
+- `GET /flight_search?q=` — autocomplete (קיים, לא בשימוש בפועל מה-UI כרגע)
+- `GET /metrics`
 
 ---
 
@@ -190,23 +200,21 @@ android:usesCleartextTraffic="true"   ← חובה לחיבור לשרת desktop
 ### Android — api_service.dart
 | API | שימוש | URL |
 |-----|-------|-----|
-| open-meteo elevation | גבהים (grid) | `api.open-meteo.com/v1/elevation` |
-| open-meteo forecast | טמפרטורות (grid) | `api.open-meteo.com/v1/forecast` |
-| OpenSky Network | מסלולי טיסה (primary fallback) | `opensky-network.org/api/states/all` |
-| FlightRadar24 Gold | מסלולי טיסה (last resort) | `data.flightradar24.com` |
-| שרת desktop (WiFi) | מסלולי טיסה (עדיפות ראשונה) | `http://{flightServerHost}:5004` |
-
-### סדר עדיפויות — fetchFlightTrack()
-1. **Local flight server** (desktop, אותו WiFi) — port 5004
-2. **OpenSky Network** — חינמי, ללא Cloudflare
-3. **FlightRadar24 Gold API** — fallback אחרון עם token
+| open-meteo elevation | גבהים (grid) + LOS on-device | `api.open-meteo.com/v1/elevation` |
+| open-meteo forecast | טמפרטורות (grid) + מזג אוויר לנקודה | `api.open-meteo.com/v1/forecast` |
+| Nominatim | חיפוש עיר + גבולות | `nominatim.openstreetmap.org/search` |
+| OpenSky Network | מסלולי טיסה (Tier 2) | `opensky-network.org/api/states/all` |
+| FlightRadar24 Gold | מסלולי טיסה (Tier 3, אחרון) | `data.flightradar24.com` |
+| שרת desktop (WiFi) | מסלולי טיסה (Tier 1) — **אין דרך להגדיר `flightServerHost` מה-UI, לא פעיל בפועל** | `http://{flightServerHost}:5004` |
 
 ### Desktop — שרתי Python
 | API | מפתח | קובץ |
 |-----|-------|------|
-| OpenWeather | OPENWEATHER_API_KEY | weather_server.py |
-| Google Geocoding | GOOGLE_API_KEY | geo_server.py |
-| FlightRadar24 | FR24_USER + FR24_PASS + FR24_TOKEN | flight_server.py |
+| OpenWeather | `OPENWEATHER_API_KEY` | weather_server.py |
+| Google Geocoding | `GOOGLE_API_KEY` | geo_server.py |
+| FlightRadar24 | `FR24_USER`+`FR24_PASS`+`FR24_TOKEN` | flight_server.py |
+| Open-Meteo | ללא מפתח | weather_server.py |
+| brin.iaa.gov.il (NOTAM) | ללא מפתח | notam_drones.py |
 
 ---
 
@@ -222,79 +230,45 @@ FR24_PASS=<REDACTED — ראה .env המקומי, לא בגיט>
 FR24_TOKEN=<REDACTED — ראה .env המקומי, לא בגיט>
 ```
 
-**Token FR24 מוטמע גם ב-api_service.dart:**
-```dart
-static const _fr24Token = '<REDACTED>';
-```
+**Token FR24 מוטמע גם ב-api_service.dart** (ייחשף בפירוק כל APK מבוזר — ר' §9).
 
 ---
 
 ## 8. Build — ייצור APK
 
-### דרישות סביבה
-- Flutter SDK 3.19+ (בדוק: `flutter --version`)
-- Android SDK + NDK (ב-`C:\dev\android-sdk\ndk`)
-- Java 17
-- `local.properties` מוגדר עם `flutter.sdk=<path>`
-
-### פקודות Build
+**הדרך הנכונה היחידה: `build_apk.ps1` משורש הפרויקט** — הוא מטפל בהכל: מתקין Flutter/Java/Android SDK אם חסר, מעתיק את `-src` לפרויקט הבר-בנייה, `pub get`, `build apk --release`.
 ```powershell
-cd d:\PY-IS\maps-gui\maps-gui-android
-
-# בדיקת סביבה
-flutter doctor
-
-# ניקוי cache (לפני build חדש)
-flutter clean
-flutter pub get
-
-# APK debug
-flutter build apk --debug
-
-# APK release (חתום בdebug key)
-flutter build apk --release
-
-# APK מפוצל לפי ארכיטקטורה (קובץ קטן יותר)
-flutter build apk --split-per-abi --release
+cd d:\PY-IS\maps-gui
+powershell -ExecutionPolicy Bypass -File build_apk.ps1
+# APK נמצא ב: maps-gui-android\build\app\outputs\flutter-apk\app-release.apk
 ```
+**אל תבנה APK מבלי שהמשתמש ביקש זאת מפורשות בכל פעם** — גם אם בוצע שינוי לאנדרואיד.
 
-### מיקום APK שנוצר
-```
-maps-gui-android\build\app\outputs\flutter-apk\
-├── app-debug.apk
-├── app-release.apk
-└── app-arm64-v8a-release.apk  (אם split-per-abi)
-```
+**אם ה-build נכשל עם `OutOfMemoryError: Metaspace`** — להגדיל `org.gradle.jvmargs` ב-`maps-gui-android\android\gradle.properties` (כרגע `-Xmx2g -XX:MaxMetaspaceSize=512m`).
 
-### בעיות Build נפוצות
-| בעיה | פתרון |
-|------|-------|
-| `flutter.sdk` לא מוגדר | בדוק `android/local.properties` |
-| Kotlin version conflict | בדוק `build.gradle.kts` — kotlinVersion |
-| NDK missing | הגדר `ndkVersion` ב-`build.gradle.kts` |
-| Gradle sync fail | `flutter clean && flutter pub get` |
+### App ID
+`com.mapsapp.maps_gui_android`
 
 ---
 
 ## 9. הגבלות ואילוצים ידועים
 
 ### אנדרואיד
-- **FlightRadar24 Cloudflare:** FR24 חוסם לעיתים בקשות ישירות. הפתרון: שרת desktop כ-proxy (אותו WiFi) → OpenSky → FR24 Gold token
-- **HTTP cleartext:** `usesCleartextTraffic="true"` דרוש לחיבור לשרת desktop על HTTP
+- **FlightRadar24 Cloudflare:** fallback chain: שרת desktop (לא פעיל בפועל, ר' למעלה) → OpenSky → FR24 Gold token
+- **HTTP cleartext:** `usesCleartextTraffic="true"` דרוש לחיבור לשרת desktop
 - **GPS:** דורש הרשאת `ACCESS_FINE_LOCATION` — נשאל runtime
-- **גבהים:** open-meteo מחזיר chunk של 100 נקודות מקסימום — מחולק אוטומטית
-- **טמפרטורות:** open-meteo מגביל 20 נקודות בו-זמנית עם delay 200ms בין chunks
-- **שרת Flight מרוחק:** `ApiService.flightServerHost` ריק כברירת מחדל — משתמש צריך להגדיר ב-settings
+- **גבהים:** open-meteo מקסימום 100 נקודות (chunks של 50)
+- **טמפרטורות:** open-meteo מגביל 30 נקודות, chunks של 20 עם delay 200ms
 
 ### Desktop
-- **Port conflicts:** שרתי Flask הורגים zombie processes על פורטים 5002/5003/5004 בכל הפעלה
-- **Python 3.14:** נדרשת גרסת Python תואמת לכל הpackages
-- **API rate limits:** OpenWeather מגביל קריאות בתוכנית חינמית
+- **`MAP.py` הוא f-string אחד ענק (~1750 שורות)** — שגיאת escaping (למשל `\n` במקום `\\n`) שוברת את כל תג ה-`<script>` ביחד. כל שינוי דורש רגנרציה (`python -c "import MAP; MAP.create_map()"`) ובדיקה.
+- **Port conflicts:** שרתי Flask הורגים zombie processes על 5002/5003/5004 בכל הפעלה
+- **שרתים רצים עם `debug=True`** — כל שרת הוא בפועל שרשרת של 2-4 תהליכי OS (launcher stub של virtualenv + reloader של Werkzeug) — לעצור/למדוד תמיד עם `psutil` על כל העץ, לא רק ה-PID השמור
+- **`.venv/`** נוצר עם `virtualenv` — לא stdlib `venv`
 
 ### כללי
-- **ללא אימות:** האפליקציה לא מבצעת login — מפתחות API מוטמעים בקוד/env
-- **ללא גיט:** הפרויקט אינו ב-git repository
-- **חיבור WiFi:** לשימוש בשרת desktop מהאנדרואיד — חובה אותה רשת WiFi
+- **גיט:** הפרויקט **כן** ב-git. Remote `origin` → GitHub, branch `main`. אל תדחוף (`push`) בלי אישור מפורש בכל פעם, ואל תעשה force-push.
+- **חיבור WiFi:** לשימוש בשרת desktop מהאנדרואיד — חובה אותה רשת (בפועל לא מנוצל כרגע, ר' §6)
 
 ---
 
@@ -304,48 +278,45 @@ maps-gui-android\build\app\outputs\flutter-apk\
 1. **אל תשבור פעולות קיימות** — בכל שינוי יש לוודא שלא נפגע שום תהליך או פיצ'ר קיים
 2. **שפת UI — עברית בלבד** — כל טקסט למשתמש בעברית, כולל error messages
 3. **RTL** — כל ממשק בכיוון RTL, שימוש ב-`Directionality(textDirection: TextDirection.rtl)`
-4. **ערכת צבעים כהה** — Dark theme עם Material 3, `ThemeMode.dark`
+4. **ערכת צבעים כהה** — Dark theme, `ThemeMode.dark`/Catppuccin Mocha
 5. **אל תוסיף פיצ'רים שלא התבקשו** — פחות זה יותר
-6. **אל תוסיף הערות לקוד** — רק כשה-WHY לא ברור לחלוטין
-7. **Flutter בלבד לאנדרואיד** — לא Buildozer, לא Kivy — Flutter + Dart
-8. **לא לשכוח לייצר APK** — אחרי כל שינוי מבוקש ב-Android
+6. **כל שורה שמתקנים או מוסיפים — חייבת הערה שמסבירה מה היא עושה** (לא רק WHY לא-ברור — גם WHAT; חלק מתהליך הלמידה של המשתמש. דורס את ברירת המחדל הרגילה של "בלי הערות").
+7. **Flutter בלבד לאנדרואיד** — לא Buildozer, לא Kivy
+8. **אל תבנה APK בלי בקשה מפורשת בכל פעם** — גם אחרי שינוי ב-Android, לא אוטומטי
+9. **הפרויקט ב-git** — אל תדחוף בלי אישור מפורש בכל פעם, ואל תעשה force-push
+10. **עדכן תמיד את `MAPS-GUI_README.md` ו-`MAPS-GUI_SRS.md`** — על כל שינוי בקוד, לפני שנחשב "הושלם" (ר' §11 למטה)
 
 ### הנחיות טכניות
 - **State management:** Provider pattern בלבד (ChangeNotifier) — לא Bloc, לא Riverpod
 - **API calls:** `http` package בלבד — לא dio
 - **מפות:** `flutter_map` בלבד — לא google_maps_flutter
 - **Gradle:** Kotlin DSL (`.kts`) — לא Groovy
-- **Java:** גרסה 17 — לא 11, לא 21
+- **Java:** גרסה 17
 
 ### Build process
-- תמיד לרוץ מתוך `d:\PY-IS\maps-gui\maps-gui-android\`
-- לפני build חדש: `flutter clean && flutter pub get`
-- APK ב: `build\app\outputs\flutter-apk\`
-
-### קבצים שחייבים להישאר בסינק
-אחרי כל שינוי ל-`api_service.dart` — לוודא שגם `map_state.dart` תואם
-אחרי שינוי ל-`map_state.dart` — לוודא שגם `map_screen.dart` ו-`controls_panel.dart` תואמים
+- תמיד לרוץ מ-`d:\PY-IS\maps-gui\` דרך `build_apk.ps1` (לא ידנית מתוך `maps-gui-android\`)
 
 ---
 
 ## 11. היסטוריית שינויים עיקריים
 
-### גרסה נוכחית (מאי 2026)
-- הוספת OpenSky Network כ-fallback עבור נתוני טיסה (Android)
-- תיקון FlightRadar24 Cloudflare blocking — שילוב 3 מקורות data
-- כלי מדידת מרחק (Ruler) עם Haversine + תצוגת NM/ק"מ
-- שכבת רקע הוחלפה לDropdown: OSM / ESRI Satellite / CartoDB Dark
-- כרטיס גובה בלחיצה על שכבת elevation
-- scale bar דינמי בפינה ימנית-תחתונה
+### תוכנית שיפור קוד רב-שלבית (16/08/2026)
+- **שלב 1 (באגים):** ריפוד ניווט Android חסר (2 מקומות), איפוס ruler שלא התאפס, הזרקת HTML לא-מאובטחת בפופאפ מזג אוויר, timeouts חסרים (5 מקומות).
+- **שלב 2 (async):** `WeatherFetchWorker`/`FlightFetchWorker` — קריאות רשת הועברו מה-UI thread ל-QThread.
+- **שלב 3 (dedup):** `_getJson` משותף (Dart), נירמול נקודת מסלול טיסה (תיקן drift אמיתי), `server_common.py`, dispatch table ל-`_on_title_changed`, `_toggle_layer` helper, איחוד קנבס/ידיות עריכה בין גבהים/טמפרטורה + תיקון באג בגרירת אזור גבהים.
+- **שלב 4 (תשתית + ניקוי):** `ports.py`, `security_types.py` (פתר circular import), מחיקת `weather_tool.py`/`heatmap_layer.py`/`apipyqt.py` + מחלקת `ControlsPanel` המתה.
+- **שלב 5 (פיצול קבצים גדולים) — דולג במפורש לפי בקשה.** אל תציע לפצל את `MAP.py`/`map_screen.dart`/`map_state.dart` בלי לשאול קודם.
+- **שלבים 6-8** (ביצועים/UX/כיסוי בדיקות) — טרם בוצעו.
+- **מקראות ניתנות לצמצום** (NOTAM + אזורי תיאום, שתי הפלטפורמות) + תיקון כפתור סגירת תפריט השכבות ב-Android (ידית הגרירה הייתה בתוך אזור הגלילה).
+- **Android:** תוקן סמן חסר בלחיצה למזג אוויר; נוסף כפתור "איפוס מפה" (סרגל עליון, עם דיאלוג אישור — מנקה את כל השכבות/הכלים ומחזיר למרכז ברירת המחדל); "מיקום עצמי" (GPS) ממלא כעת גם את שדות LAT/LON הידניים בפאנל המיקום.
 
-### ארכיטקטורה Flight Tracking (Android)
-```
-fetchFlightTrack(callsign)
-    ↓ 1. local flight server (WiFi)  → _parseFlightServerResponse()
-    ↓ 2. OpenSky Network             → _fetchOpenSky()
-    ↓ 3. FlightRadar24 Gold          → _fetchFR24()
-```
+### קודם לכן
+- הוספת שכבת NOTAM (7 קטגוריות סיווג) + שכבת "אזורי תיאום כטב״ם" + הודעת כלל VLOS
+- קו ראייה (LOS) עם sessions מרובים, פאנל פרופיל גובה, ידיות גרירה/גובה
+- דשבורד מעקב תהליכים + דשבורד בדיקות אבטחה (כולל CIS L1/L2) ב-Desktop
+- כלי מדידת מרחק (Ruler), שכבת רקע Dropdown, GPS/מיקום עצמי (Android)
+- 3 מקורות data למסלולי טיסה ב-Android (שרת מקומי → OpenSky → FR24 Gold)
 
 ---
 
-*מסמך זה נוצר אוטומטית ב-19/05/2026 על ידי Claude Code*
+*מסמך זה עודכן לאחרונה ב-16/08/2026 ע"י Claude Code, מבוסס על קריאת קוד המקור בפועל.*

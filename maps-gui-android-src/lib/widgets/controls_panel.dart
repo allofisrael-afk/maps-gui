@@ -196,7 +196,14 @@ class _LocationSectionState extends State<_LocationSection> {
       children: [
         // Device GPS button
         FilledButton.tonalIcon(
-          onPressed: state.locationLoading ? null : state.goToMyLocation,
+          onPressed: state.locationLoading ? null : () async {
+            final p = await state.goToMyLocation(); // מחכה לתוצאה כדי להציג אותה בשדות למטה
+            if (p == null || !mounted) return; // כישלון (שגיאה כבר מוצגת בנפרד), או ה-widget הוסר בזמן ההמתנה
+            setState(() {
+              _latCtrl.text = p.latitude.toStringAsFixed(6);  // מציג את קו הרוחב שאותר בשדה LAT
+              _lonCtrl.text = p.longitude.toStringAsFixed(6); // מציג את קו האורך שאותר בשדה LON
+            });
+          },
           icon: state.locationLoading
               ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.my_location, size: 16),
@@ -356,15 +363,36 @@ class LayersPanel extends StatelessWidget {
     final maxH = MediaQuery.of(context).size.height * 0.85;
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset), // ריפוד תחתון נוסף כדי שהפריט האחרון לא ייחסם ע"י פס הניווט
-          child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-          _sheetHandle(cs),
+      // Column חיצוני — הכותרת (ידית גרירה + כפתור סגירה) יושבת מחוץ ל-SingleChildScrollView בכוונה.
+      // כשהיא הייתה בתוך אזור הגלילה, גרירה למטה על הפאנל "נבלעה" ע"י מחוות הגלילה הפנימית
+      // במקום להיתפס כמחוות סגירת ה-bottom sheet — לכן גרירה למטה לא סגרה את התפריט.
+      child: Column(
+        mainAxisSize: MainAxisSize.min, // הפאנל תופס רק את הגובה הדרוש לו, לא את כל המסך
+        children: [
+          Stack(
+            alignment: Alignment.center, // ידית הגרירה נשארת ממורכזת כרגיל
+            children: [
+              _sheetHandle(cs), // ידית הגרירה החזותית — לא תלויה יותר בהצלחת מחוות הגרירה
+              Positioned(
+                left: 4, // מיקום כפתור הסגירה בפינה — קבוע, לא תלוי בגלילה
+                top: 2,
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).pop(), // סגירה מפורשת של ה-bottom sheet, בלי תלות בגרירה
+                  icon: Icon(Icons.close, size: 20, color: cs.onSurfaceVariant), // אייקון X ברור לסגירה
+                  visualDensity: VisualDensity.compact, // כפתור קטן וצפוף, לא תופס הרבה מקום בכותרת
+                  tooltip: 'סגור', // הסבר נגישות לכפתור הסגירה
+                ),
+              ),
+            ],
+          ),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxH), // מגביל את גובה אזור הגלילה, לא של הכותרת הקבועה
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + bottomInset), // ריפוד תחתון נוסף כדי שהפריט האחרון לא ייחסם ע"י פס הניווט
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
           _SectionLabel('שכבת רקע', cs),
           const SizedBox(height: 8),
           _TileSelector(state: state),
@@ -519,9 +547,11 @@ class LayersPanel extends StatelessWidget {
             cs: cs,
           ),
         ],
-        ),
-        ),
-      ),
+        ), // סגירת ה-Column הפנימי (תוכן הפאנל בתוך אזור הגלילה)
+        ), // סגירת SingleChildScrollView
+        ), // סגירת ConstrainedBox
+        ], // סגירת רשימת ה-children של ה-Column החיצוני (כותרת קבועה + אזור גלילה)
+      ), // סגירת ה-Column החיצוני
     );
   }
 }
