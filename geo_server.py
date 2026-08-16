@@ -1,23 +1,13 @@
-import logging  # רישום אירועים לקובץ לוג משותף
+import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import os  # ייבוא מודול os לגישה למשתני סביבה
-from dotenv import load_dotenv  # ייבוא load_dotenv לטעינת קובץ .env
-from flask import Flask, jsonify, request  # שרת ה-Web ופענוח פרמטרים
-from flask_cors import CORS  # מאפשר קריאות cross-origin מ-map.html שנטען מ-file://
+from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app
 import requests  # קריאה ל-Google Geocoding API
 
-from metrics import register_metrics  # נתיב /metrics משותף לכל שרתי הפרויקט
+from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
 from notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים
 
-# טעינת משתני סביבה מקובץ .env
-load_dotenv()  # טעינת משתני הסביבה מקובץ .env לפני שימוש בהם
-
-# הגדרת לוגינג
-logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(asctime)s - %(message)s')
-
-# יצירת מופע Flask
-app = Flask(__name__)
-CORS(app)
-register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
+# יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
+app = create_app(__name__)
 
 # מפתח ה-API נטען ממשתה סביבה ולא מוטמע בקוד מטעמי אבטחה
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # קריאת מפתח Google API מקובץ .env

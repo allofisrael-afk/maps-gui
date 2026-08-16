@@ -1804,72 +1804,111 @@ class MapApp(QMainWindow):
             };
         """)
 
+    # טבלת dispatch לאיתותי JS->Python (document.title) — במקום שרשרת if/elif ארוכה עם 13
+    # ענפים שכל אחד חוזר על אותה שורת איפוס כותרת. (handler, reset_title): reset_title=False
+    # רק לאיתותי "התחלה" (heatmap/elev_computing) שמוחלפים מהר ע"י האיתות הבא ולא היו
+    # מאפסים כותרת קודם — שאר הענפים כן מאפסים, כמו בגרסה הקודמת.
+    def _title_exact_handlers(self):
+        return {
+            '__heatmap_computing__':  (self._on_heatmap_computing,  False),
+            '__heatmap_loaded__':     (self._on_heatmap_loaded,     True),
+            '__heatmap_error__':      (self._on_heatmap_error,      True),
+            '__heatmap_edit_error__': (self._on_heatmap_edit_error, True),
+            '__elev_computing__':     (self._on_elev_computing,     False),
+            '__elev_loaded__':        (self._on_elev_loaded,        True),
+            '__elev_error__':         (self._on_elev_error,         True),
+            '__los_loading__':        (self._on_los_loading,        True),
+            '__los_loaded__':         (self._on_los_loaded,         True),
+            '__los_error__':          (self._on_los_error,          True),
+            '__uas_notam_loading__':  (self._on_uas_notam_loading,  True),
+        }
+
     def _on_title_changed(self, title):
         if title.startswith('__jserror__:'):
             logging.error(f"JS error: {title[len('__jserror__:'):]}")
             self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
             return
-        if title == '__heatmap_computing__':
-            self.heatmap_button.setText("מחשב מפה")
-        elif title == '__heatmap_loaded__':
-            self.heatmap_button.setText("נקה שכבה")
-            for btn in (self.temp_mode_heat_btn, self.temp_mode_grid_btn, self.temp_mode_dots_btn):
-                btn.setEnabled(True)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__heatmap_error__':
-            self.heatmap_button.setChecked(False)
-            self.heatmap_button.setText("שכבת חום")
-            self.log_action("שגיאה בטעינת נתוני טמפרטורה — בדוק חיבור רשת", is_success=False)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__heatmap_edit_error__':
-            self.log_action("שגיאה בעדכון נתוני טמפרטורה — הנתונים הקודמים נשמרו", is_success=False)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__elev_computing__':
-            self.elevation_button.setText("מחשב מפה")
-        elif title == '__elev_loaded__':
-            self.elevation_button.setText("נקה שכבה")
-            for btn in (self.elev_mode_heat_btn, self.elev_mode_grid_btn, self.elev_mode_dots_btn):
-                btn.setEnabled(True)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__elev_error__':
-            self.elevation_button.setChecked(False)
-            self.elevation_button.setText("שכבת גבהים")
-            self.log_action("שגיאה בטעינת נתוני גבהים — בדוק חיבור רשת", is_success=False)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__los_loading__':
-            # JS שלח איתות — החישוב החל, השרת שולף נתוני גובה מ-open-meteo
-            self.log_action("מחשב קו ראייה — שולף נתוני גובה...")
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")  # איפוס הכותרת למניעת הפעלה חוזרת
-        elif title == '__los_loaded__':
-            # JS שלח איתות — החישוב הסתיים בהצלחה, הגרף והקווים מוצגים
-            self.log_action("קו ראייה חושב בהצלחה", is_success=True)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")  # איפוס הכותרת
-        elif title == '__los_error__':
-            # JS שלח איתות — החישוב נכשל (בעיית רשת או שגיאת שרת)
-            self.log_action("שגיאה בחישוב קו ראייה — בדוק חיבור רשת", is_success=False)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title == '__uas_notam_loading__':
-            self.log_action("טוען נתוני NOTAM...")
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title.startswith('__uas_notam_loaded__:'):
-            count = title[len('__uas_notam_loaded__:'):]
-            self._notam_loaded = True  # תואם ל-uasNotamLoaded ב-JS — הטעינה החד-פעמית הצליחה, אין fetch נוסף מעכשיו
-            for checkbox in self.notam_checkboxes.values():
-                checkbox.setEnabled(True)  # שחרור הנעילה שהוטלה בתחילת הטעינה ב-toggle_notam_category
-            self.log_action(
-                f"נתוני NOTAM נטענו — {count} אזורים (להימנעות, לא לטיסה חופשית)", is_success=True)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
-        elif title.startswith('__uas_notam_error__:'):
-            failed_cat_id = title[len('__uas_notam_error__:'):]  # מזהה הקטגוריה שהטעינה שלה נכשלה — ר' toggleNotamCategory ב-JS
-            checkbox = self.notam_checkboxes.get(failed_cat_id)
-            if checkbox:
-                checkbox.blockSignals(True)  # מונע הפעלה חוזרת של toggle_notam_category בעת ביטול הסימון התכנותי
-                checkbox.setChecked(False)
-                checkbox.blockSignals(False)
-            for cb in self.notam_checkboxes.values():
-                cb.setEnabled(True)  # שחרור הנעילה גם על שאר התיבות, לא רק זו שנכשלה
-            self.log_action("שגיאה בטעינת נתוני NOTAM — בדוק חיבור רשת", is_success=False)
-            self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+
+        exact = self._title_exact_handlers()
+        if title in exact:
+            handler, reset_title = exact[title]
+            handler()
+            if reset_title:
+                self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+            return
+
+        # איתותים עם payload מוטמע בכותרת עצמה (מספר/מזהה קטגוריה) — נבדקים לפי קידומת
+        prefix_handlers = {
+            '__uas_notam_loaded__:': self._on_uas_notam_loaded,
+            '__uas_notam_error__:':  self._on_uas_notam_error,
+        }
+        for prefix, handler in prefix_handlers.items():
+            if title.startswith(prefix):
+                handler(title[len(prefix):])
+                self.map_view.page().runJavaScript("document.title = 'מפת Leaflet משולבת';")
+                return
+
+    def _on_heatmap_computing(self):
+        self.heatmap_button.setText("מחשב מפה")
+
+    def _on_heatmap_loaded(self):
+        self.heatmap_button.setText("נקה שכבה")
+        for btn in (self.temp_mode_heat_btn, self.temp_mode_grid_btn, self.temp_mode_dots_btn):
+            btn.setEnabled(True)
+
+    def _on_heatmap_error(self):
+        self.heatmap_button.setChecked(False)
+        self.heatmap_button.setText("שכבת חום")
+        self.log_action("שגיאה בטעינת נתוני טמפרטורה — בדוק חיבור רשת", is_success=False)
+
+    def _on_heatmap_edit_error(self):
+        self.log_action("שגיאה בעדכון נתוני טמפרטורה — הנתונים הקודמים נשמרו", is_success=False)
+
+    def _on_elev_computing(self):
+        self.elevation_button.setText("מחשב מפה")
+
+    def _on_elev_loaded(self):
+        self.elevation_button.setText("נקה שכבה")
+        for btn in (self.elev_mode_heat_btn, self.elev_mode_grid_btn, self.elev_mode_dots_btn):
+            btn.setEnabled(True)
+
+    def _on_elev_error(self):
+        self.elevation_button.setChecked(False)
+        self.elevation_button.setText("שכבת גבהים")
+        self.log_action("שגיאה בטעינת נתוני גבהים — בדוק חיבור רשת", is_success=False)
+
+    def _on_los_loading(self):
+        # JS שלח איתות — החישוב החל, השרת שולף נתוני גובה מ-open-meteo
+        self.log_action("מחשב קו ראייה — שולף נתוני גובה...")
+
+    def _on_los_loaded(self):
+        # JS שלח איתות — החישוב הסתיים בהצלחה, הגרף והקווים מוצגים
+        self.log_action("קו ראייה חושב בהצלחה", is_success=True)
+
+    def _on_los_error(self):
+        # JS שלח איתות — החישוב נכשל (בעיית רשת או שגיאת שרת)
+        self.log_action("שגיאה בחישוב קו ראייה — בדוק חיבור רשת", is_success=False)
+
+    def _on_uas_notam_loading(self):
+        self.log_action("טוען נתוני NOTAM...")
+
+    def _on_uas_notam_loaded(self, count):
+        self._notam_loaded = True  # תואם ל-uasNotamLoaded ב-JS — הטעינה החד-פעמית הצליחה, אין fetch נוסף מעכשיו
+        for checkbox in self.notam_checkboxes.values():
+            checkbox.setEnabled(True)  # שחרור הנעילה שהוטלה בתחילת הטעינה ב-toggle_notam_category
+        self.log_action(
+            f"נתוני NOTAM נטענו — {count} אזורים (להימנעות, לא לטיסה חופשית)", is_success=True)
+
+    def _on_uas_notam_error(self, failed_cat_id):
+        # failed_cat_id — מזהה הקטגוריה שהטעינה שלה נכשלה, ר' toggleNotamCategory ב-JS
+        checkbox = self.notam_checkboxes.get(failed_cat_id)
+        if checkbox:
+            checkbox.blockSignals(True)  # מונע הפעלה חוזרת של toggle_notam_category בעת ביטול הסימון התכנותי
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+        for cb in self.notam_checkboxes.values():
+            cb.setEnabled(True)  # שחרור הנעילה גם על שאר התיבות, לא רק זו שנכשלה
+        self.log_action("שגיאה בטעינת נתוני NOTAM — בדוק חיבור רשת", is_success=False)
 
     def toggle_heatmap(self):
         if self.heatmap_button.isChecked():
@@ -1897,14 +1936,31 @@ class MapApp(QMainWindow):
         self.map_view.page().runJavaScript("clearHeatmapPoints();")
         self.log_action("נקודות מפת החום נמחקו")
 
-    def toggle_ruler(self, checked):
-        self.map_view.page().runJavaScript("toggleRuler();")
+    def _toggle_layer(self, checked, *, js_call, button, on_text, off_text, on_extra=None, off_extra=None):
+        """ תבנית משותפת ל-toggle_X_layer שחזרה כמעט-זהה בכמה שכבות (ר' toggle_ruler/
+        toggle_elevation_layer/toggle_uas_coord_layer למטה): קריאת JS קבועה, ואז החלפת
+        טקסט הכפתור לפי מצב הסימון. on_extra/off_extra — callback אופציונלי לפעולות
+        הנוספות הייחודיות לכל שכבה (לוג, הפעלת/נעילת כפתורים נלווים) שממשיכות להשתנות
+        מהותית בין השכבות ולכן לא אוחדו לתוך התבנית עצמה. toggle_heatmap לא הועבר לכאן
+        בכוונה — JS שונה בין on/off ותלוי בסדר קריאה מול _register_heatmap_bridge. """
+        self.map_view.page().runJavaScript(js_call)
         if checked:
-            self.ruler_button.setText("לחץ על המפה לנקודה...")
+            button.setText(on_text)
+            if on_extra:
+                on_extra()
+        else:
+            button.setText(off_text)
+            if off_extra:
+                off_extra()
+
+    def toggle_ruler(self, checked):
+        def _on():
             self.ruler_clear_button.setEnabled(True)
             self.log_action("מצב מדידת מרחק הופעל — לחץ על המפה להוספת נקודות")
-        else:
-            self.ruler_button.setText("📏 מדד מרחק")
+        self._toggle_layer(
+            checked, js_call="toggleRuler();", button=self.ruler_button,
+            on_text="לחץ על המפה לנקודה...", off_text="📏 מדד מרחק", on_extra=_on,
+        )
 
     def clear_ruler(self):
         self.map_view.page().runJavaScript("clearRuler();")
@@ -1927,15 +1983,15 @@ class MapApp(QMainWindow):
 
     def toggle_elevation_layer(self, checked):
         """ הפעלה/כיבוי שכבת גבהים — לחיצה ראשונה פותחת מצב בחירת אזור. """
-        self.map_view.page().runJavaScript("toggleElevationLayer();")
-        if checked:
-            self.elevation_button.setText("בחר איזור ליצירת השכבה")
-            self.log_action("גרור מלבן על המפה לבחירת אזור גבהים")
-        else:
-            self.elevation_button.setText("שכבת גבהים")
+        def _off():
             self.log_action("שכבת גבהים כובתה")
             for btn in (self.elev_mode_heat_btn, self.elev_mode_grid_btn, self.elev_mode_dots_btn):
                 btn.setEnabled(False)
+        self._toggle_layer(
+            checked, js_call="toggleElevationLayer();", button=self.elevation_button,
+            on_text="בחר איזור ליצירת השכבה", off_text="שכבת גבהים",
+            on_extra=lambda: self.log_action("גרור מלבן על המפה לבחירת אזור גבהים"), off_extra=_off,
+        )
 
     def toggle_notam_category(self, cat_id, state):
         """ הפעלה/כיבוי קטגוריית NOTAM בודדת (מתוך 7 — ר' notam_categories.py) בתפריט ה-toolbox.
@@ -1957,13 +2013,13 @@ class MapApp(QMainWindow):
         """ הפעלה/כיבוי שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים (לא נשלפים בזמן ריצה),
         כל אזור דורש אישור יחידת הנת"א מראש. שכבה סינכרונית לגמרי — אין מצב טעינה/שגיאה
         כי הנתונים כבר מוטמעים בדף. ר' uas_coordination_zones.py. """
-        self.map_view.page().runJavaScript("toggleUasCoordZonesLayer();")
-        if checked:
-            self.uas_coord_button.setText("🛡️ הסתר אזורי תיאום")
-            self.log_action('שכבת "אזורי תיאום כטב"ם" הופעלה — כל אזור דורש אישור נת"א מראש', is_success=True)
-        else:
-            self.uas_coord_button.setText('🛡️ אזורי תיאום כטב"ם')
-            self.log_action('שכבת "אזורי תיאום כטב"ם" כובתה')
+        self._toggle_layer(
+            checked, js_call="toggleUasCoordZonesLayer();", button=self.uas_coord_button,
+            on_text="🛡️ הסתר אזורי תיאום", off_text='🛡️ אזורי תיאום כטב"ם',
+            on_extra=lambda: self.log_action(
+                'שכבת "אזורי תיאום כטב"ם" הופעלה — כל אזור דורש אישור נת"א מראש', is_success=True),
+            off_extra=lambda: self.log_action('שכבת "אזורי תיאום כטב"ם" כובתה'),
+        )
 
     def save_logs_to_file(self):
         """ שמירה של הלוגים לקובץ טקסט במערכת הקבצים. """

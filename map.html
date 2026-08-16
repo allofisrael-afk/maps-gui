@@ -94,15 +94,13 @@
         var elevationLayer  = null;    // שכבת גבהים — null כשכבויה
         var elevationActive = false;  // האם שכבת הגבהים פעילה
         var elevationPoints = [];     // נקודות גובה {lat, lng, elevation} לפופאפ בלחיצה
-        var elevBoundsRect  = null;   // מלבן בחירה אחרי טעינה
-        var elevHandles     = [];     // 4 ידיות פינות לעריכת הבחירה
+        var elevHandleState = { rect: null, handles: [] };  // מלבן בחירה + 4 ידיות פינות אחרי טעינה
         var tempHeatLayer   = null;   // שכבת מפת חום טמפרטורה — null כשכבויה
         var tempSelectStart = null;   // נקודת תחילת בחירת אזור
         var tempPreviewRect = null;   // מלבן preview בזמן גרירה
         var tempSelecting   = false;  // האם המשתמש נמצא באמצע בחירת אזור
         var _tempMDHandler  = null;   // פניה ל-mousedown handler לצורך ביטול
-        var tempBoundsRect  = null;   // מלבן בחירה אחרי טעינה
-        var tempHandles     = [];     // 4 ידיות פינות לעריכת הבחירה
+        var tempHandleState = { rect: null, handles: [] };  // מלבן בחירה + 4 ידיות פינות אחרי טעינה
 
         // ── מצב תצוגת שכבות ──
         var elevDisplayMode = 'heat';  // 'heat' | 'grid' | 'dots'
@@ -159,59 +157,14 @@
             return grad[grad.length-1][1].slice();
         }
 
-        function _buildTempCanvas() {
-            if (_tempRawData.length < 4) return null;
-            var latSet = {}, lngSet = {};
-            _tempRawData.forEach(function(p) { latSet[p.lat.toFixed(6)] = 1; lngSet[p.lng.toFixed(6)] = 1; });
-            var lats = Object.keys(latSet).map(Number).sort(function(a,b){return a-b;});
-            var lngs = Object.keys(lngSet).map(Number).sort(function(a,b){return a-b;});
-            var nLat = lats.length, nLng = lngs.length;
-            if (nLat < 2 || nLng < 2) return null;
-            var dlat = (lats[nLat-1] - lats[0]) / (nLat - 1);
-            var dlng = (lngs[nLng-1] - lngs[0]) / (nLng - 1);
-            var vals = [];
-            for (var i = 0; i < nLat; i++) { vals[i] = []; for (var j = 0; j < nLng; j++) vals[i][j] = 0.5; }
-            _tempRawData.forEach(function(p) {
-                var li = Math.round((p.lat - lats[0]) / dlat);
-                var lj = Math.round((p.lng - lngs[0]) / dlng);
-                if (li >= 0 && li < nLat && lj >= 0 && lj < nLng) vals[li][lj] = p.v;
-            });
-            var pxPerCell = 12;
-            var W = Math.max(60, nLng * pxPerCell), H = Math.max(60, nLat * pxPerCell);
-            var canvas = document.createElement('canvas');
-            canvas.width = W; canvas.height = H;
-            var ctx = canvas.getContext('2d');
-            var imgData = ctx.createImageData(W, H);
-            var alpha = Math.round(_tempHeatOpacity * 255);
-            var minLat = lats[0], maxLat = lats[nLat-1];
-            var minLng = lngs[0], maxLng = lngs[nLng-1];
-            for (var py = 0; py < H; py++) {
-                var lat = maxLat - (py / (H - 1)) * (maxLat - minLat);
-                var fi = Math.max(0, Math.min(nLat - 1.0001, (lat - minLat) / dlat));
-                var i0 = Math.floor(fi), i1 = i0 + 1 < nLat ? i0 + 1 : i0;
-                var ti = fi - i0;
-                for (var px = 0; px < W; px++) {
-                    var lng = minLng + (px / (W - 1)) * (maxLng - minLng);
-                    var fj = Math.max(0, Math.min(nLng - 1.0001, (lng - minLng) / dlng));
-                    var j0 = Math.floor(fj), j1 = j0 + 1 < nLng ? j0 + 1 : j0;
-                    var tj = fj - j0;
-                    var v = vals[i0][j0]*(1-ti)*(1-tj) + vals[i0][j1]*(1-ti)*tj +
-                             vals[i1][j0]*ti*(1-tj)     + vals[i1][j1]*ti*tj;
-                    var c = _normToColorArr(v, _tempGrad);
-                    var idx = (py * W + px) * 4;
-                    imgData.data[idx]=c[0]; imgData.data[idx+1]=c[1]; imgData.data[idx+2]=c[2]; imgData.data[idx+3]=alpha;
-                }
-            }
-            ctx.putImageData(imgData, 0, 0);
-            return { canvas: canvas, bounds: [[minLat - dlat/2, minLng - dlng/2], [maxLat + dlat/2, maxLng + dlng/2]] };
-        }
-
         var _elevHeatOpacity = 0.75;
 
-        function _buildElevCanvas() {
-            if (_elevRawData.length < 4) return null;
+        // בונה קנבס-תמונה מרשת נקודות ערך (גבהים/טמפרטורה) — משותף לשתי השכבות,
+        // rawData/grad/opacity מגיעים כפרמטרים כדי לשמר בדיוק את אותה התנהגות לכל שכבה.
+        function _buildValueCanvas(rawData, grad, opacity) {
+            if (rawData.length < 4) return null;
             var latSet = {}, lngSet = {};
-            _elevRawData.forEach(function(p) { latSet[p.lat.toFixed(6)] = 1; lngSet[p.lng.toFixed(6)] = 1; });
+            rawData.forEach(function(p) { latSet[p.lat.toFixed(6)] = 1; lngSet[p.lng.toFixed(6)] = 1; });
             var lats = Object.keys(latSet).map(Number).sort(function(a,b){return a-b;});
             var lngs = Object.keys(lngSet).map(Number).sort(function(a,b){return a-b;});
             var nLat = lats.length, nLng = lngs.length;
@@ -220,7 +173,7 @@
             var dlng = (lngs[nLng-1] - lngs[0]) / (nLng - 1);
             var vals = [];
             for (var i = 0; i < nLat; i++) { vals[i] = []; for (var j = 0; j < nLng; j++) vals[i][j] = 0.5; }
-            _elevRawData.forEach(function(p) {
+            rawData.forEach(function(p) {
                 var li = Math.round((p.lat - lats[0]) / dlat);
                 var lj = Math.round((p.lng - lngs[0]) / dlng);
                 if (li >= 0 && li < nLat && lj >= 0 && lj < nLng) vals[li][lj] = p.v;
@@ -231,7 +184,7 @@
             canvas.width = W; canvas.height = H;
             var ctx = canvas.getContext('2d');
             var imgData = ctx.createImageData(W, H);
-            var alpha = Math.round(_elevHeatOpacity * 255);
+            var alpha = Math.round(opacity * 255);
             var minLat = lats[0], maxLat = lats[nLat-1];
             var minLng = lngs[0], maxLng = lngs[nLng-1];
             for (var py = 0; py < H; py++) {
@@ -246,7 +199,7 @@
                     var tj = fj - j0;
                     var v = vals[i0][j0]*(1-ti)*(1-tj) + vals[i0][j1]*(1-ti)*tj +
                              vals[i1][j0]*ti*(1-tj)     + vals[i1][j1]*ti*tj;
-                    var c = _normToColorArr(v, _elevGrad);
+                    var c = _normToColorArr(v, grad);
                     var idx = (py * W + px) * 4;
                     imgData.data[idx]=c[0]; imgData.data[idx+1]=c[1]; imgData.data[idx+2]=c[2]; imgData.data[idx+3]=alpha;
                 }
@@ -260,7 +213,7 @@
             if (elevGridLayer)  { map.removeLayer(elevGridLayer);  elevGridLayer  = null; }
             if (!_elevRawData.length) return;
             if (elevDisplayMode === 'heat') {
-                var res = _buildElevCanvas();
+                var res = _buildValueCanvas(_elevRawData, _elevGrad, _elevHeatOpacity);
                 if (res) {
                     elevGridLayer = L.imageOverlay(res.canvas.toDataURL(), res.bounds,
                         { opacity: _elevHeatOpacity, interactive: false }).addTo(map);
@@ -287,7 +240,7 @@
             if (tempGridLayer)  { map.removeLayer(tempGridLayer);  tempGridLayer  = null; }
             if (!_tempRawData.length) return;
             if (tempDisplayMode === 'heat') {
-                var res = _buildTempCanvas();
+                var res = _buildValueCanvas(_tempRawData, _tempGrad, _tempHeatOpacity);
                 if (res) {
                     tempGridLayer = L.imageOverlay(res.canvas.toDataURL(), res.bounds,
                         { opacity: _tempHeatOpacity, interactive: false }).addTo(map);
@@ -863,22 +816,7 @@
             clearRuler();  // מנקה קווי/נקודות/תוויות סרגל ומאפס rulerActive+cursor — היה חסר, קווי מדידה נשארו על המפה אחרי איפוס
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות
             if (losActive) { toggleLos(); }  // כיבוי מצב LOS אם פעיל, כדי לאפס cursor וכפתור
-            // ניקוי גרירה באמצע בחירת אזור גבהים (elevSelecting=true אך elevationActive=false)
-            if (elevSelecting) {
-                map.off('mousemove', _updateElevPreview);
-                map.off('mouseup',   _finishElevSelection);
-                if (elevPreviewRect) { map.removeLayer(elevPreviewRect); elevPreviewRect = null; }
-                elevSelecting   = false;
-                elevSelectStart = null;
-                map.dragging.enable();
-                map.getContainer().style.cursor = '';
-            }
-            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
-            if (elevGridLayer)  { map.removeLayer(elevGridLayer);  elevGridLayer  = null; }
-            elevationActive = false;
-            elevationPoints = [];
-            _elevRawData    = [];
-            _clearElevHandles();
+            clearElevationLayer();  // מנקה גם שכבה טעונה וגם בחירה באמצע ביצוע (כולל שלב ההמתנה ללחיצה הראשונה)
             heatmapData = [];
             if (map.hasLayer(heatmap)) { heatmap.setLatLngs([]); map.removeLayer(heatmap); }
             allMarkers.forEach(function(m) { m.remove(); });
@@ -892,7 +830,8 @@
 
         var elevSelectStart  = null;  // נקודת ההתחלה של סימון האזור (LatLng של Leaflet)
         var elevPreviewRect  = null;  // מלבן תצוגה מקדימה המצויר בזמן הגרירה
-        var elevSelecting    = false; // האם המשתמש נמצא באמצע גרירה כרגע
+        var elevSelecting    = false; // האם המשתמש נמצא באמצע בחירה כרגע — כולל שלב ההמתנה ללחיצה הראשונה
+        var _elevMDHandler   = null;  // פניה ל-mousedown handler הממתין, לצורך ביטול לפני שנורה
 
         function startElevationSelection() {
             // אם כבר טעונים נתונים — שאל לפני איפוס
@@ -906,10 +845,11 @@
 
             map.dragging.disable();                        // ביטול גרירת המפה — מונע קונפליקט עם גרירת הסימון
             map.getContainer().style.cursor = 'crosshair'; // שינוי הסמן לצלב — מסמן למשתמש שהוא במצב בחירה
+            elevSelecting = true;  // מסומן כבר משלב ההמתנה ללחיצה — כדי ש-clearElevationLayer יזהה ויבטל נכון גם לפני קליק
 
-            map.once('mousedown', function(e) {           // האזנה חד-פעמית ללחיצה ראשונה בלבד
+            _elevMDHandler = function(e) {                // האזנה חד-פעמית ללחיצה ראשונה בלבד
+                _elevMDHandler  = null;                    // ההאזנה כבר נורתה — אין מה לבטל יותר
                 elevSelectStart = e.latlng;                // שמירת נקודת ההתחלה
-                elevSelecting   = true;                    // סימון שהגרירה החלה
 
                 // יצירת מלבן preview ריק בנקודת ההתחלה
                 elevPreviewRect = L.rectangle(
@@ -924,7 +864,8 @@
 
                 map.on('mousemove', _updateElevPreview);    // עדכון המלבן בכל תזוזת עכבר
                 map.once('mouseup', _finishElevSelection);  // סיום הבחירה בשחרור לחצן העכבר
-            });
+            };
+            map.once('mousedown', _elevMDHandler);
         }
 
         function _updateElevPreview(e) {
@@ -934,44 +875,53 @@
             }
         }
 
-        function _clearElevHandles() {
-            if (elevBoundsRect) { map.removeLayer(elevBoundsRect); elevBoundsRect = null; }
-            elevHandles.forEach(function(h) { map.removeLayer(h); });
-            elevHandles = [];
+        // ── ידיות עריכת אזור (4 פינות גרירות) — משותף לגבהים ולטמפרטורה ──
+        // state = {rect, handles} נפרד לכל שכבה (elevHandleState/tempHandleState), כדי לשמר
+        // ציור/מצב עצמאיים; color/eps/onFinish הם הפרמטרים שבאמת שונים בין שתי השכבות.
+        function _clearRegionHandles(state) {
+            if (state.rect) { map.removeLayer(state.rect); state.rect = null; }
+            state.handles.forEach(function(h) { map.removeLayer(h); });
+            state.handles = [];
         }
 
-        function _drawElevHandles(bounds) {
-            _clearElevHandles();
-            elevBoundsRect = L.rectangle(bounds, {
-                color: '#89b4fa', weight: 1.5, dashArray: '5,4', fillOpacity: 0, interactive: false
+        function _drawRegionHandles(state, color, bounds, eps, onFinish) {
+            _clearRegionHandles(state);
+            state.rect = L.rectangle(bounds, {
+                color: color, weight: 1.5, dashArray: '5,4', fillOpacity: 0, interactive: false
             }).addTo(map);
             var sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
             var corners = [sw, L.latLng(sw.lat, ne.lng), ne, L.latLng(ne.lat, sw.lng)];
-            var handleHtml = '<div style="width:12px;height:12px;background:#89b4fa;border:2px solid #fff;'
+            var handleHtml = '<div style="width:12px;height:12px;background:' + color + ';border:2px solid #fff;'
                            + 'border-radius:3px;cursor:move;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>';
             var handleIcon = L.divIcon({ html: handleHtml, className: '', iconSize: [12,12], iconAnchor: [6,6] });
             corners.forEach(function(corner, i) {
                 var h = L.marker(corner, { icon: handleIcon, draggable: true, zIndexOffset: 900 }).addTo(map);
                 h.on('drag', function(ev) {
                     var p = ev.target.getLatLng();
-                    var cur = elevBoundsRect.getBounds();
+                    var cur = state.rect.getBounds();
                     var s=cur.getSouth(), n=cur.getNorth(), w=cur.getWest(), e=cur.getEast();
                     if (i===0){s=p.lat;w=p.lng;} else if (i===1){s=p.lat;e=p.lng;}
                     else if (i===2){n=p.lat;e=p.lng;} else {n=p.lat;w=p.lng;}
                     var nb = L.latLngBounds([[s,w],[n,e]]);
-                    elevBoundsRect.setBounds(nb);
+                    state.rect.setBounds(nb);
                     var nsw=nb.getSouthWest(), nne=nb.getNorthEast();
                     var nc=[nsw,L.latLng(nsw.lat,nne.lng),nne,L.latLng(nne.lat,nsw.lng)];
-                    elevHandles.forEach(function(hh,j){ if(j!==i) hh.setLatLng(nc[j]); });
+                    state.handles.forEach(function(hh,j){ if(j!==i) hh.setLatLng(nc[j]); });
                 });
                 h.on('dragend', function() {
-                    var nb = elevBoundsRect.getBounds();
+                    var nb = state.rect.getBounds();
                     var sw2=nb.getSouthWest(), ne2=nb.getNorthEast();
-                    if (Math.abs(ne2.lat-sw2.lat)<0.001 || Math.abs(ne2.lng-sw2.lng)<0.001) return;
-                    _loadElevationForBounds(nb);
+                    if (Math.abs(ne2.lat-sw2.lat)<eps || Math.abs(ne2.lng-sw2.lng)<eps) return;
+                    onFinish(nb);
                 });
-                elevHandles.push(h);
+                state.handles.push(h);
             });
+        }
+
+        function _clearElevHandles() { _clearRegionHandles(elevHandleState); }
+
+        function _drawElevHandles(bounds) {
+            _drawRegionHandles(elevHandleState, '#89b4fa', bounds, 0.001, _loadElevationForBounds);
         }
 
         function _finishElevSelection(e) {
@@ -993,6 +943,28 @@
 
             _drawElevHandles(bounds);  // הצגת מלבן וידיות עריכה
             _loadElevationForBounds(bounds);  // טעינת נתוני גבהים לאזור שנבחר
+        }
+
+        // מנקה את שכבת הגבהים לגמרי — גם אם היא כבר טעונה וגם אם המשתמש באמצע בחירת אזור
+        // (כולל שלב ההמתנה ללחיצה הראשונה, לפני mousedown). קריאה יחידה משותפת ל-resetMapState
+        // ול-toggleElevationLayer, במקום שני מסלולי ניקוי חלקיים שלא כיסו את כל המצבים.
+        function clearElevationLayer() {
+            if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
+            if (elevGridLayer)  { map.removeLayer(elevGridLayer);  elevGridLayer  = null; }
+            elevationActive = false;
+            elevationPoints = [];
+            _elevRawData    = [];
+            if (elevSelecting) {
+                if (_elevMDHandler) { map.off('mousedown', _elevMDHandler); _elevMDHandler = null; }
+                map.off('mousemove', _updateElevPreview);
+                map.off('mouseup', _finishElevSelection);
+                if (elevPreviewRect) { map.removeLayer(elevPreviewRect); elevPreviewRect = null; }
+                map.dragging.enable();
+                map.getContainer().style.cursor = '';
+                elevSelecting   = false;
+                elevSelectStart = null;
+            }
+            _clearElevHandles();
         }
 
         function _loadElevationForBounds(bounds) {
@@ -1052,14 +1024,11 @@
         }
 
         function toggleElevationLayer() {
-            // אם השכבה פעילה — כבה אותה; אחרת — פתח מצב בחירת אזור
-            if (elevationActive) {
-                if (elevationLayer) { map.removeLayer(elevationLayer); elevationLayer = null; }
-                if (elevGridLayer)  { map.removeLayer(elevGridLayer);  elevGridLayer  = null; }
-                elevationActive = false;
-                elevationPoints = [];
-                _elevRawData    = [];
-                _clearElevHandles();
+            // אם השכבה פעילה או שהמשתמש באמצע בחירת אזור — כבה/בטל; אחרת — פתח מצב בחירת אזור.
+            // הבדיקה כוללת גם elevSelecting (לא רק elevationActive) כדי שכיבוי הכפתור באמצע גרירה
+            // (לפני שהנתונים נטענו) יבטל את הבחירה במקום לפתוח בחירה נוספת על גבי הקיימת.
+            if (elevationActive || elevSelecting) {
+                clearElevationLayer();
             } else {
                 startElevationSelection();
             }
@@ -1103,44 +1072,10 @@
             }
         }
 
-        function _clearTempHandles() {
-            if (tempBoundsRect) { map.removeLayer(tempBoundsRect); tempBoundsRect = null; }
-            tempHandles.forEach(function(h) { map.removeLayer(h); });
-            tempHandles = [];
-        }
+        function _clearTempHandles() { _clearRegionHandles(tempHandleState); }
 
         function _drawTempHandles(bounds) {
-            _clearTempHandles();
-            tempBoundsRect = L.rectangle(bounds, {
-                color: '#f38ba8', weight: 1.5, dashArray: '5,4', fillOpacity: 0, interactive: false
-            }).addTo(map);
-            var sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
-            var corners = [sw, L.latLng(sw.lat, ne.lng), ne, L.latLng(ne.lat, sw.lng)];
-            var handleHtml = '<div style="width:12px;height:12px;background:#f38ba8;border:2px solid #fff;'
-                           + 'border-radius:3px;cursor:move;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>';
-            var handleIcon = L.divIcon({ html: handleHtml, className: '', iconSize: [12,12], iconAnchor: [6,6] });
-            corners.forEach(function(corner, i) {
-                var h = L.marker(corner, { icon: handleIcon, draggable: true, zIndexOffset: 900 }).addTo(map);
-                h.on('drag', function(ev) {
-                    var p = ev.target.getLatLng();
-                    var cur = tempBoundsRect.getBounds();
-                    var s=cur.getSouth(), n=cur.getNorth(), w=cur.getWest(), e=cur.getEast();
-                    if (i===0){s=p.lat;w=p.lng;} else if (i===1){s=p.lat;e=p.lng;}
-                    else if (i===2){n=p.lat;e=p.lng;} else {n=p.lat;w=p.lng;}
-                    var nb = L.latLngBounds([[s,w],[n,e]]);
-                    tempBoundsRect.setBounds(nb);
-                    var nsw=nb.getSouthWest(), nne=nb.getNorthEast();
-                    var nc=[nsw,L.latLng(nsw.lat,nne.lng),nne,L.latLng(nne.lat,nsw.lng)];
-                    tempHandles.forEach(function(hh,j){ if(j!==i) hh.setLatLng(nc[j]); });
-                });
-                h.on('dragend', function() {
-                    var nb = tempBoundsRect.getBounds();
-                    var sw2=nb.getSouthWest(), ne2=nb.getNorthEast();
-                    if (Math.abs(ne2.lat-sw2.lat)<0.01 || Math.abs(ne2.lng-sw2.lng)<0.01) return;
-                    _loadTempHeatmap(nb);
-                });
-                tempHandles.push(h);
-            });
+            _drawRegionHandles(tempHandleState, '#f38ba8', bounds, 0.01, _loadTempHeatmap);
         }
 
         function _finishTempSelection(e) {

@@ -1,17 +1,11 @@
-import logging  # רישום אירועים לקובץ לוג
+import logging  # רישום אירועים לקובץ לוג (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import os        # קריאת משתני סביבה לפרטי התחברות
 import re        # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד
-from dotenv import load_dotenv            # טעינת .env עם פרטי FR24
-from flask import Flask, jsonify, request  # ייבוא Flask לבניית ה-API
-from flask_cors import CORS               # מאפשר קריאות cross-origin מהמפה
+from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app
 from FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24
 
-from metrics import register_metrics
-
-load_dotenv()  # טעינת FR24_USER ו-FR24_PASS מקובץ .env
-
-# הגדרת לוגינג לקובץ משותף
-logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(asctime)s - %(message)s')
+from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
+# create_app כבר קורא ל-load_dotenv() — טוען גם את FR24_USER/FR24_PASS/FR24_TOKEN בהמשך הקובץ
 
 # מיפוי קוד IATA (2 תווים) → קוד ICAO (3 תווים) לחברות נפוצות.
 # ה-API של FR24 מקבל רק ICAO בפרמטר airline — IATA מחזיר 0 תוצאות.
@@ -43,9 +37,27 @@ def _normalize_flight_num(fn: str) -> str:
     m = re.match(r'^([A-Z]+)0*(\d+)$', fn)
     return (m.group(1) + m.group(2)) if m else fn
 
-app = Flask(__name__)  # יצירת מופע Flask
-CORS(app)              # אפשור קריאות מהדפדפן הפנימי (QWebEngineView)
-register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
+
+def _normalize_trail_point(point):
+    """
+    מנרמל נקודת מסלול בודדת ממבנה FR24 הלא-עקבי (lat/Lat, lng/Lng/lon/Lon,
+    alt/Alt/altitude, spd/Spd/speed) למבנה אחיד {lat, lng, alt, spd}.
+    מחזיר None אם אין קואורדינטות תקינות (הנקודה תידלג).
+    מקור אמת יחיד — היו כאן שני עותקים כמעט-זהים (בנתיב הראשי ובנתיב search())
+    שהתבררו כלא-זהים בפועל: אחד מהם לא בדק את המפתחות "altitude"/"speed".
+    """
+    pt_lat = point.get("lat") if point.get("lat") is not None else point.get("Lat")
+    pt_lng = point.get("lng") if point.get("lng") is not None else (point.get("Lng") or point.get("lon") or point.get("Lon"))
+    if pt_lat is None or pt_lng is None:
+        return None
+    return {
+        "lat": pt_lat,
+        "lng": pt_lng,
+        "alt": point.get("alt") or point.get("Alt") or point.get("altitude") or 0,
+        "spd": point.get("spd") or point.get("Spd") or point.get("speed") or 0,
+    }
+
+app = create_app(__name__)  # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
 
 fr_api = FlightRadar24API()  # יצירת מופע ה-API
 
@@ -149,16 +161,7 @@ def get_flight_route():
                         dest_name    = airports.get("destination", {}).get("name", "")
                         aircraft_mdl = details.get("aircraft", {}).get("model", {}).get("text", "לא ידוע")
                         airline_name = details.get("airline",  {}).get("name", "לא ידוע")
-                        norm_trail = []
-                        for point in trail:
-                            pt_lat = point.get("lat") if point.get("lat") is not None else point.get("Lat")
-                            pt_lng = point.get("lng") if point.get("lng") is not None else (point.get("Lng") or point.get("lon") or point.get("Lon"))
-                            if pt_lat is not None and pt_lng is not None:
-                                norm_trail.append({
-                                    "lat": pt_lat, "lng": pt_lng,
-                                    "alt": point.get("alt") or point.get("Alt") or 0,
-                                    "spd": point.get("spd") or point.get("Spd") or 0,
-                                })
+                        norm_trail = [p for p in (_normalize_trail_point(pt) for pt in trail) if p is not None]
                         if len(norm_trail) > 400:
                             norm_trail = norm_trail[-400:]
                         logging.info(f"נשלח מסלול via search עבור {flight_number}: {len(norm_trail)} נקודות")
@@ -211,18 +214,7 @@ def get_flight_route():
             logging.warning(f"get_flight_details נכשל עבור {flight_number}: {detail_err}. מחזיר מיקום נוכחי בלבד.")
 
         # נרמול מפתחות trail — FR24 מחזיר לעיתים Lat/Lng (גדולות) ולא lat/lng
-        normalized_trail = []
-        for point in trail:
-            pt_lat = point.get("lat") if point.get("lat") is not None else point.get("Lat")
-            pt_lng = point.get("lng") if point.get("lng") is not None else (point.get("Lng") or point.get("lon") or point.get("Lon"))
-            if pt_lat is not None and pt_lng is not None:
-                normalized_trail.append({
-                    "lat": pt_lat,
-                    "lng": pt_lng,
-                    "alt": point.get("alt") or point.get("Alt") or point.get("altitude") or 0,
-                    "spd": point.get("spd") or point.get("Spd") or point.get("speed") or 0,
-                })
-        trail = normalized_trail
+        trail = [p for p in (_normalize_trail_point(pt) for pt in trail) if p is not None]
 
         # שמירת המיקום הנוכחי לפני השינוי — ישמש כ-fallback
         current_lat = getattr(flight, "latitude",  None)  # getattr עם ברירת מחדל — שדות עשויים לא להתקיים אם FR24 שינה מבנה

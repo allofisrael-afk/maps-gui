@@ -1,25 +1,14 @@
-import logging  # רישום אירועים לקובץ לוג משותף
+import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ
 import time  # השהיות בין ניסיונות חוזרים ובין batches
-from flask import Flask, jsonify, request  # שרת ה-Web ופענוח בקשות
-from flask_cors import CORS  # מאפשר קריאות cross-origin מ-map.html שנטען מ-file://
+from flask import jsonify, request  # פענוח בקשות — Flask() עצמו נוצר ב-server_common.create_app
 import requests  # קריאות ל-OpenWeather/Open-Meteo/Google
 import os  # קריאת מפתחות API ממשתני סביבה, בדיקת קיום קובץ CSV
-from dotenv import load_dotenv  # טעינת .env
 
-from metrics import register_metrics  # נתיב /metrics משותף לכל שרתי הפרויקט
+from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
 
-# טעינת משתני סביבה
-load_dotenv()
-
-# הגדרת לוגינג
-logging.basicConfig(filename='app_combined.log', level=logging.INFO,  # נשמור הכל בקובץ אחד
-                    format='%(asctime)s - %(message)s')
-
-# יצירת מופע Flask
-app = Flask(__name__)
-CORS(app)
-register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
+# יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
+app = create_app(__name__)
 
 # מפתח ה-API ל-OpenWeather (מזג אוויר בפועל) — הגיאוקודינג (חיפוש עיר/אזור) עבר ל-Nominatim, חינמי וללא מפתח
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")

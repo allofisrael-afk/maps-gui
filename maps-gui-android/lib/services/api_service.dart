@@ -14,6 +14,21 @@ class ApiService {
   static const String _forecastBase = 'https://api.open-meteo.com/v1/forecast';
   static const String _geocodeBase = 'https://nominatim.openstreetmap.org/search';
 
+  /// GET משותף: מבצע בקשה, בודק status==200, ומפענח JSON. מאחד 7 מקומות בקובץ הזה
+  /// שחזרו על אותה שרשרת Uri.parse→http.get→בדיקת status→json.decode. כמה מקומות עם
+  /// התנהגות שונה בכשל (למשל נפילה חזרה לספק הבא בלי לזרוק, או המשך ללולאה) נשארו
+  /// עצמאיים בכוונה — הכפלה קטנה עדיפה על פני helper שמנסה לכסות כל מקרה קצה.
+  static Future<dynamic> _getJson(
+    Uri uri, {
+    Map<String, String>? headers,
+    required Duration timeout,
+    required String errorLabel,
+  }) async {
+    final response = await http.get(uri, headers: headers).timeout(timeout);
+    if (response.statusCode != 200) throw Exception('$errorLabel ${response.statusCode}');
+    return json.decode(response.body);
+  }
+
   // ── חיפוש עיר (geocoding) — Nominatim/OSM, חינמי וללא מפתח ────────────────
   static Future<CityResult> geocodeCity(String name) async {
     // polygon_geojson=1 — מבקש את גבולות העיר בפועל (Polygon/MultiPolygon), לא רק תיבה מלבנית;
@@ -22,11 +37,12 @@ class ApiService {
       '$_geocodeBase?q=${Uri.encodeComponent(name)}&format=json&limit=1&addressdetails=0&polygon_geojson=1',
     );
     // Nominatim דורש User-Agent מזהה לפי מדיניות השימוש שלו
-    final response = await http
-        .get(uri, headers: {'User-Agent': 'maps-gui-android/1.0'})
-        .timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200) throw Exception('שגיאת חיפוש עיר ${response.statusCode}');
-    final results = json.decode(response.body) as List;
+    final results = await _getJson(
+      uri,
+      headers: {'User-Agent': 'maps-gui-android/1.0'},
+      timeout: const Duration(seconds: 15),
+      errorLabel: 'שגיאת חיפוש עיר',
+    ) as List;
     if (results.isEmpty) throw Exception('עיר "$name" לא נמצאה');
     return CityResult.fromNominatimJson(results.first as Map<String, dynamic>);
   }
@@ -64,9 +80,7 @@ class ApiService {
       final chunkLats = lats.sublist(offset, end);
       final chunkLons = lons.sublist(offset, end);
       final uri = Uri.parse('$_elevBase?latitude=${chunkLats.join(',')}&longitude=${chunkLons.join(',')}');
-      final response = await http.get(uri).timeout(const Duration(seconds: 40)); // timeout היה חסר — תואם ל-fetchTemperatureGrid הדומה
-      if (response.statusCode != 200) throw Exception('Elevation API error ${response.statusCode}');
-      final data = json.decode(response.body) as Map<String, dynamic>;
+      final data = await _getJson(uri, timeout: const Duration(seconds: 40), errorLabel: 'Elevation API error') as Map<String, dynamic>;
       final elevations = (data['elevation'] as List).cast<num>();
       for (int k = 0; k < chunkLats.length; k++) {
         results.add(GridPoint(lat: chunkLats[k], lon: chunkLons[k], value: elevations[k].toDouble()));
@@ -112,9 +126,7 @@ class ApiService {
         '$_forecastBase?latitude=${chunkLats.join(',')}&longitude=${chunkLons.join(',')}'
         '&current=temperature_2m&timezone=UTC',
       );
-      final response = await http.get(uri).timeout(const Duration(seconds: 40));
-      if (response.statusCode != 200) throw Exception('Forecast API error ${response.statusCode}');
-      final body = json.decode(response.body);
+      final body = await _getJson(uri, timeout: const Duration(seconds: 40), errorLabel: 'Forecast API error');
       if (body is List) {
         for (int k = 0; k < chunkLats.length; k++) {
           final temp = (body[k]['current']['temperature_2m'] as num).toDouble();
@@ -168,10 +180,7 @@ class ApiService {
     final statesUri = Uri.parse(
       'https://opensky-network.org/api/states/all?callsign=${Uri.encodeComponent(callsign)}',
     );
-    final statesResp = await http.get(statesUri).timeout(const Duration(seconds: 15));
-    if (statesResp.statusCode != 200) throw Exception('OpenSky states שגיאה ${statesResp.statusCode}');
-
-    final statesData = json.decode(statesResp.body) as Map<String, dynamic>;
+    final statesData = await _getJson(statesUri, timeout: const Duration(seconds: 15), errorLabel: 'OpenSky states שגיאה') as Map<String, dynamic>;
     final states = statesData['states'] as List?;
     if (states == null || states.isEmpty) throw Exception('טיסה "$callsign" לא נמצאה ב-OpenSky');
 
@@ -244,10 +253,7 @@ class ApiService {
       'https://data.flightradar24.com/zones/fcgi/feed.js'
       '?callsign=$callsign&faa=1&satellite=1&mlat=1&flarm=1&adsb=1&gnd=0&air=1&vehicles=0&estimated=0&maxage=14400',
     );
-    final feedResp = await http.get(feedUri, headers: _fr24Headers).timeout(const Duration(seconds: 15));
-    if (feedResp.statusCode != 200) throw Exception('FR24 שגיאה ${feedResp.statusCode}');
-
-    final feed = json.decode(feedResp.body) as Map<String, dynamic>;
+    final feed = await _getJson(feedUri, headers: _fr24Headers, timeout: const Duration(seconds: 15), errorLabel: 'FR24 שגיאה') as Map<String, dynamic>;
     String? flightId;
     double? curLat, curLon;
 
@@ -327,9 +333,7 @@ class ApiService {
         '?latitude=${sub.map((c) => c[0].toStringAsFixed(6)).join(',')}'
         '&longitude=${sub.map((c) => c[1].toStringAsFixed(6)).join(',')}',
       );
-      final resp = await http.get(uri).timeout(const Duration(seconds: 30)); // תגובה תוך 30 שניות
-      if (resp.statusCode != 200) throw Exception('שגיאת API גבהים ${resp.statusCode}');
-      final data = json.decode(resp.body) as Map<String, dynamic>;
+      final data = await _getJson(uri, timeout: const Duration(seconds: 30), errorLabel: 'שגיאת API גבהים') as Map<String, dynamic>; // תגובה תוך 30 שניות
       elevs.addAll((data['elevation'] as List).map((e) => (e as num).toDouble())); // הוספה לרשימה
     }
     if (elevs.length < n) throw Exception('נתוני גובה חסרים'); // פחות גבהים מנקודות
@@ -401,9 +405,7 @@ class ApiService {
       '$_forecastBase?latitude=$lat&longitude=$lon'
       '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=auto',
     );
-    final response = await http.get(uri).timeout(const Duration(seconds: 20)); // timeout היה חסר
-    if (response.statusCode != 200) throw Exception('Weather API error ${response.statusCode}');
-    final data = json.decode(response.body) as Map<String, dynamic>;
+    final data = await _getJson(uri, timeout: const Duration(seconds: 20), errorLabel: 'Weather API error') as Map<String, dynamic>;
     final current = data['current'] as Map<String, dynamic>;
     return {
       'temp': current['temperature_2m'],
