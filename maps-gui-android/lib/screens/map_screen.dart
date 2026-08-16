@@ -482,7 +482,9 @@ class _MapScreenState extends State<MapScreen> {
           // ── הנחיה בחירת אזור ──
           if (_selectMode)
             Positioned(
-              bottom: 30,
+              // + viewPadding.bottom — ר' עמודת הכרטיסים/המקראות למטה; זו הייתה חסרה כאן
+              // (אותה מחלקת באג עם פס הניווט הפיזי שכבר תוקנה במקומות אחרים)
+              bottom: 30 + MediaQuery.of(context).viewPadding.bottom,
               left: 20,
               right: 20,
               child: IgnorePointer(
@@ -516,7 +518,9 @@ class _MapScreenState extends State<MapScreen> {
           // ── הנחיה: הוראות לחיצה במצב LOS ──
           if (state.losMode && !_selectMode)
             Positioned(
-              bottom: state.losSessions.any((s) => s.points.isNotEmpty) ? 195 : 30, // מעל הפאנל אם פתוח
+              // + viewPadding.bottom — אותו תיקון פס ניווט כמו הנחיית בחירת האזור למעלה
+              bottom: (state.losSessions.any((s) => s.points.isNotEmpty) ? 195 : 30) +
+                  MediaQuery.of(context).viewPadding.bottom, // מעל הפאנל אם פתוח
               left: 20,
               right: 20,
               child: IgnorePointer(

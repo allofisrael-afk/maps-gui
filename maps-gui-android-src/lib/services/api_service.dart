@@ -64,7 +64,7 @@ class ApiService {
       final chunkLats = lats.sublist(offset, end);
       final chunkLons = lons.sublist(offset, end);
       final uri = Uri.parse('$_elevBase?latitude=${chunkLats.join(',')}&longitude=${chunkLons.join(',')}');
-      final response = await http.get(uri);
+      final response = await http.get(uri).timeout(const Duration(seconds: 40)); // timeout היה חסר — תואם ל-fetchTemperatureGrid הדומה
       if (response.statusCode != 200) throw Exception('Elevation API error ${response.statusCode}');
       final data = json.decode(response.body) as Map<String, dynamic>;
       final elevations = (data['elevation'] as List).cast<num>();
@@ -401,7 +401,7 @@ class ApiService {
       '$_forecastBase?latitude=$lat&longitude=$lon'
       '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=auto',
     );
-    final response = await http.get(uri);
+    final response = await http.get(uri).timeout(const Duration(seconds: 20)); // timeout היה חסר
     if (response.statusCode != 200) throw Exception('Weather API error ${response.statusCode}');
     final data = json.decode(response.body) as Map<String, dynamic>;
     final current = data['current'] as Map<String, dynamic>;

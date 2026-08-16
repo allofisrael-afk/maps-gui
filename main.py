@@ -184,6 +184,68 @@ class SecurityCheckWorker(QThread):
         self.finished_findings.emit(findings)
 
 
+class WeatherFetchWorker(QThread):
+    """
+    מריץ קריאת GET אחת ל-WeatherServer (לפי lat/lon או לפי region) על thread נפרד — אותו
+    דפוס בדיוק כמו HealthCheckWorker/SecurityCheckWorker למעלה. עד השלב הזה שלוש פונקציות
+    נפרדות (submit_coordinates/save_and_send/save_and_send_city) ביצעו requests.get חוסם
+    ישירות בתוך handler של כפתור, על ה-thread הראשי של Qt — מה שקיפיא את כל הממשק (כולל
+    תצוגת המפה) לכל משך הקריאה. run() לא נוגע בשום widget — רק HTTP + פענוח JSON טהור;
+    כל טיפול בתוצאה (כולל display_weather_on_map) קורה ב-slot שמחובר ל-finished, על ה-thread
+    הראשי, בדיוק כמו ששאר ה-workers כבר עושים.
+    """
+    finished_weather = pyqtSignal(dict)  # {"ok": True, "data": weather_data} או {"ok": False, "error": str}
+
+    def __init__(self, lat=None, lon=None, region=None, timeout=15, parent=None):
+        super().__init__(parent)
+        self.lat = lat
+        self.lon = lon
+        self.region = region
+        self.timeout = timeout
+
+    def run(self):
+        try:
+            if self.region is not None:
+                url = f"http://127.0.0.1:5002/weather?region={urllib.parse.quote(self.region)}"
+            else:
+                url = f"http://127.0.0.1:5002/weather?lat={self.lat}&lon={self.lon}"
+            response = requests.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                self.finished_weather.emit({"ok": True, "data": response.json()})
+            else:
+                self.finished_weather.emit({"ok": False, "error": f"שגיאת שרת: {response.status_code}"})
+        except Exception as e:
+            self.finished_weather.emit({"ok": False, "error": str(e)})
+
+
+class FlightFetchWorker(QThread):
+    """
+    מריץ קריאת GET אחת ל-FlightServer על thread נפרד — אותו דפוס כמו WeatherFetchWorker
+    למעלה. עד השלב הזה fetch_and_draw_flight ביצע את הקריאה (עד 35 שניות timeout, כי
+    FR24 get_flights() יכול לקחת 20+ שניות) ישירות על ה-thread הראשי.
+    """
+    finished_flight = pyqtSignal(dict)  # {"ok": True, "data": route_data} או {"ok": False, "error": str}
+
+    def __init__(self, flight_number, timeout=35, parent=None):
+        super().__init__(parent)
+        self.flight_number = flight_number
+        self.timeout = timeout
+
+    def run(self):
+        try:
+            url = f"http://127.0.0.1:5004/flight_route?flight={self.flight_number}"
+            response = requests.get(url, timeout=self.timeout)
+            if response.status_code == 200:
+                self.finished_flight.emit({"ok": True, "data": response.json()})
+            else:
+                error = response.json().get("error", "שגיאה לא ידועה")
+                self.finished_flight.emit({"ok": False, "error": error})
+        except requests.exceptions.Timeout:
+            self.finished_flight.emit({"ok": False, "error": "timeout"})
+        except Exception as e:
+            self.finished_flight.emit({"ok": False, "error": str(e)})
+
+
 class GaugeWidget(QWidget):
     """
     שעון מד-מהירות (קשת 270°, אזורי צבע אדום/צהוב/ירוק, מחוג) שמציג אחוז תקינות בודד —
@@ -889,7 +951,7 @@ class MapApp(QMainWindow):
             self.flight_input.addItem(flight)  # אכלוס מחדש בסדר המעודכן
 
     def fetch_and_draw_flight(self):
-        """ שולף מסלול טיסה מ-FlightServer ומצייר אותו על המפה. """
+        """ שולף מסלול טיסה מ-FlightServer (ב-thread נפרד — FlightFetchWorker) ומצייר אותו על המפה. """
         flight_number = self.flight_input.currentText().strip().upper()  # קריאת מספר הטיסה מה-ComboBox
 
         if not flight_number:
@@ -899,12 +961,10 @@ class MapApp(QMainWindow):
         self.log_action(f"מחפש טיסה: {flight_number}...")
         self.show_flight_button.setEnabled(False)  # נעילת הכפתור למניעת לחיצות כפולות בזמן הבקשה
 
-        try:
-            url = f"http://127.0.0.1:5004/flight_route?flight={flight_number}"  # בקשה לשרת הטיסות
-            response = requests.get(url, timeout=35)  # FR24 get_flights() יכול לקחת 20+ שניות
-
-            if response.status_code == 200:
-                route_data = response.json()  # פירוק תשובת JSON עם נתוני המסלול
+        def _on_finished(result):
+            self.show_flight_button.setEnabled(True)  # שחרור הכפתור בכל מקרה — הצלחה או כישלון, מקביל ל-finally הקודם
+            if result["ok"]:
+                route_data = result["data"]  # פירוק תשובת JSON עם נתוני המסלול
                 trail_count = len(route_data.get("trail", []))  # מספר נקודות המסלול
                 self.log_action(
                     f"נמצאה טיסה {route_data.get('callsign')} — {trail_count} נקודות מסלול",
@@ -913,16 +973,15 @@ class MapApp(QMainWindow):
                 self._draw_flight_on_map(route_data)  # ציור המסלול על המפה
                 self._save_flight_to_history(flight_number)  # שמירה בהיסטוריה
                 self.clear_flight_button.setEnabled(True)  # אפשור כפתור ניקוי לאחר הצגה
+            elif result["error"] == "timeout":
+                self.log_action("פסק זמן בחיפוש הטיסה — נסה שנית.", is_success=False)
             else:
-                error = response.json().get("error", "שגיאה לא ידועה")
-                self.log_action(f"שגיאה בשליפת טיסה: {error}", is_success=False)
+                self.log_action(f"שגיאה בשליפת טיסה: {result['error']}", is_success=False)
 
-        except requests.exceptions.Timeout:
-            self.log_action("פסק זמן בחיפוש הטיסה — נסה שנית.", is_success=False)
-        except Exception as e:
-            self.log_action(f"שגיאה בתקשורת עם FlightServer: {e}", is_success=False)
-        finally:
-            self.show_flight_button.setEnabled(True)  # שחרור הכפתור בכל מקרה — הצלחה או כישלון
+        # שומר הפניה ב-self כדי ש-Python/Qt לא ינקו את ה-thread תוך כדי ריצה — אותו טעם כמו _weather_worker
+        self._flight_worker = FlightFetchWorker(flight_number)
+        self._flight_worker.finished_flight.connect(_on_finished)
+        self._flight_worker.start()
 
     def _draw_flight_on_map(self, route_data):
         """ מעביר את נתוני המסלול ל-JavaScript ומצייר קו על המפה. """
@@ -1505,6 +1564,10 @@ class MapApp(QMainWindow):
         self.elev_mode_heat_btn.setChecked(True)
         self.elev_mode_grid_btn.setChecked(False)
         self.elev_mode_dots_btn.setChecked(False)
+        # היה חסר — הסרגל לא התאפס יחד עם שאר השכבות (הכפתור נשאר "תקוע" גם אחרי שה-JS כבר ניקה את הקווים)
+        self.ruler_button.setChecked(False)
+        self.ruler_button.setText("📏 מדד מרחק")
+        self.ruler_clear_button.setEnabled(False)
 
     def load_map(self):
         """ טעינת המפה לתוך תצוגת QWebEngineView. """
@@ -1652,18 +1715,15 @@ class MapApp(QMainWindow):
             self.log_action(f"שגיאה בשמירת מבנה ההודעה: {e}", is_success=False)
             return
 
-        try:
-            url = f"http://127.0.0.1:5002/weather?lat={lat}&lon={lon}"  # בניית URL עם פרמטרים נפרדים
-            response = requests.get(url)  # שליחת בקשת GET לשרת מזג האוויר
+        # שליחה ל-thread נפרד (WeatherFetchWorker) — לא חוסמת יותר את ה-thread הראשי, ר' _fetch_weather_async
+        def _on_success(weather_data):
+            self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}", is_success=True)
+            self.display_weather_on_map(lat, lon, weather_data)  # הצגה על המפה
 
-            if response.status_code == 200:
-                weather_data = response.json()  # פירוק תשובת JSON
-                self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}", is_success=True)
-                self.display_weather_on_map(lat, lon, weather_data)  # הצגה על המפה
-            else:
-                self.log_action(f"שגיאה בשליחת הבקשה: {response.status_code}", is_success=False)
-        except Exception as e:
-            self.log_action(f"שגיאה בשליחת ההודעה לשרת: {e}", is_success=False)
+        def _on_error(msg):
+            self.log_action(f"שגיאה בשליחת ההודעה לשרת: {msg}", is_success=False)
+
+        self._fetch_weather_async(_on_success, _on_error, lat=lat, lon=lon)
 
     def toggle_lat_lon_inputs(self):
         """ הצגת או הסתרת לשוניות הקלט (קואורדינטות / עיר) """
@@ -1700,28 +1760,21 @@ class MapApp(QMainWindow):
             self.log_action(f"שגיאה בשמירת שם העיר: {e}", is_success=False)
             return
 
-        # קידוד שם העיר ל-URL
-        encoded_city_name = urllib.parse.quote(city_name)
-
-        # שליחת הבקשה לשרת
-        try:
-            url = f"http://127.0.0.1:5002/weather?region={encoded_city_name}"
-            response = requests.get(url)
-
-            if response.status_code == 200:
-                weather_data = response.json()
-                self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}")
-                # הצגת נתונים על המפה
-                lat = weather_data.get("latitude")
-                lon = weather_data.get("longitude")
-                if lat and lon:
-                    self.display_weather_on_map(lat, lon, weather_data)
-                else:
-                    self.log_action(f"לא התקבלו קואורדינטות עבור העיר {city_name}")
+        # שליחה ל-thread נפרד (WeatherFetchWorker) — הקידוד ל-URL נעשה בתוך ה-worker עצמו,
+        # לכן מעבירים את שם העיר הגולמי (לא מקודד) ב-region. לא חוסמת יותר את ה-thread הראשי.
+        def _on_success(weather_data):
+            self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}")
+            lat = weather_data.get("latitude")
+            lon = weather_data.get("longitude")
+            if lat and lon:
+                self.display_weather_on_map(lat, lon, weather_data)
             else:
-                self.log_action(f"שגיאה בשליחת הבקשה לשרת: {response.status_code}")
-        except Exception as e:
-            self.log_action(f"שגיאה בשליחת הבקשה לשרת: {e}")
+                self.log_action(f"לא התקבלו קואורדינטות עבור העיר {city_name}")
+
+        def _on_error(msg):
+            self.log_action(f"שגיאה בשליחת הבקשה לשרת: {msg}")
+
+        self._fetch_weather_async(_on_success, _on_error, region=city_name)
 
     def enable_heatmap_layer(self):
         """
@@ -1934,40 +1987,65 @@ class MapApp(QMainWindow):
         # תיעוד שליחת הקואורדינטות
         self.log_action(f"שליחה של קואורדינטות: LAT={lat}, LON={lon}")
 
+        def _handle_weather_data(weather_data):
+            self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}")
+            # קבלת הקואורדינטות מהתשובה — WeatherServer מחזיר latitude/longitude (לא coord)
+            res_lat = weather_data.get("latitude")
+            res_lon = weather_data.get("longitude")
+            if res_lat is not None and res_lon is not None:
+                self.display_weather_on_map(res_lat, res_lon, weather_data)
+            else:
+                self.log_action("לא התקבלו קואורדינטות בתשובת השרת", is_success=False)
+
         # בדיקת cache — אם כבר שלפנו נתונים לקואורדינטות אלו לאחרונה, לא נשלח בקשה חוזרת
         cache_key = (round(lat, 3), round(lon, 3))  # דיוק 3 ספרות — הבדל של פחות מ-100 מ' נחשב זהה
         cached = self.weather_cache.get(cache_key)
         if cached:
             weather_data, _ = cached
             self.log_action(f"נתוני מזג האוויר נטענו מה-cache עבור {cache_key}")
-        else:
-            # שליחת בקשה ישירה לשרת עם lat ו-lon כפרמטרים נפרדים — לא כשם עיר
-            try:
-                url = f"http://127.0.0.1:5002/weather?lat={lat}&lon={lon}"
-                response = requests.get(url, timeout=10)
-                weather_data = response.json() if response.status_code == 200 else {}
-                if weather_data:
-                    self.weather_cache[cache_key] = (weather_data, datetime.now())  # שמירה ב-cache
-            except Exception as e:
-                self.log_action(f"שגיאה בשליחת בקשה לשרת: {e}", is_success=False)
-                weather_data = {}
+            _handle_weather_data(weather_data)
+            return
 
-        # אם התקבלה תשובה מהשרת
-        if weather_data:
-            self.log_action(f"נתוני מזג האוויר התקבלו: {weather_data}")
+        # שליחת בקשה ל-thread נפרד (WeatherFetchWorker) עם lat/lon כפרמטרים נפרדים — לא כשם עיר.
+        # לא חוסם את ה-thread הראשי יותר — ר' _fetch_weather_async
+        def _on_success(weather_data):
+            self.weather_cache[cache_key] = (weather_data, datetime.now())  # שמירה ב-cache
+            _handle_weather_data(weather_data)
 
-            # קבלת הקואורדינטות מהתשובה — WeatherServer מחזיר latitude/longitude (לא coord)
-            res_lat = weather_data.get("latitude")
-            res_lon = weather_data.get("longitude")
+        def _on_error(msg):
+            self.log_action(f"לא הצלחנו לקבל נתוני מזג אוויר עבור LAT={lat}, LON={lon}: {msg}", is_success=False)
 
-            # בדיקה אם הקואורדינטות התקבלו
-            if res_lat is not None and res_lon is not None:
-                self.display_weather_on_map(res_lat, res_lon, weather_data)
+        self._fetch_weather_async(_on_success, _on_error, lat=lat, lon=lon)
+
+    @staticmethod
+    def _js_str_escape(s):
+        """ בטיחות להטמעת טקסט חיצוני (למשל תיאור מזג אוויר מ-API) בתוך JS string literal
+        מצוטט בגרשיים כפולים שמוזרק גם כתוכן HTML (Leaflet popup) — הגנה כפולה, מקביל ל-
+        _escHtml ב-MAP.py. סדר הפעולות חשוב: קודם \\ (לפני שמוסיפים \\ נוספים לגרשיים). """
+        s = str(s)
+        s = s.replace("\\", "\\\\")
+        s = s.replace('"', '\\"')
+        s = s.replace("<", "&lt;").replace(">", "&gt;")
+        return s
+
+    def _fetch_weather_async(self, on_success, on_error=None, *, lat=None, lon=None, region=None):
+        """ שולף מזג אוויר ב-thread נפרד (WeatherFetchWorker) במקום requests.get חוסם על
+        ה-thread הראשי — מאחד את שלוש נקודות הקריאה הכמעט-זהות (submit_coordinates/
+        save_and_send/save_and_send_city). on_success(weather_data) נקרא על ה-thread הראשי
+        (בטוח לגעת ב-widgets/JS) אם הבקשה הצליחה; on_error(msg) נקרא אם נכשלה — ברירת
+        המחדל רק רושמת ללוג. שומר את ה-worker ב-self כדי ש-Python/Qt לא ינקו אותו תוך כדי
+        ריצה (worker בלי הפניה חיה עלול להירצח לפני שה-signal מגיע). """
+        def _on_finished(result):
+            if result["ok"]:
+                on_success(result["data"])
+            elif on_error:
+                on_error(result["error"])
             else:
-                self.log_action(f"לא התקבלו קואורדינטות בתשובת השרת", is_success=False)
-        else:
-            # תיעוד כישלון בקבלת נתונים
-            self.log_action(f"לא הצלחנו לקבל נתוני מזג אוויר עבור LAT={lat}, LON={lon}", is_success=False)
+                self.log_action(f"שגיאה בשליפת מזג אוויר: {result['error']}", is_success=False)
+
+        self._weather_worker = WeatherFetchWorker(lat=lat, lon=lon, region=region)
+        self._weather_worker.finished_weather.connect(_on_finished)
+        self._weather_worker.start()
 
     def display_weather_on_map(self, lat, lon, weather_data):
         """
@@ -1999,11 +2077,16 @@ class MapApp(QMainWindow):
             self.log_action(f"מציג מזג אוויר: {weather_info}")
 
             # קוד JavaScript להצגת סמן Leaflet במיקום המרכזי
+            # weather/elevation_text מגיעים מ-API חיצוני/מחושבים משם עיר שהמשתמש הקליד — escaping
+            # לפני הזרקה ל-JS string literal, כדי שתו כמו " לא ישבור את המחרוזת או יזריק HTML/JS
+            weather_esc = self._js_str_escape(weather_data['weather'])
+            temp_esc = self._js_str_escape(weather_data['temperature'])
+            elevation_esc = self._js_str_escape(elevation_text)
             js_code_marker = f"""
              var marker = L.marker([{lat}, {lon}]).addTo(map);  /* Leaflet: [lat, lng] */
              allMarkers.push(marker);  /* רישום לניקוי עתידי */
              marker.bindPopup(
-                 "קו רוחב: {lat}, קו אורך: {lon}<br>מזג אוויר: {weather_data['weather']}<br>טמפרטורה: {weather_data['temperature']}°C<br>גובה: {elevation_text}"
+                 "קו רוחב: {lat}, קו אורך: {lon}<br>מזג אוויר: {weather_esc}<br>טמפרטורה: {temp_esc}°C<br>גובה: {elevation_esc}"
              ).openPopup();  /* קישור ופתיחת Popup מיידית */
              """
             #הרצת קוד ה-JavaScript להצגת הסמן על המפה
@@ -2066,7 +2149,7 @@ class MapApp(QMainWindow):
             print(f"שליחת בקשה לשרת עבור המיקום: {location}")
 
             url = f"http://127.0.0.1:5002/weather?region={location}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=15)  # timeout היה חסר, כמו בשתי הפונקציות הדומות למעלה
 
             # מדפיס את התשובה שהתקבלה לצורך ניתוח שגיאות
             print(f"סטטוס הבקשה: {response.status_code}")

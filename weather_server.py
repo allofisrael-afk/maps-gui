@@ -139,7 +139,7 @@ def get_weather():
     # בקשה ל-OpenWeatherMap
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather"
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=15)  # היה חסר timeout — קריאה תקועה הייתה חוסמת את כל התהליך (dev server חד-thread)
         data = response.json()
 
         # תיעוד התגובה שהתקבלה

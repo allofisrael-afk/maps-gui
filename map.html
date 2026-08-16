@@ -860,6 +860,7 @@
             clearAllNotamCategories();  // מנקה גם את בחירת קטגוריות ה-NOTAM עצמה, לא רק את הציור (ר' clearUasNotamLayer)
             clearUasCoordZonesLayer();
             clearTempHeatmap();
+            clearRuler();  // מנקה קווי/נקודות/תוויות סרגל ומאפס rulerActive+cursor — היה חסר, קווי מדידה נשארו על המפה אחרי איפוס
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות
             if (losActive) { toggleLos(); }  // כיבוי מצב LOS אם פעיל, כדי לאפס cursor וכפתור
             // ניקוי גרירה באמצע בחירת אזור גבהים (elevSelecting=true אך elevationActive=false)
