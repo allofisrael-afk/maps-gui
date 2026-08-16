@@ -6,6 +6,7 @@ import requests  # קריאות ל-OpenWeather/Open-Meteo/Google
 import os  # קריאת מפתחות API ממשתני סביבה, בדיקת קיום קובץ CSV
 
 from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
+from ports import WEATHER_PORT
 
 # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
 app = create_app(__name__)
@@ -477,4 +478,4 @@ def line_of_sight():
 
 
 if __name__ == "__main__":
-    app.run(port=5002, debug=True)
+    app.run(port=WEATHER_PORT, debug=True)

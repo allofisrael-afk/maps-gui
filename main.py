@@ -13,6 +13,7 @@ from MAP import create_map  # ייבוא פונקציית יצירת המפה
 from test_requests import run_health_checks, summarize  # בדיקת תקינות שרתים לדשבורד
 from security_checks import run_security_checks, summarize_findings  # סריקת אבטחה/חשיפה לדשבורד
 from notam_categories import NOTAM_CATEGORIES  # 7 קטגוריות סיווג NOTAM — מקור אמת יחיד, גם ל-MAP.py וגם לתפריט כאן
+from ports import GEO_PORT, WEATHER_PORT, FLIGHT_PORT  # פורטים קבועים של שלושת שרתי ה-Flask המקומיים
 from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה
     Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
 )
@@ -206,9 +207,9 @@ class WeatherFetchWorker(QThread):
     def run(self):
         try:
             if self.region is not None:
-                url = f"http://127.0.0.1:5002/weather?region={urllib.parse.quote(self.region)}"
+                url = f"http://127.0.0.1:{WEATHER_PORT}/weather?region={urllib.parse.quote(self.region)}"
             else:
-                url = f"http://127.0.0.1:5002/weather?lat={self.lat}&lon={self.lon}"
+                url = f"http://127.0.0.1:{WEATHER_PORT}/weather?lat={self.lat}&lon={self.lon}"
             response = requests.get(url, timeout=self.timeout)
             if response.status_code == 200:
                 self.finished_weather.emit({"ok": True, "data": response.json()})
@@ -233,7 +234,7 @@ class FlightFetchWorker(QThread):
 
     def run(self):
         try:
-            url = f"http://127.0.0.1:5004/flight_route?flight={self.flight_number}"
+            url = f"http://127.0.0.1:{FLIGHT_PORT}/flight_route?flight={self.flight_number}"
             response = requests.get(url, timeout=self.timeout)
             if response.status_code == 200:
                 self.finished_flight.emit({"ok": True, "data": response.json()})
@@ -325,9 +326,9 @@ class ProcessDashboard(QDialog):
     כל הפעולות החוסמות (HTTP, psutil) רצות ב-MetricsWorker על thread נפרד.
     """
     SERVERS = [
-        ("geo_server_process", "GeoServer", 5003),
-        ("weather_server_process", "WeatherServer", 5002),
-        ("flight_server_process", "FlightServer", 5004),
+        ("geo_server_process", "GeoServer", GEO_PORT),
+        ("weather_server_process", "WeatherServer", WEATHER_PORT),
+        ("flight_server_process", "FlightServer", FLIGHT_PORT),
     ]
     REFRESH_SEC = 1.5  # תדירות רענון הדשבורד
 
@@ -792,7 +793,7 @@ class MapApp(QMainWindow):
 
     def _kill_zombie_servers(self):
         """ הורג תהליכים שנשארו רצים על פורטי השרתים מהפעלות קודמות. """
-        for port in [5002, 5003, 5004]:
+        for port in [WEATHER_PORT, GEO_PORT, FLIGHT_PORT]:
             try:
                 result = subprocess.run(['netstat', '-ano'], capture_output=True, text=True)
                 for line in result.stdout.splitlines():
@@ -2115,7 +2116,7 @@ class MapApp(QMainWindow):
             elevation_text = "לא זמין"
             try:
                 elev_response = requests.post(
-                    "http://127.0.0.1:5002/elevation",
+                    f"http://127.0.0.1:{WEATHER_PORT}/elevation",
                     json={"locations": [{"latitude": lat, "longitude": lon}]},
                     timeout=5
                 )
@@ -2204,7 +2205,7 @@ class MapApp(QMainWindow):
             # בדוק שהפרמטרים נכונים
             print(f"שליחת בקשה לשרת עבור המיקום: {location}")
 
-            url = f"http://127.0.0.1:5002/weather?region={location}"
+            url = f"http://127.0.0.1:{WEATHER_PORT}/weather?region={location}"
             response = requests.get(url, timeout=15)  # timeout היה חסר, כמו בשתי הפונקציות הדומות למעלה
 
             # מדפיס את התשובה שהתקבלה לצורך ניתוח שגיאות

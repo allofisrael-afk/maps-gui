@@ -5,6 +5,7 @@ import requests  # קריאה ל-Google Geocoding API
 
 from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
 from notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים
+from ports import GEO_PORT
 
 # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
 app = create_app(__name__)
@@ -76,4 +77,4 @@ def get_uas_notams_route():
 
 if __name__ == "__main__":
     # הפעלת השרת
-    app.run(port=5003, debug=True)
+    app.run(port=GEO_PORT, debug=True)

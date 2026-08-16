@@ -19,7 +19,6 @@ import re  # חיפוש טוקנים קשיחים בקוד ה-Dart
 import subprocess  # הרצת pip-audit כתהליך חיצוני
 import time  # מדידת elapsed_ms לכל בדיקה
 import zipfile  # פתיחת ה-APK כארכיון ZIP לסריקת סודות
-from dataclasses import dataclass  # מבנה SecurityFinding
 from pathlib import Path  # נתיבים עמידים בפני מערכת הפעלה (Windows/Linux)
 
 import psutil  # רשימת חיבורי רשת פתוחים — לבדיקת חשיפת debug console
@@ -27,28 +26,19 @@ import requests  # בדיקת כותרות CORS מול השרתים
 from dotenv import load_dotenv  # טעינת .env כדי לדעת אילו סודות לחפש
 
 from test_requests import DEFAULT_HOST, run_health_checks  # שימוש חוזר בבדיקות התקינות לסריקת סודות בתגובות אמיתיות
+from security_types import SecurityFinding  # מבנה תוצאה משותף — קובץ נפרד כדי למנוע circular import עם cis_checks
+from ports import GEO_PORT, WEATHER_PORT, FLIGHT_PORT
+from cis_checks import run_cis_l1_checks, run_cis_l2_checks  # בטוח לייבוא רגיל כאן — cis_checks כבר לא מייבא בחזרה מהקובץ הזה
 
 load_dotenv()  # טעינת משתני הסביבה מ-.env — נדרש לפני קריאת os.getenv למטה
 
 _BASE_DIR = Path(__file__).resolve().parent  # תיקיית הפרויקט — בסיס לכל הנתיבים היחסיים
-_SERVERS = [("GeoServer", 5003), ("WeatherServer", 5002), ("FlightServer", 5004)]  # שם תצוגה + פורט לכל שרת Flask
+_SERVERS = [("GeoServer", GEO_PORT), ("WeatherServer", WEATHER_PORT), ("FlightServer", FLIGHT_PORT)]  # שם תצוגה + פורט לכל שרת Flask
 _SECRET_ENV_VARS = ["OPENWEATHER_API_KEY", "GOOGLE_API_KEY", "FR24_TOKEN", "FR24_USER", "FR24_PASS"]  # מפתחות שנסרקים כדליפה
 _APK_PATH = _BASE_DIR / "maps-gui-android" / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk"  # פלט build_apk.ps1
 _REQUIREMENTS_PATH = _BASE_DIR / "requirements.txt"  # קלט ל-pip-audit
 _DART_API_SERVICE = _BASE_DIR / "maps-gui-android-src" / "lib" / "services" / "api_service.dart"  # מקור הטוקנים הקשיחים באנדרואיד
 _VENV_PYTHON = _BASE_DIR / ".venv" / "Scripts" / "python.exe"  # הרצת pip-audit מתוך אותו venv — לא מ-python המערכת
-
-
-@dataclass
-class SecurityFinding:
-    check: str
-    severity: str  # "info" | "low" | "medium" | "high"
-    ok: bool        # True = לא נמצאה בעיה, False = נמצא ממצא לתשומת לב
-    message: str
-    elapsed_ms: float = 0.0
-    server: str = "Global"  # "GeoServer"/"WeatherServer"/"FlightServer", או "Global" לממצא שחל על כל הפרויקט
-    # (dependency scan, APK, בדיקות CIS) — נצרך ע"י רשת השעונים 3×3 בדשבורד לצירוף ממצא לכל שרת
-    remediation: str = ""  # הנחיה/פקודה לתיקון — מוצג בדשבורד רק כשok=False
 
 
 def _check_bind_exposure(host):
@@ -226,10 +216,7 @@ def _check_apk_secrets():
 
 
 def run_security_checks(host=DEFAULT_HOST, on_progress=None):
-    """ מריץ את כל בדיקות האבטחה ומחזיר רשימת SecurityFinding. ייבוא cis_checks מבוצע כאן
-    (ולא בראש הקובץ) כי cis_checks מייבא בחזרה SecurityFinding מהמודול הזה — ייבוא בראש
-    היה יוצר circular import. """
-    from cis_checks import run_cis_l1_checks, run_cis_l2_checks  # ייבוא מאוחר (lazy) — ראו הסבר ב-docstring
+    """ מריץ את כל בדיקות האבטחה ומחזיר רשימת SecurityFinding. """
     findings = []
     for check_fn, args in (
         (_check_bind_exposure, (host,)),

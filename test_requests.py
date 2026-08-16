@@ -14,6 +14,8 @@ from typing import Callable, Optional  # טיפוסי type hints לשדות או
 
 import requests  # ירי הבקשות בפועל לשרתים
 
+from ports import GEO_PORT, WEATHER_PORT, FLIGHT_PORT
+
 DEFAULT_HOST = "127.0.0.1"  # לא "localhost" — Windows מנסה IPv6 (::1) קודם ונופל חזרה ל-IPv4 רק אחרי delay של ~2 שניות לכל קריאה
 
 
@@ -135,69 +137,69 @@ def _validate_elevation_truncated(response):
 # המטרה היא לוודא שהשרת עצמו מגיב כראוי, לא לבדוק תקפות מפתחות API.
 TEST_CASES = [
     # --- GeoServer (5003) ---
-    TestCase("GeoServer", 5003, "GET /metrics", "GET", "/metrics",
+    TestCase("GeoServer", GEO_PORT, "GET /metrics", "GET", "/metrics",
              validate=_validate_json_keys("uptime_sec", "endpoints")),
-    TestCase("GeoServer", 5003, "GET /geo_data (תל אביב)", "GET", "/geo_data",
+    TestCase("GeoServer", GEO_PORT, "GET /geo_data (תל אביב)", "GET", "/geo_data",
              params={"location": "תל אביב"}),
-    TestCase("GeoServer", 5003, "GET /geo_data (חסר location)", "GET", "/geo_data",
+    TestCase("GeoServer", GEO_PORT, "GET /geo_data (חסר location)", "GET", "/geo_data",
              validate=_validate_client_error),
-    TestCase("GeoServer", 5003, "DELETE /geo_data (method tampering)", "DELETE", "/geo_data",
+    TestCase("GeoServer", GEO_PORT, "DELETE /geo_data (method tampering)", "DELETE", "/geo_data",
              validate=_validate_expected_status(405)),
 
     # --- WeatherServer (5002) ---
-    TestCase("WeatherServer", 5002, "GET /metrics", "GET", "/metrics",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /metrics", "GET", "/metrics",
              validate=_validate_json_keys("uptime_sec", "endpoints")),
-    TestCase("WeatherServer", 5002, "GET /weather (קואורדינטות)", "GET", "/weather",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /weather (קואורדינטות)", "GET", "/weather",
              params={"lat": 32.0853, "lon": 34.7818}),
-    TestCase("WeatherServer", 5002, "GET /weather (region)", "GET", "/weather",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /weather (region)", "GET", "/weather",
              params={"region": "תל אביב"}),
-    TestCase("WeatherServer", 5002, "GET /weather (חסרים פרמטרים)", "GET", "/weather",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /weather (חסרים פרמטרים)", "GET", "/weather",
              validate=_validate_client_error),
-    TestCase("WeatherServer", 5002, "GET /weather (lat/lon לא מספריים)", "GET", "/weather",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /weather (lat/lon לא מספריים)", "GET", "/weather",
              params={"lat": "abc", "lon": "xyz"}),
-    TestCase("WeatherServer", 5002, "DELETE /weather (method tampering)", "DELETE", "/weather",
+    TestCase("WeatherServer", WEATHER_PORT, "DELETE /weather (method tampering)", "DELETE", "/weather",
              validate=_validate_expected_status(405)),
-    TestCase("WeatherServer", 5002, "GET /heatmap_data", "GET", "/heatmap_data",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /heatmap_data", "GET", "/heatmap_data",
              validate=_validate_list),
-    TestCase("WeatherServer", 5002, "POST /elevation", "POST", "/elevation",
+    TestCase("WeatherServer", WEATHER_PORT, "POST /elevation", "POST", "/elevation",
              json_body={"locations": [{"latitude": 31.7683, "longitude": 35.2137}]},
              validate=_validate_json_keys("results"), timeout=15),
-    TestCase("WeatherServer", 5002, "POST /elevation (חסרות נקודות)", "POST", "/elevation",
+    TestCase("WeatherServer", WEATHER_PORT, "POST /elevation (חסרות נקודות)", "POST", "/elevation",
              json_body={}, validate=_validate_client_error),
-    TestCase("WeatherServer", 5002, "POST /elevation (500 נקודות — בדיקת חיתוך)", "POST", "/elevation",
+    TestCase("WeatherServer", WEATHER_PORT, "POST /elevation (500 נקודות — בדיקת חיתוך)", "POST", "/elevation",
              json_body={"locations": [{"latitude": 31.5 + i * 0.001, "longitude": 34.8 + i * 0.001} for i in range(500)]},
              validate=_validate_elevation_truncated, timeout=15),
-    TestCase("WeatherServer", 5002, "GET /elevation (method tampering)", "GET", "/elevation",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /elevation (method tampering)", "GET", "/elevation",
              validate=_validate_expected_status(405)),
-    TestCase("WeatherServer", 5002, "POST /temp_grid", "POST", "/temp_grid",
+    TestCase("WeatherServer", WEATHER_PORT, "POST /temp_grid", "POST", "/temp_grid",
              json_body={"southwest": {"lat": 32.05, "lng": 34.75}, "northeast": {"lat": 32.10, "lng": 34.80}},
              validate=_validate_list, timeout=20),
-    TestCase("WeatherServer", 5002, "POST /temp_grid (חסרים גבולות)", "POST", "/temp_grid",
+    TestCase("WeatherServer", WEATHER_PORT, "POST /temp_grid (חסרים גבולות)", "POST", "/temp_grid",
              json_body={}, validate=_validate_client_error),
-    TestCase("WeatherServer", 5002, "GET /los", "GET", "/los",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los", "GET", "/los",
              params={"lat1": 31.7683, "lon1": 35.2137, "lat2": 32.0853, "lon2": 34.7818},
              validate=_validate_json_keys("points", "total_km"), timeout=20),
-    TestCase("WeatherServer", 5002, "GET /los (חסרים פרמטרים)", "GET", "/los",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los (חסרים פרמטרים)", "GET", "/los",
              validate=_validate_client_error),
-    TestCase("WeatherServer", 5002, "GET /los (קואורדינטות לא מספריות)", "GET", "/los",
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los (קואורדינטות לא מספריות)", "GET", "/los",
              params={"lat1": "abc", "lon1": "abc", "lat2": "abc", "lon2": "abc"},
              validate=_validate_client_error),
 
     # --- FlightServer (5004) ---
-    TestCase("FlightServer", 5004, "GET /metrics", "GET", "/metrics",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /metrics", "GET", "/metrics",
              validate=_validate_json_keys("uptime_sec", "endpoints")),
-    TestCase("FlightServer", 5004, "GET /flight_search", "GET", "/flight_search",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /flight_search", "GET", "/flight_search",
              params={"q": "LY"}, validate=_validate_list, timeout=20),
-    TestCase("FlightServer", 5004, "GET /flight_search (שאילתה קצרה מדי)", "GET", "/flight_search",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /flight_search (שאילתה קצרה מדי)", "GET", "/flight_search",
              params={"q": "L"}, validate=_validate_empty_list),
-    TestCase("FlightServer", 5004, "GET /flight_route (טיסה לא קיימת)", "GET", "/flight_route",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /flight_route (טיסה לא קיימת)", "GET", "/flight_route",
              params={"flight": "ZZ0000000"},
              validate=_validate_json_keys("error"), timeout=20),
-    TestCase("FlightServer", 5004, "GET /flight_route (חסר flight)", "GET", "/flight_route",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /flight_route (חסר flight)", "GET", "/flight_route",
              validate=_validate_client_error),
-    TestCase("FlightServer", 5004, "GET /flight_route (תווי הזרקה/script)", "GET", "/flight_route",
+    TestCase("FlightServer", FLIGHT_PORT, "GET /flight_route (תווי הזרקה/script)", "GET", "/flight_route",
              params={"flight": "<script>alert(1)</script>"}, timeout=20),
-    TestCase("FlightServer", 5004, "POST /flight_route (method tampering)", "POST", "/flight_route",
+    TestCase("FlightServer", FLIGHT_PORT, "POST /flight_route (method tampering)", "POST", "/flight_route",
              validate=_validate_expected_status(405)),
 ]
 
@@ -218,10 +220,10 @@ class LoadTestCase:
 # בדיקות עומס — רק על endpoints מקומיים/קלים (לא קוראים ל-API חיצוני) כדי לא לגרום
 # ל-rate limiting אצל Open-Meteo/OpenWeather/FR24 מ-30 בקשות מקבילות.
 LOAD_TEST_CASES = [
-    LoadTestCase("GeoServer", 5003, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
-    LoadTestCase("WeatherServer", 5002, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
-    LoadTestCase("WeatherServer", 5002, "עומס: 30 בקשות מקבילות ל-/heatmap_data", path="/heatmap_data"),
-    LoadTestCase("FlightServer", 5004, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
+    LoadTestCase("GeoServer", GEO_PORT, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
+    LoadTestCase("WeatherServer", WEATHER_PORT, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
+    LoadTestCase("WeatherServer", WEATHER_PORT, "עומס: 30 בקשות מקבילות ל-/heatmap_data", path="/heatmap_data"),
+    LoadTestCase("FlightServer", FLIGHT_PORT, "עומס: 30 בקשות מקבילות ל-/metrics", path="/metrics"),
 ]
 
 

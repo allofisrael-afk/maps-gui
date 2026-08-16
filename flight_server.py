@@ -5,6 +5,7 @@ from flask import jsonify, request  # פענוח פרמטרים — Flask() עצ
 from FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24
 
 from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
+from ports import FLIGHT_PORT
 # create_app כבר קורא ל-load_dotenv() — טוען גם את FR24_USER/FR24_PASS/FR24_TOKEN בהמשך הקובץ
 
 # מיפוי קוד IATA (2 תווים) → קוד ICAO (3 תווים) לחברות נפוצות.
@@ -292,4 +293,4 @@ def search_flights():
 
 
 if __name__ == "__main__":
-    app.run(port=5004, debug=True)  # השרת רץ על פורט 5004 — נפרד משאר השרתים
+    app.run(port=FLIGHT_PORT, debug=True)  # נפרד משאר השרתים

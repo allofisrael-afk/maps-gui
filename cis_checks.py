@@ -17,7 +17,7 @@ import time  # מדידת elapsed_ms לכל בדיקה
 import winreg  # קריאת ערכי registry ישירות (מהירה יותר ופחות שברירית מ-PowerShell לבדיקות DWORD פשוטות)
 from pathlib import Path  # קריאת קובץ ה-export הזמני של secedit
 
-from security_checks import SecurityFinding  # מבנה התוצאה המשותף לכל בדיקות האבטחה בפרויקט
+from security_types import SecurityFinding  # מבנה התוצאה המשותף לכל בדיקות האבטחה בפרויקט
 
 _PS_TIMEOUT = 15  # שניות — מספיק לרוב הפקודות; חורג רק אם PowerShell תקוע
 
