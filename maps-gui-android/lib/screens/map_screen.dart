@@ -359,15 +359,18 @@ class _MapScreenState extends State<MapScreen> {
             left: 12,
             right: 12,
             child: Material(
-              color: cs.surface.withAlpha(230),
+              color: cs.surfaceContainerHigh.withAlpha(235), // רקע כהה-רך במקום שחור כמעט-מלא — עקבי עם שאר הכרטיסים הצפים (למשל _WeatherCard)
               borderRadius: BorderRadius.circular(14),
               elevation: 3,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4), // ריפוד אופקי מצומצם — מפנה מקום ל-5 הכפתורים בלי לדחוק את הכותרת
                 child: Row(
                   children: [
                     // כפתור בחירת אזור
                     IconButton(
+                      visualDensity: VisualDensity.compact, // כפתור צפוף יותר — 5 כפתורים + כותרת בשורה אחת בלי גלישה
+                      constraints: const BoxConstraints(), // מבטל את שטח המגע המינימלי הרחב של IconButton (48x48) לטובת צפיפות
+                      iconSize: 21, // אייקון מעט קטן יותר מברירת המחדל (24), תואם לצפיפות הכפתורים
                       tooltip: _selectMode ? 'בטל בחירה' : 'בחר אזור על המפה',
                       icon: Icon(
                         _selectMode ? Icons.cancel_outlined : Icons.crop_free,
@@ -402,15 +405,20 @@ class _MapScreenState extends State<MapScreen> {
                                     : 'אזור נבחר ✓')
                             : 'מפה אינטראקטיבית',
                         textAlign: TextAlign.center,
+                        maxLines: 1, // שורה אחת קבועה — לא גולש לשורה שנייה שדוחקת את הכפתורים
+                        overflow: TextOverflow.ellipsis, // גזירה עם "..." אם עדיין לא נכנס ברוחב הפנוי
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                          fontSize: 11.5, // הוקטן מ-14 — היה גולש לשורה שנייה עם 5 הכפתורים
                           color: _selectMode ? cs.primary : cs.onSurface,
                         ),
                       ),
                     ),
                     // כפתור מדידת מרחק
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(),
+                      iconSize: 21,
                       tooltip: state.rulerMode ? 'סיים מדידה' : 'מדד מרחק',
                       icon: Icon(
                         Icons.straighten,
@@ -420,6 +428,9 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     // כפתור קו ראייה (LOS) — עין פעילה/לא פעילה
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(),
+                      iconSize: 21,
                       tooltip: state.losMode ? 'בטל קו ראייה' : 'קו ראייה',
                       icon: Icon(
                         state.losMode ? Icons.visibility : Icons.visibility_outlined, // עין מלאה=פעיל
@@ -429,6 +440,9 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     // כפתור בחירת נקודות חום ידנית — מקביל ל"בחר נקודות" בדסקטופ
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(),
+                      iconSize: 21,
                       tooltip: state.manualHeatMode ? 'סיים חום ידני' : 'חום ידני',
                       icon: Icon(
                         state.manualHeatMode ? Icons.local_fire_department : Icons.local_fire_department_outlined,
@@ -450,6 +464,9 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     // כפתור איפוס מפה — מנקה את כל השכבות/הכלים/הסימונים ומחזיר למרכז ברירת המחדל
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(),
+                      iconSize: 21,
                       tooltip: 'איפוס מפה',
                       icon: Icon(Icons.restart_alt, color: cs.onSurface), // אייקון "התחל מחדש" סטנדרטי, מזוהה מיד
                       onPressed: () async {
@@ -785,19 +802,33 @@ class _MapScreenState extends State<MapScreen> {
     return kNotamCategories.first; // לא אמור לקרות בפועל כי השכבה מסוננת מראש לפי active
   }
 
+  // רדיוס מינימלי חזותי (במטרים, בזום הנוכחי) לעיגולי NOTAM/אזורי-תיאום קטנים — בלי זה,
+  // אזור עם רדיוס אמיתי של כמה מאות מטרים (למשל NOTAM על מנוף בנייה, רדיוס 555מ') נראה
+  // בזום ארצי כנקודה בלתי-נראית מתחת לסמן בלבד. DronesIL (האפליקציה הרשמית שהשראנו ממנה
+  // את מסך השכבות) מציג שטח נראה לעין תמיד, לא רק בקנה מידה מדויק-לחלוטין.
+  double _minVisibleRadiusM() {
+    const minPixels = 18.0; // רדיוס מסך מינימלי רצוי — בערך גודל סמן הקטגוריה עצמו (30px קוטר)
+    try {
+      return minPixels * _ScaleBar._metersPerPixel(_mapController); // נוסחה משותפת עם סרגל קנה-המידה, כדי לא לשכפל אותה
+    } catch (_) {
+      return 0; // המצלמה עוד לא מוכנה (build ראשון) — לא כופים רדיוס מינימלי, עדיף גודל אמיתי מקריסה
+    }
+  }
+
   // בונה את שכבות המפה לאזורי NOTAM: צורות (מעגל/פוליגון) צבועות לפי קטגוריה + סמן לחיץ בכל אזור לפתיחת פרטים
   List<Widget> _buildUasNotamLayers(MapState state) {
     // מסונן לפי הקטגוריות המסומנות כרגע — NOTAM בודד מוצג אם לפחות אחת מהקטגוריות שלו מסומנת
     final visible = state.uasNotamZones
         .where((z) => z.categories.any(state.activeNotamCategories.contains))
         .toList();
+    final minR = _minVisibleRadiusM(); // מחושב פעם אחת לכל בניית שכבה, לא לכל אזור בנפרד
     final circles = visible
         .where((z) => z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null)
         .map((z) {
           final color = Color(_notamZonePrimaryCategory(z, state.activeNotamCategories).color);
           return CircleMarker(
             point: z.center!,
-            radius: z.radiusM!,
+            radius: max(z.radiusM!, minR), // הרדיוס האמיתי, אלא אם קטן מדי לראייה בזום הנוכחי
             useRadiusInMeter: true, // רדיוס אמיתי במטרים, לא פיקסלים — קנה מידה נכון בכל זום
             color: color.withAlpha(90), // מוגבר מ-55 — בולט יותר על רקע המפה
             borderColor: color,
@@ -851,11 +882,12 @@ class _MapScreenState extends State<MapScreen> {
   // בניית שכבות "אזורי תיאום כטב"ם" — נתונים סטטיים (kUasCoordinationZones), לא תלוי ב-state
   List<Widget> _buildUasCoordZonesLayers() {
     const color = Color(0xFF6366F1); // אינדיגו — מובחן מכתום ה-NOTAM, מסמן "דורש תיאום" ולא "הימנעות"
+    final minR = _minVisibleRadiusM(); // אותו רדיוס מינימלי חזותי כמו שכבת ה-NOTAM
     final circles = kUasCoordinationZones
         .where((z) => z.geometryType == UasNotamGeometryType.circle && z.center != null && z.radiusM != null)
         .map((z) => CircleMarker(
               point: z.center!,
-              radius: z.radiusM!,
+              radius: max(z.radiusM!, minR),
               useRadiusInMeter: true,
               color: color.withAlpha(55),
               borderColor: color,

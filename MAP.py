@@ -642,6 +642,19 @@ def create_map():
             return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }}
 
+        // מטרים לפיקסל בזום נתון — נוסחת Web Mercator סטנדרטית, זהה לזו שבצד Android (_ScaleBar._metersPerPixel)
+        function _metersPerPixel(lat, zoom) {{
+            return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+        }}
+
+        // רדיוס מינימלי חזותי (במטרים, בזום הנוכחי) למעגלי NOTAM/אזורי-תיאום קטנים — בלי זה, אזור
+        // עם רדיוס אמיתי של כמה מאות מטרים (למשל NOTAM על מנוף בנייה, ~555מ') נעלם בזום ארצי,
+        // ורואים רק צורה זעירה. תואם למנגנון המקביל ב-Android (_minVisibleRadiusM).
+        function _minVisibleRadiusM(lat) {{
+            var minPixels = 18;  // רדיוס מסך מינימלי רצוי — בערך גודל סמן/נקודת הקטגוריה עצמה
+            return minPixels * _metersPerPixel(lat, map.getZoom());
+        }}
+
         // מצב תצוגה (מצומצם/מורחב) של כל מקרא — משתנה גלובלי כדי שהבחירה של המשתמש תישרד
         // ציור מחדש של השכבה (למשל toggle של קטגוריית NOTAM נוספת יוצר מחדש את ה-Control).
         var notamLegendExpanded = false;    // מצב מקרא ה-NOTAM — מצומצם כברירת מחדל, לא חוסם את המפה
@@ -759,7 +772,10 @@ def create_map():
                 var style = {{ color: color, weight: 3, fillColor: color, fillOpacity: 0.4 }};  // weight/fillOpacity מוגברים — בולט יותר על רקע המפה הכהה
                 var shape;
                 if (z.geometry.type === 'circle') {{
-                    shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));  // מעגל: "X NM RADIUS CENTERED ON PSN"
+                    var trueR = z.geometry.radius_m;  // הרדיוס האמיתי מה-NOTAM, לפני החלת הרצפה החזותית
+                    shape = L.circle(z.geometry.center, Object.assign(
+                        {{ radius: Math.max(trueR, _minVisibleRadiusM(z.geometry.center[0])) }}, style));  // מעגל: "X NM RADIUS CENTERED ON PSN"
+                    shape._trueRadiusM = trueR;  // נשמר על הצורה עצמה כדי לחשב מחדש ב-zoomend (ר' המאזין למטה)
                 }} else {{
                     shape = L.polygon(z.geometry.points, style);  // פוליגון: "AN AREA BTN FLW PSN" עם 3+ קואורדינטות
                 }}
@@ -845,7 +861,10 @@ def create_map():
             var shapes = zones.map(function(z) {{
                 var shape;
                 if (z.geometry.type === 'circle') {{
-                    shape = L.circle(z.geometry.center, Object.assign({{ radius: z.geometry.radius_m }}, style));
+                    var trueR = z.geometry.radius_m;  // הרדיוס האמיתי, לפני החלת הרצפה החזותית
+                    shape = L.circle(z.geometry.center, Object.assign(
+                        {{ radius: Math.max(trueR, _minVisibleRadiusM(z.geometry.center[0])) }}, style));
+                    shape._trueRadiusM = trueR;  // נשמר על הצורה עצמה כדי לחשב מחדש ב-zoomend
                 }} else {{
                     shape = L.polygon(z.geometry.points, style);
                 }}
@@ -872,6 +891,19 @@ def create_map():
             if (uasCoordLegendControl) {{ map.removeControl(uasCoordLegendControl); uasCoordLegendControl = null; }}
             uasCoordActive = false;
         }}
+
+        // מרענן את רדיוס כל מעגלי ה-NOTAM/אזורי-תיאום לפי הזום הנוכחי — הרדיוס האמיתי (L.circle
+        // תמיד במטרים) לא זקוק לעדכון בזום, אבל הרצפה החזותית (_minVisibleRadiusM) כן תלוית-זום.
+        map.on('zoomend', function() {{
+            [uasNotamLayer, uasCoordLayer].forEach(function(layer) {{
+                if (!layer) return;  // השכבה כבויה כרגע — אין מה לרענן
+                layer.eachLayer(function(shape) {{
+                    if (shape._trueRadiusM === undefined || !shape.setRadius) return;  // לא מעגל עם רדיוס אמיתי שמור
+                    var c = shape.getLatLng();
+                    shape.setRadius(Math.max(shape._trueRadiusM, _minVisibleRadiusM(c.lat)));
+                }});
+            }});
+        }});
 
         // ── איפוס מצב המפה ──
         function resetMapState() {{
