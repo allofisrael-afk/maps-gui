@@ -1025,6 +1025,101 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // בניית שכבת "גבולות CTR שדות תעופה" — נתונים סטטיים (kAirportCtrZones), לא תלוי ב-state
+  List<Widget> _buildAirportCtrZonesLayers() {
+    const color = Color(0xFFF72585); // מג'נטה — מובחן גם מכתום ה-NOTAM וגם מאינדיגו אזורי התיאום
+    final minR = _minVisibleRadiusM(); // אותו רדיוס מינימלי חזותי כמו שאר השכבות
+    final polygons = kAirportCtrZones.map((z) {
+      final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
+      return Polygon(
+        points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי (לא צפוי בפועל בגבולות CTR)
+        color: color.withAlpha(45), // שקוף יותר מהאחרות — שכבת רקע קבועה, לא התרעה נקודתית
+        borderColor: color,
+        borderStrokeWidth: 2,
+      );
+    }).toList();
+    final markers = kAirportCtrZones
+        .map((z) => Marker(
+              point: z.anchor,
+              width: 30, height: 30,
+              child: GestureDetector(
+                onTap: () => _showAirportCtrDetails(z),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.flight_takeoff, size: 16, color: Colors.white),
+                ),
+              ),
+            ))
+        .toList();
+    return [
+      if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
+      if (markers.isNotEmpty) MarkerLayer(markers: markers),
+    ];
+  }
+
+  // כרטיס פרטים לגבול CTR בודד — נפתח בלחיצה על הסמן המג'נטה
+  void _showAirportCtrDetails(AirportCtrZone z) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(children: [
+                  const Icon(Icons.flight_takeoff, color: Color(0xFFF72585)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(z.name,
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: cs.onSurface)),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF72585).withAlpha(35),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'גבול המרחב המבוקר (CTR) הקבוע של השדה, ממקור AIP רשמי (סעיף AD 2.17) — לא נגזר מהודעות NOTAM.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                Text(z.verticalLimits, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+                if (z.notes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text('הערות', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                  Text(z.notes, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // כרטיס פרטים לאזור NOTAM בודד — נפתח בלחיצה על הסמן הכתום
   void _showUasNotamDetails(UasNotamZone z) {
     // קטגוריה "ראשית" לצביעת האייקון — הראשונה בסדר kNotamCategories ששייכת לאזור (יכול להיות יותר מאחת בפועל)

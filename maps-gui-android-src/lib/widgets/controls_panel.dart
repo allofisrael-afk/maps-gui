@@ -546,6 +546,26 @@ class LayersPanel extends StatelessWidget {
             onTap: state.toggleUasCoordZonesLayer,
             cs: cs,
           ),
+          const Divider(height: 24),
+          _SectionLabel('גבולות CTR שדות תעופה', cs),
+          const SizedBox(height: 4),
+          Row(children: [
+            Icon(Icons.info_outline, size: 12, color: cs.outline),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text('גבול המרחב המבוקר הקבוע של השדה, ממקור AIP רשמי — לא נגזר מהודעות NOTAM',
+                  style: TextStyle(fontSize: 10, color: cs.outline)),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          _ActionBtn(
+            label: state.airportCtrActive ? 'הסתר שכבה' : 'הצג גבולות CTR',
+            icon: Icons.flight_takeoff,
+            enabled: true,
+            active: state.airportCtrActive,
+            onTap: state.toggleAirportCtrLayer,
+            cs: cs,
+          ),
         ],
         ), // סגירת ה-Column הפנימי (תוכן הפאנל בתוך אזור הגלילה)
         ), // סגירת SingleChildScrollView

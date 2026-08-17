@@ -9,6 +9,8 @@ import '../models/los_session.dart'; // מודל סשן קו ראייה לפרו
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM
 import '../models/uas_coordination_zone.dart'; // מודל אזור תיאום כטב"ם
 import '../data/uas_coordination_zones.dart'; // נתוני אזורי התיאום הסטטיים
+import '../models/airport_ctr_zone.dart'; // מודל גבול CTR קבוע של שדה תעופה
+import '../data/airport_ctr_zones.dart'; // נתוני גבולות ה-CTR הסטטיים, ממקור AIP רשמי
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../state/map_state.dart';
 import '../widgets/controls_panel.dart';
@@ -281,6 +283,8 @@ class _MapScreenState extends State<MapScreen> {
               if (state.activeNotamCategories.isNotEmpty) ..._buildUasNotamLayers(state),
               // ── שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים, לא תלויים ב-state ──
               if (state.uasCoordActive) ..._buildUasCoordZonesLayers(),
+              // ── שכבת "גבולות CTR שדות תעופה" — נתונים סטטיים ממקור AIP רשמי ──
+              if (state.airportCtrActive) ..._buildAirportCtrZonesLayers(),
               if (state.flightData != null) ...[
                 if (state.flightData!.path.length >= 2)
                   PolylineLayer(polylines: [
@@ -815,6 +819,36 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // מרכז כובד גס (ממוצע נקודות) — מספיק לצורך ניפוח חזותי, לא נדרשת דיוק גיאומטרי מלא.
+  // מקביל ל-_polygonCentroid ב-MAP.py (גרסת הדסקטופ).
+  LatLng _polygonCentroid(List<LatLng> points) {
+    final lat = points.map((p) => p.latitude).reduce((a, b) => a + b) / points.length;
+    final lon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
+    return LatLng(lat, lon);
+  }
+
+  // מנפח פוליגון קטן מדי (בפיקסלים, בזום הנוכחי) כלפי חוץ מסביב למרכז הכובד שלו, בלי לשנות
+  // את צורתו היחסית — אותו עיקרון בדיוק כמו minR למעגלים (max(radiusM, minR) למעלה). בלעדיו,
+  // פוליגון NOTAM/CTR קטן (כמה מאות מטרים) פשוט לא נראה בזום ארצי. מקביל ל-_scaleUpSmallPolygon
+  // ב-MAP.py — כולל אותו קירוב מרחק שטוח (לא Haversine מלא, מספיק להחלטת "קטן מדי" בלבד).
+  List<LatLng> _scaleUpSmallPolygon(List<LatLng> points, LatLng centroid, double minR) {
+    double maxDistM = 0;
+    for (final p in points) {
+      final dLatM = (p.latitude - centroid.latitude) * 111000;
+      final dLonM = (p.longitude - centroid.longitude) * 111000 * cos(centroid.latitude * pi / 180);
+      final d = sqrt(dLatM * dLatM + dLonM * dLonM);
+      if (d > maxDistM) maxDistM = d;
+    }
+    if (maxDistM == 0 || maxDistM >= minR) return points; // כבר גדול מספיק, או נקודות חופפות (לא אמור לקרות)
+    final scale = minR / maxDistM;
+    return points
+        .map((p) => LatLng(
+              centroid.latitude + (p.latitude - centroid.latitude) * scale,
+              centroid.longitude + (p.longitude - centroid.longitude) * scale,
+            ))
+        .toList();
+  }
+
   // בונה את שכבות המפה לאזורי NOTAM: צורות (מעגל/פוליגון) צבועות לפי קטגוריה + סמן לחיץ בכל אזור לפתיחת פרטים
   List<Widget> _buildUasNotamLayers(MapState state) {
     // מסונן לפי הקטגוריות המסומנות כרגע — NOTAM בודד מוצג אם לפחות אחת מהקטגוריות שלו מסומנת
@@ -840,8 +874,9 @@ class _MapScreenState extends State<MapScreen> {
         .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
         .map((z) {
           final color = Color(_notamZonePrimaryCategory(z, state.activeNotamCategories).color);
+          final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
           return Polygon(
-            points: z.points,
+            points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי
             color: color.withAlpha(90),
             borderColor: color,
             borderStrokeWidth: 3,
@@ -896,12 +931,15 @@ class _MapScreenState extends State<MapScreen> {
         .toList();
     final polygons = kUasCoordinationZones
         .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
-        .map((z) => Polygon(
-              points: z.points,
-              color: color.withAlpha(55),
-              borderColor: color,
-              borderStrokeWidth: 2,
-            ))
+        .map((z) {
+          final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
+          return Polygon(
+            points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי
+            color: color.withAlpha(55),
+            borderColor: color,
+            borderStrokeWidth: 2,
+          );
+        })
         .toList();
     final markers = kUasCoordinationZones
         .map((z) => Marker(
@@ -974,6 +1012,101 @@ class _MapScreenState extends State<MapScreen> {
                 const SizedBox(height: 10),
                 Text('גובה מרבי', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
                 Text(z.altitudeLabel, style: TextStyle(fontSize: 13, color: cs.onSurface)),
+                if (z.notes.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text('הערות', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                  Text(z.notes, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // בניית שכבת "גבולות CTR שדות תעופה" — נתונים סטטיים (kAirportCtrZones), לא תלוי ב-state
+  List<Widget> _buildAirportCtrZonesLayers() {
+    const color = Color(0xFFF72585); // מג'נטה — מובחן גם מכתום ה-NOTAM וגם מאינדיגו אזורי התיאום
+    final minR = _minVisibleRadiusM(); // אותו רדיוס מינימלי חזותי כמו שאר השכבות
+    final polygons = kAirportCtrZones.map((z) {
+      final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
+      return Polygon(
+        points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי (לא צפוי בפועל בגבולות CTR)
+        color: color.withAlpha(45), // שקוף יותר מהאחרות — שכבת רקע קבועה, לא התרעה נקודתית
+        borderColor: color,
+        borderStrokeWidth: 2,
+      );
+    }).toList();
+    final markers = kAirportCtrZones
+        .map((z) => Marker(
+              point: z.anchor,
+              width: 30, height: 30,
+              child: GestureDetector(
+                onTap: () => _showAirportCtrDetails(z),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.flight_takeoff, size: 16, color: Colors.white),
+                ),
+              ),
+            ))
+        .toList();
+    return [
+      if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
+      if (markers.isNotEmpty) MarkerLayer(markers: markers),
+    ];
+  }
+
+  // כרטיס פרטים לגבול CTR בודד — נפתח בלחיצה על הסמן המג'נטה
+  void _showAirportCtrDetails(AirportCtrZone z) {
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(children: [
+                  const Icon(Icons.flight_takeoff, color: Color(0xFFF72585)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(z.name,
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: cs.onSurface)),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF72585).withAlpha(35),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'גבול המרחב המבוקר (CTR) הקבוע של השדה, ממקור AIP רשמי (סעיף AD 2.17) — לא נגזר מהודעות NOTAM.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),
+                Text(z.verticalLimits, style: TextStyle(fontSize: 13, color: cs.onSurface)),
                 if (z.notes.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Text('הערות', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: cs.primary)),

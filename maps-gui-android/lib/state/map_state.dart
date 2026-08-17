@@ -464,6 +464,16 @@ class MapState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── שכבת "גבולות CTR שדות תעופה" ──
+  // גבול מרחב פיקוח קבוע (CTR) כפי שמפורסם רשמית ב-AIP — נתונים סטטיים (kAirportCtrZones),
+  // בשונה משכבת "אזורי פיקוח שדות תעופה" (NOTAM) שמציגה רק אזכורים אד-הוק בטקסט הודעות.
+  bool airportCtrActive = false;
+
+  void toggleAirportCtrLayer() {
+    airportCtrActive = !airportCtrActive;
+    notifyListeners();
+  }
+
   // ── איפוס מפה מלא ─────────────────────────────────────────────────────────
   // מקביל ל-resetMapState() בגרסת הדסקטופ — מנקה את כל השכבות/הכלים/הסימונים
   // הפעילים ומחזיר את המצלמה למרכז ברירת המחדל. לא נוגע בהיסטוריית החיפוש
@@ -484,6 +494,7 @@ class MapState extends ChangeNotifier {
     losMode = false; losSessions = []; losCurObs = null; losError = null; // כיבוי מצב LOS וניקוי כל סשני קו הראייה
     activeNotamCategories = {}; // ביטול סימון קטגוריות NOTAM — המטמון (uasNotamZones) נשאר כדי שלא יידרש fetch חוזר בהפעלה הבאה
     uasCoordActive = false; // כיבוי שכבת אזורי התיאום
+    airportCtrActive = false; // כיבוי שכבת גבולות ה-CTR
     flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
     pinnedPoints = []; lastPinnedPoint = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
     cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת
