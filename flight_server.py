@@ -293,4 +293,5 @@ def search_flights():
 
 
 if __name__ == "__main__":
-    app.run(port=FLIGHT_PORT, debug=True)  # נפרד משאר השרתים
+    # threaded=True — מונע ממטריקות/בקשות אחרות להיחסם בזמן חיפוש טיסה איטי (עד 35 שניות)
+    app.run(port=FLIGHT_PORT, debug=True, threaded=True)  # נפרד משאר השרתים

@@ -1294,6 +1294,15 @@ class MapApp(QMainWindow):
         self.uas_coord_button.clicked.connect(self.toggle_uas_coord_layer)
         top_layout.addWidget(self.uas_coord_button)
 
+        self.airport_ctr_button = QPushButton("✈️ גבולות CTR שדות תעופה")  # שכבת גבולות CTR קבועים — נתונים סטטיים, ר' airport_ctr_zones.py
+        self.airport_ctr_button.setFixedSize(200, 34)
+        self.airport_ctr_button.setEnabled(False)  # נעול עד ליצירת מפה (לא תלוי בשרתים — כמו uas_coord_button)
+        self.airport_ctr_button.setCheckable(True)
+        self.airport_ctr_button.setToolTip(
+            'גבול המרחב המבוקר (CTR) הקבוע של השדה, ממקור AIP רשמי — לא נגזר מהודעות NOTAM ("אזורי פיקוח שדות תעופה" למעלה)')
+        self.airport_ctr_button.clicked.connect(self.toggle_airport_ctr_layer)
+        top_layout.addWidget(self.airport_ctr_button)
+
         lbl_measure = QLabel("מדידה")
         lbl_measure.setObjectName("sectionLabel")
         top_layout.addWidget(lbl_measure)
@@ -1527,6 +1536,7 @@ class MapApp(QMainWindow):
             self.elevation_button.setEnabled(True)
             self.notam_menu_button.setEnabled(True)
             self.uas_coord_button.setEnabled(True)  # שכבה סטטית — מופעלת יחד עם שאר שכבות המפה, לא תלויה בשרתים
+            self.airport_ctr_button.setEnabled(True)  # שכבה סטטית נוספת — אותו עיקרון, ר' airport_ctr_zones.py
             self.ruler_button.setEnabled(True)
             self.opacity_slider.setEnabled(True)
             if not getattr(self, '_title_connected', False):
@@ -1552,6 +1562,8 @@ class MapApp(QMainWindow):
             checkbox.blockSignals(False)
         self.uas_coord_button.setChecked(False)
         self.uas_coord_button.setText('🛡️ אזורי תיאום כטב"ם')
+        self.airport_ctr_button.setChecked(False)  # איפוס מצב כפתור גבולות CTR יחד עם שאר השכבות
+        self.airport_ctr_button.setText("✈️ גבולות CTR שדות תעופה")
         self.heatmap_pick_button.setChecked(False)
         self.heatmap_pick_button.setText("בחר נקודות")
         self.heatmap_clear_points_button.setEnabled(False)
@@ -1633,7 +1645,7 @@ class MapApp(QMainWindow):
             self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
             self.heatmap_button.setEnabled(True)  # שחזור נעילת שכבת חום
             self.notam_menu_button.setEnabled(True)  # שחזור נעילת תפריט קטגוריות NOTAM
-            # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, לא נעלת ע"י stop_servers
+            # uas_coord_button/airport_ctr_button לא נכללים כאן בכוונה — שכבות סטטיות ללא תלות בשרתים, לא נעלות ע"י stop_servers
             self.opacity_slider.setEnabled(True)  # שחזור נעילת ה-slider
 
     @staticmethod
@@ -1691,7 +1703,7 @@ class MapApp(QMainWindow):
         self.Find_a_location.setEnabled(False)  # נעילת דקירת נ.צ
         self.heatmap_button.setEnabled(False)  # נעילת שכבת חום
         self.notam_menu_button.setEnabled(False)  # נעילת תפריט קטגוריות NOTAM
-        # uas_coord_button לא נכלל כאן בכוונה — שכבה סטטית ללא תלות בשרתים, נשארת פעילה גם כששרתי GeoServer/... כבויים
+        # uas_coord_button/airport_ctr_button לא נכללים כאן בכוונה — שכבות סטטיות ללא תלות בשרתים, נשארות פעילות גם כששרתי GeoServer/... כבויים
         self.opacity_slider.setEnabled(False)  # נעילת Slider
         self.show_flight_button.setEnabled(False)  # נעילת כפתור הצגת מסלול
         self.flight_input.setEnabled(False)  # נעילת שדה מספר הטיסה
@@ -2020,6 +2032,17 @@ class MapApp(QMainWindow):
             on_extra=lambda: self.log_action(
                 'שכבת "אזורי תיאום כטב"ם" הופעלה — כל אזור דורש אישור נת"א מראש', is_success=True),
             off_extra=lambda: self.log_action('שכבת "אזורי תיאום כטב"ם" כובתה'),
+        )
+
+    def toggle_airport_ctr_layer(self, checked):
+        """ הפעלה/כיבוי שכבת גבולות CTR קבועים של שדות תעופה — נתונים סטטיים ממקור AIP רשמי
+        (לא נגזרים מהודעות NOTAM). שכבה סינכרונית לגמרי, כמו toggle_uas_coord_layer. ר' airport_ctr_zones.py. """
+        self._toggle_layer(
+            checked, js_call="toggleAirportCtrLayer();", button=self.airport_ctr_button,
+            on_text="✈️ הסתר גבולות CTR", off_text="✈️ גבולות CTR שדות תעופה",
+            on_extra=lambda: self.log_action(
+                'שכבת גבולות CTR שדות תעופה הופעלה — מקור: AIP רשמי', is_success=True),
+            off_extra=lambda: self.log_action('שכבת גבולות CTR שדות תעופה כובתה'),
         )
 
     def save_logs_to_file(self):

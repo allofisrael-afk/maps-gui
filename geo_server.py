@@ -77,4 +77,7 @@ def get_uas_notams_route():
 
 if __name__ == "__main__":
     # הפעלת השרת
-    app.run(port=GEO_PORT, debug=True)
+    # threaded=True — בלעדיו שרת הפיתוח של Flask מטפל בבקשה אחת בכל רגע נתון; שליפת NOTAM
+    # (עד 27 בקשות POST רצופות, כ-20 שניות) הייתה חוסמת גם בקשות /metrics/geo_data אחרות
+    # שמגיעות באותו החלון, ונראית כאילו כל האפליקציה "נתקעה" ולא רק שכבת ה-NOTAM
+    app.run(port=GEO_PORT, debug=True, threaded=True)

@@ -478,4 +478,6 @@ def line_of_sight():
 
 
 if __name__ == "__main__":
-    app.run(port=WEATHER_PORT, debug=True)
+    # threaded=True — מונע ממטריקות/בקשות אחרות להיחסם בזמן קריאות ארוכות (רשת גבהים/טמפרטורה
+    # מרובת-batches) — אותו טעם כמו ב-geo_server.py
+    app.run(port=WEATHER_PORT, debug=True, threaded=True)

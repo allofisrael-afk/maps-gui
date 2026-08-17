@@ -3,6 +3,7 @@ import json  # הזרקת נתונים סטטיים (אזורי תיאום, קט
 from dotenv import load_dotenv  # טעינת משתני סביבה (נשמר לתאימות עתידית)
 from uas_coordination_zones import UAS_COORDINATION_ZONES  # נתוני "אזורי תיאום כטב"ם" — סטטיים, לא נשלפים בזמן ריצה
 from notam_categories import NOTAM_CATEGORIES  # 7 קטגוריות סיווג NOTAM (id/label/color) — סטטי, ר' notam_categories.py
+from airport_ctr_zones import AIRPORT_CTR_ZONES  # גבולות CTR קבועים של שדות תעופה, ממקור AIP רשמי — ר' airport_ctr_zones.py
 
 load_dotenv()
 
@@ -16,6 +17,7 @@ def create_map():
     # JSON של אזורי התיאום וקטגוריות ה-NOTAM — מוזרקים פעם אחת כליטרלי JS קבועים (לא fetch בזמן ריצה, נתונים סטטיים)
     coord_zones_json = json.dumps(UAS_COORDINATION_ZONES, ensure_ascii=False)
     notam_categories_json = json.dumps(NOTAM_CATEGORIES, ensure_ascii=False)
+    airport_ctr_zones_json = json.dumps(AIRPORT_CTR_ZONES, ensure_ascii=False)  # גבולות CTR — ר' airport_ctr_zones.py
 
     with open(map_file, "w", encoding="utf-8") as f:
         f.write(f"""<!DOCTYPE html>
@@ -655,10 +657,38 @@ def create_map():
             return minPixels * _metersPerPixel(lat, map.getZoom());
         }}
 
+        // מרכז כובד גס (ממוצע נקודות) — מספיק לצורך ניפוח חזותי, לא נדרשת דיוק גיאומטרי מלא
+        function _polygonCentroid(points) {{
+            var sumLat = 0, sumLon = 0;
+            points.forEach(function(p) {{ sumLat += p[0]; sumLon += p[1]; }});
+            return [sumLat / points.length, sumLon / points.length];
+        }}
+
+        // מנפח פוליגון קטן מדי (בפיקסלים, בזום הנוכחי) כלפי חוץ מסביב למרכז הכובד שלו, בלי
+        // לשנות את צורתו היחסית — אותו עיקרון בדיוק כמו _minVisibleRadiusM למעגלים. בלעדיו,
+        // פוליגון NOTAM אמיתי (לרוב כמה מאות מטרים עד כמה ק"מ) פשוט לא נראה בזום ארצי, בעוד
+        // שמעגלים כן מנופחים ל-min — וכל השכבה נראית כאילו יש בה רק מעגלים, לא פוליגונים.
+        function _scaleUpSmallPolygon(points, centroid) {{
+            var maxDistM = 0;
+            points.forEach(function(p) {{
+                var dLatM = (p[0] - centroid[0]) * 111000;
+                var dLonM = (p[1] - centroid[1]) * 111000 * Math.cos(centroid[0] * Math.PI / 180);
+                var d = Math.sqrt(dLatM * dLatM + dLonM * dLonM);
+                if (d > maxDistM) maxDistM = d;
+            }});
+            var minR = _minVisibleRadiusM(centroid[0]);
+            if (maxDistM === 0 || maxDistM >= minR) return points;  // כבר גדול מספיק, או נקודות חופפות (לא אמור לקרות)
+            var scale = minR / maxDistM;
+            return points.map(function(p) {{
+                return [centroid[0] + (p[0] - centroid[0]) * scale, centroid[1] + (p[1] - centroid[1]) * scale];
+            }});
+        }}
+
         // מצב תצוגה (מצומצם/מורחב) של כל מקרא — משתנה גלובלי כדי שהבחירה של המשתמש תישרד
         // ציור מחדש של השכבה (למשל toggle של קטגוריית NOTAM נוספת יוצר מחדש את ה-Control).
         var notamLegendExpanded = false;    // מצב מקרא ה-NOTAM — מצומצם כברירת מחדל, לא חוסם את המפה
         var uasCoordLegendExpanded = false; // מצב מקרא אזורי התיאום — מצומצם כברירת מחדל
+        var airportCtrLegendExpanded = false; // מצב מקרא גבולות ה-CTR — מצומצם כברירת מחדל
 
         // יוצר div של מקרא הניתן לצמצום לסמל עגול קטן — משותף לשני מקראות השכבות (NOTAM/תיאום).
         // getExpanded/setExpanded הן פונקציות-גישה למשתנה הגלובלי הספציפי של המקרא הזה, כדי
@@ -769,7 +799,14 @@ def create_map():
                     return z.categories.indexOf(c.id) !== -1 && activeNotamCategories.has(c.id);
                 }})[0];
                 var color = primaryCat ? primaryCat.color : '#fab387';
-                var style = {{ color: color, weight: 3, fillColor: color, fillOpacity: 0.4 }};  // weight/fillOpacity מוגברים — בולט יותר על רקע המפה הכהה
+                // גיאומטריה שמקורה ברשת הביטחון של שורת Q) (ר' _geometry_from_q_line ב-notam_drones.py)
+                // היא קירוב גס — למשל רצועת גבול שלמה מוצגת כמעגל — ולא הצורה המדויקת שדווחה.
+                // מסגרת מקווקוות מבדילה אותה חזותית מגיאומטריה מדויקת (מסגרת רציפה).
+                var isApprox = z.geometry.source === 'q_line_approx';
+                var style = {{
+                    color: color, weight: 3, fillColor: color, fillOpacity: isApprox ? 0.22 : 0.4,  // מילוי חלש יותר לקירוב — פחות "בטוח בעצמו" חזותית
+                    dashArray: isApprox ? '9,6' : null,  // מסגרת מקווקוות = קירוב, רציפה = מדויק מהטקסט
+                }};
                 var shape;
                 if (z.geometry.type === 'circle') {{
                     var trueR = z.geometry.radius_m;  // הרדיוס האמיתי מה-NOTAM, לפני החלת הרצפה החזותית
@@ -777,7 +814,10 @@ def create_map():
                         {{ radius: Math.max(trueR, _minVisibleRadiusM(z.geometry.center[0])) }}, style));  // מעגל: "X NM RADIUS CENTERED ON PSN"
                     shape._trueRadiusM = trueR;  // נשמר על הצורה עצמה כדי לחשב מחדש ב-zoomend (ר' המאזין למטה)
                 }} else {{
-                    shape = L.polygon(z.geometry.points, style);  // פוליגון: "AN AREA BTN FLW PSN" עם 3+ קואורדינטות
+                    var centroid = _polygonCentroid(z.geometry.points);  // מרכז כובד — נקודת הייחוס לניפוח החזותי
+                    shape = L.polygon(_scaleUpSmallPolygon(z.geometry.points, centroid), style);  // פוליגון: "AN AREA BTN FLW PSN" עם 3+ קואורדינטות
+                    shape._truePoints = z.geometry.points;  // הנקודות האמיתיות (לא מנופחות), לחישוב מחדש ב-zoomend
+                    shape._centroid = centroid;
                 }}
                 var catLabels = z.categories.map(function(id) {{
                     var c = _notamCategoryById(id);
@@ -789,6 +829,10 @@ def create_map():
                     '<div style="font-size:11px;color:#a6adc8;margin-bottom:4px;"><b>קטגוריות:</b> ' + _escHtml(catLabels) + '</div>' +
                     '<div style="background:rgba(0,0,0,0.18);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
                     '&#9888; אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית</div>' +
+                    (isApprox ?
+                        '<div style="background:rgba(250,179,135,0.18);border-radius:4px;padding:4px 6px;margin-bottom:6px;font-size:11px;">' +
+                        '&#9888; צורת האזור המוצגת היא <b>קירוב גס בלבד</b> (ממרכז ורדיוס כלליים) — הטקסט המלא לא כלל תיאור גיאומטרי מדויק. ' +
+                        'האזור האמיתי עשוי להיות שונה בצורתו (למשל רצועה, לא מעגל) — ראו את הטקסט המלא למטה.</div>' : '') +
                     (z.altitude_text ? '<div><b>גובה:</b> ' + _escHtml(z.altitude_text) + '</div>' : '') +
                     (z.hebrew_gloss ?
                         '<div style="background:rgba(99,102,241,0.12);border-radius:4px;padding:4px 6px;margin-top:6px;font-size:11px;">' +
@@ -800,7 +844,11 @@ def create_map():
                 shape.bindPopup(popup);
                 return shape;
             }});
-            uasNotamLayer = L.layerGroup(shapes).addTo(map);
+            // L.featureGroup, לא L.layerGroup — LayerGroup הרגיל לא כולל .getBounds() ב-Leaflet
+            // (זו תוספת של FeatureGroup בלבד), וקריאה ל-.getBounds() כמה שורות למטה הייתה
+            // זורקת TypeError בכל פעם, שנתפס ב-catch ומדווח בטעות כ"טעינה נכשלה" — למרות
+            // שהצורות כן צוירו על המפה בהצלחה. addTo/removeLayer מתנהגים זהה בשתי המחלקות.
+            uasNotamLayer = L.featureGroup(shapes).addTo(map);
             uasNotamLegendControl = new UasNotamLegend().addTo(map);
             // התאמת תצוגת המפה לאזורים שהוצגו — בלי זה, אזורים קטנים (500 מ'-כמה ק"מ) נראים
             // כנקודה זעירה ולא כפוליגון/מעגל בזום ארצי רגיל. maxZoom מונע התקרבות מוגזמת כשמוצג רק אזור בודד קטן.
@@ -866,7 +914,10 @@ def create_map():
                         {{ radius: Math.max(trueR, _minVisibleRadiusM(z.geometry.center[0])) }}, style));
                     shape._trueRadiusM = trueR;  // נשמר על הצורה עצמה כדי לחשב מחדש ב-zoomend
                 }} else {{
-                    shape = L.polygon(z.geometry.points, style);
+                    var centroid = _polygonCentroid(z.geometry.points);  // מרכז כובד — נקודת הייחוס לניפוח החזותי
+                    shape = L.polygon(_scaleUpSmallPolygon(z.geometry.points, centroid), style);
+                    shape._truePoints = z.geometry.points;  // הנקודות האמיתיות (לא מנופחות), לחישוב מחדש ב-zoomend
+                    shape._centroid = centroid;
                 }}
                 var popup =
                     '<div style="direction:rtl;font-family:Arial;font-size:13px;max-width:280px;">' +
@@ -892,15 +943,86 @@ def create_map():
             uasCoordActive = false;
         }}
 
-        // מרענן את רדיוס כל מעגלי ה-NOTAM/אזורי-תיאום לפי הזום הנוכחי — הרדיוס האמיתי (L.circle
-        // תמיד במטרים) לא זקוק לעדכון בזום, אבל הרצפה החזותית (_minVisibleRadiusM) כן תלוית-זום.
+        // ── שכבת "גבולות CTR שדות תעופה" ──
+        // גבול מרחב פיקוח קבוע (CTR) כפי שמפורסם רשמית ב-AIP — בשונה משכבת "אזורי פיקוח שדות
+        // תעופה" (קטגוריית NOTAM "airport_control" למעלה) שמציגה רק אזכורים אד-הוק בתוך טקסט
+        // הודעות NOTAM (למשל עגורן בנייה ליד השדה), לא את גבול המרחב המבוקר הקבוע עצמו.
+        // נתונים סטטיים (לא נשלפים בזמן ריצה) — ר' airport_ctr_zones.py.
+        var airportCtrZonesData = {airport_ctr_zones_json};
+        var airportCtrLayer = null;
+        var airportCtrActive = false;
+        var airportCtrLegendControl = null;
+
+        var AirportCtrLegend = L.Control.extend({{
+            options: {{ position: 'bottomleft' }},
+            onAdd: function() {{
+                var bodyHtml =
+                    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
+                    + '<span style="display:inline-block;width:14px;height:14px;background:#f72585;'
+                    + 'border-radius:3px;flex-shrink:0;"></span>'
+                    + '<b>&#128752; גבולות CTR שדות תעופה</b></div>'
+                    + '<div style="color:#a6adc8;">גבול המרחב המבוקר הקבוע של השדה, ממקור AIP רשמי — לא נגזר מהודעות NOTAM. לחץ על צורה לפרטים.</div>';
+                return _makeCollapsibleLegend('&#128752;', bodyHtml,  // סמל מטוס-ממריא לעיגול המצומצם — שונה מסמל ה-NOTAM (&#9992;) כדי לא להתבלבל בין השכבות
+                    function() {{ return airportCtrLegendExpanded; }},
+                    function(v) {{ airportCtrLegendExpanded = v; }});
+            }}
+        }});
+
+        function toggleAirportCtrLayer() {{
+            // סינכרוני לגמרי — הנתונים כבר בעמוד (airportCtrZonesData), אין fetch/loading/error
+            if (airportCtrActive) {{
+                clearAirportCtrLayer();
+            }} else {{
+                _drawAirportCtrZones(airportCtrZonesData);
+            }}
+        }}
+
+        function _drawAirportCtrZones(zones) {{
+            clearAirportCtrLayer();  // מנקה ציור קודם לפני ציור מחדש — מונע כפילות שכבות
+            var style = {{ color: '#f72585', weight: 2, fillColor: '#f72585', fillOpacity: 0.12, dashArray: '6,4' }};
+            var shapes = zones.map(function(z) {{
+                // כל הרשומות כרגע פוליגונים (אין מעגלים בנתוני CTR) — עדיין מפעיל ניפוח חזותי
+                // מינימלי לעקביות עם שאר השכבות, גם אם בפועל CTR תמיד גדול מספיק שלא יידרש בפועל
+                var centroid = _polygonCentroid(z.geometry.points);
+                var shape = L.polygon(_scaleUpSmallPolygon(z.geometry.points, centroid), style);
+                shape._truePoints = z.geometry.points;  // הנקודות האמיתיות (לא מנופחות), לחישוב מחדש ב-zoomend
+                shape._centroid = centroid;
+                var popup =
+                    '<div style="direction:rtl;font-family:Arial;font-size:13px;max-width:280px;">' +
+                    '<div style="font-size:14px;font-weight:bold;margin-bottom:4px;color:#f72585;">&#128752; ' + _escHtml(z.name) + '</div>' +
+                    '<div><b>גובה:</b> ' + _escHtml(z.vertical_limits) + '</div>' +
+                    '<div style="margin-top:4px;color:#a6adc8;font-size:11px;">מקור: AIP רשמי (e-AIP ישראל, סעיף AD 2.17)</div>' +
+                    (z.notes ? '<div style="margin-top:6px;color:#a6adc8;font-size:11px;">' + _escHtml(z.notes) + '</div>' : '') +
+                    '</div>';
+                shape.bindPopup(popup);
+                return shape;
+            }});
+            airportCtrLayer = L.layerGroup(shapes).addTo(map);
+            if (!airportCtrLegendControl) {{
+                airportCtrLegendControl = new AirportCtrLegend().addTo(map);
+            }}
+            airportCtrActive = true;
+        }}
+
+        function clearAirportCtrLayer() {{
+            if (airportCtrLayer) {{ map.removeLayer(airportCtrLayer); airportCtrLayer = null; }}
+            if (airportCtrLegendControl) {{ map.removeControl(airportCtrLegendControl); airportCtrLegendControl = null; }}
+            airportCtrActive = false;
+        }}
+
+        // מרענן את גודל כל מעגלי/פוליגוני ה-NOTAM/אזורי-תיאום/CTR לפי הזום הנוכחי — הגודל האמיתי
+        // (מטרים אמיתיים, בין אם L.circle או קואורדינטות פוליגון) לא זקוק לעדכון בזום, אבל
+        // הרצפה החזותית המינימלית (_minVisibleRadiusM/_scaleUpSmallPolygon) כן תלוית-זום.
         map.on('zoomend', function() {{
-            [uasNotamLayer, uasCoordLayer].forEach(function(layer) {{
+            [uasNotamLayer, uasCoordLayer, airportCtrLayer].forEach(function(layer) {{
                 if (!layer) return;  // השכבה כבויה כרגע — אין מה לרענן
                 layer.eachLayer(function(shape) {{
-                    if (shape._trueRadiusM === undefined || !shape.setRadius) return;  // לא מעגל עם רדיוס אמיתי שמור
-                    var c = shape.getLatLng();
-                    shape.setRadius(Math.max(shape._trueRadiusM, _minVisibleRadiusM(c.lat)));
+                    if (shape._trueRadiusM !== undefined && shape.setRadius) {{
+                        var c = shape.getLatLng();
+                        shape.setRadius(Math.max(shape._trueRadiusM, _minVisibleRadiusM(c.lat)));
+                    }} else if (shape._truePoints !== undefined && shape.setLatLngs) {{
+                        shape.setLatLngs(_scaleUpSmallPolygon(shape._truePoints, shape._centroid));
+                    }}
                 }});
             }});
         }});
@@ -910,6 +1032,7 @@ def create_map():
             clearFlightRoute();
             clearAllNotamCategories();  // מנקה גם את בחירת קטגוריות ה-NOTAM עצמה, לא רק את הציור (ר' clearUasNotamLayer)
             clearUasCoordZonesLayer();
+            clearAirportCtrLayer();  // מנקה גם את שכבת גבולות ה-CTR — נוספה יחד עם שאר השכבות הסטטיות
             clearTempHeatmap();
             clearRuler();  // מנקה קווי/נקודות/תוויות סרגל ומאפס rulerActive+cursor — היה חסר, קווי מדידה נשארו על המפה אחרי איפוס
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות

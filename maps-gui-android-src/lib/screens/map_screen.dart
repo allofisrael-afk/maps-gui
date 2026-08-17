@@ -9,6 +9,8 @@ import '../models/los_session.dart'; // מודל סשן קו ראייה לפרו
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM
 import '../models/uas_coordination_zone.dart'; // מודל אזור תיאום כטב"ם
 import '../data/uas_coordination_zones.dart'; // נתוני אזורי התיאום הסטטיים
+import '../models/airport_ctr_zone.dart'; // מודל גבול CTR קבוע של שדה תעופה
+import '../data/airport_ctr_zones.dart'; // נתוני גבולות ה-CTR הסטטיים, ממקור AIP רשמי
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../state/map_state.dart';
 import '../widgets/controls_panel.dart';
@@ -281,6 +283,8 @@ class _MapScreenState extends State<MapScreen> {
               if (state.activeNotamCategories.isNotEmpty) ..._buildUasNotamLayers(state),
               // ── שכבת "אזורי תיאום כטב"ם" — נתונים סטטיים, לא תלויים ב-state ──
               if (state.uasCoordActive) ..._buildUasCoordZonesLayers(),
+              // ── שכבת "גבולות CTR שדות תעופה" — נתונים סטטיים ממקור AIP רשמי ──
+              if (state.airportCtrActive) ..._buildAirportCtrZonesLayers(),
               if (state.flightData != null) ...[
                 if (state.flightData!.path.length >= 2)
                   PolylineLayer(polylines: [
@@ -815,6 +819,36 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // מרכז כובד גס (ממוצע נקודות) — מספיק לצורך ניפוח חזותי, לא נדרשת דיוק גיאומטרי מלא.
+  // מקביל ל-_polygonCentroid ב-MAP.py (גרסת הדסקטופ).
+  LatLng _polygonCentroid(List<LatLng> points) {
+    final lat = points.map((p) => p.latitude).reduce((a, b) => a + b) / points.length;
+    final lon = points.map((p) => p.longitude).reduce((a, b) => a + b) / points.length;
+    return LatLng(lat, lon);
+  }
+
+  // מנפח פוליגון קטן מדי (בפיקסלים, בזום הנוכחי) כלפי חוץ מסביב למרכז הכובד שלו, בלי לשנות
+  // את צורתו היחסית — אותו עיקרון בדיוק כמו minR למעגלים (max(radiusM, minR) למעלה). בלעדיו,
+  // פוליגון NOTAM/CTR קטן (כמה מאות מטרים) פשוט לא נראה בזום ארצי. מקביל ל-_scaleUpSmallPolygon
+  // ב-MAP.py — כולל אותו קירוב מרחק שטוח (לא Haversine מלא, מספיק להחלטת "קטן מדי" בלבד).
+  List<LatLng> _scaleUpSmallPolygon(List<LatLng> points, LatLng centroid, double minR) {
+    double maxDistM = 0;
+    for (final p in points) {
+      final dLatM = (p.latitude - centroid.latitude) * 111000;
+      final dLonM = (p.longitude - centroid.longitude) * 111000 * cos(centroid.latitude * pi / 180);
+      final d = sqrt(dLatM * dLatM + dLonM * dLonM);
+      if (d > maxDistM) maxDistM = d;
+    }
+    if (maxDistM == 0 || maxDistM >= minR) return points; // כבר גדול מספיק, או נקודות חופפות (לא אמור לקרות)
+    final scale = minR / maxDistM;
+    return points
+        .map((p) => LatLng(
+              centroid.latitude + (p.latitude - centroid.latitude) * scale,
+              centroid.longitude + (p.longitude - centroid.longitude) * scale,
+            ))
+        .toList();
+  }
+
   // בונה את שכבות המפה לאזורי NOTAM: צורות (מעגל/פוליגון) צבועות לפי קטגוריה + סמן לחיץ בכל אזור לפתיחת פרטים
   List<Widget> _buildUasNotamLayers(MapState state) {
     // מסונן לפי הקטגוריות המסומנות כרגע — NOTAM בודד מוצג אם לפחות אחת מהקטגוריות שלו מסומנת
@@ -840,8 +874,9 @@ class _MapScreenState extends State<MapScreen> {
         .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
         .map((z) {
           final color = Color(_notamZonePrimaryCategory(z, state.activeNotamCategories).color);
+          final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
           return Polygon(
-            points: z.points,
+            points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי
             color: color.withAlpha(90),
             borderColor: color,
             borderStrokeWidth: 3,
@@ -896,12 +931,15 @@ class _MapScreenState extends State<MapScreen> {
         .toList();
     final polygons = kUasCoordinationZones
         .where((z) => z.geometryType == UasNotamGeometryType.polygon && z.points.length >= 3)
-        .map((z) => Polygon(
-              points: z.points,
-              color: color.withAlpha(55),
-              borderColor: color,
-              borderStrokeWidth: 2,
-            ))
+        .map((z) {
+          final centroid = _polygonCentroid(z.points); // מרכז כובד — נקודת הייחוס לניפוח החזותי
+          return Polygon(
+            points: _scaleUpSmallPolygon(z.points, centroid, minR), // מנופח אם קטן מדי לזום הנוכחי
+            color: color.withAlpha(55),
+            borderColor: color,
+            borderStrokeWidth: 2,
+          );
+        })
         .toList();
     final markers = kUasCoordinationZones
         .map((z) => Marker(

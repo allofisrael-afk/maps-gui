@@ -423,29 +423,50 @@ class ApiService {
   // "מותר לך לטוס כאן". השכבה היא כלי הימנעות/מודעות בלבד.
   static const _notamUrl = 'https://brin.iaa.gov.il/aeroinfo/AeroInfo.aspx?msgType=Notam';
 
-  // קואורדינטת DMS דחוסה, למשל "305819N0345601E" — 2 ספרות מעלות/דקות/שניות לרוחב, 3 מעלות לאורך
-  static final _coordRe = RegExp(r'(\d{2})(\d{2})(\d{2})([NS])(\d{3})(\d{2})(\d{2})([EW])');
-  // תבנית אזור מעגלי, למשל "0.3NM RADIUS CENTERED ON PSN 314643N0350539E"
+  // קואורדינטת DMS דחוסה — נתמכים שני סדרי-טוקנים אמיתיים שנצפו ב-NOTAM: "ספרות-ואז-אות-כיוון"
+  // (315907.32N0345601.24E, הנפוץ) ו"אות-כיוון-ואז-ספרות" (N314945E0345822, נצפה בפוליגונים
+  // כמו LATRUN/OR-AKIVA — לפני התיקון הזה הם נפלו ל"טקסט בלבד" כי הפורמט לא זוהה כלל).
+  // שניות עשרוניות (`.32`) נתמכות בשני הפורמטים — נצפו ב-NOTAM-ים אחרים (מנופי בנייה).
+  static const _coordPattern =
+      r'(?:\d{2}\d{2}\d{2}(?:\.\d+)?[NS]\d{3}\d{2}\d{2}(?:\.\d+)?[EW]'
+      r'|[NS]\d{2}\d{2}\d{2}(?:\.\d+)?[EW]\d{3}\d{2}\d{2}(?:\.\d+)?)';
+  static final _coordRe = RegExp(_coordPattern); // לאיתור כל הקואורדינטות בטקסט חופשי (לפוליגונים) — allMatches
+  // פירוק בפועל לפי הפורמט הספציפי שהתקבל — נבדק ב-_coordToLatLng אחרי שהתאמה נמצאה
+  static final _coordSuffixRe = RegExp(r'^(\d{2})(\d{2})(\d{2}(?:\.\d+)?)([NS])(\d{3})(\d{2})(\d{2}(?:\.\d+)?)([EW])$');
+  static final _coordPrefixRe = RegExp(r'^([NS])(\d{2})(\d{2})(\d{2}(?:\.\d+)?)([EW])(\d{3})(\d{2})(\d{2}(?:\.\d+)?)$');
+  // תבנית אזור מעגלי, למשל "0.3NM RADIUS CENTERED ON PSN 314643N0350539E" — נתמכות 3 יחידות
+  // מרחק אמיתיות שנצפו ב-NOTAM (NM/KM/M, ר' _unitToMeters למטה); הקואורדינטה יכולה להיות
+  // בכל אחד משני הפורמטים הנתמכים (ר' _coordPattern למעלה). (?:\S+\s+){0,4}? מאפשר עד 4
+  // מילים בין RADIUS ל-CENTERED (למשל "RADIUS SEMI-CIRCLE TO EAST CENTERED", נצפה בפועל).
   static final _radiusRe = RegExp(
-    r'(\d+(?:\.\d+)?)\s*NM\s+RADIUS\s+CENTERED\s+ON\s+PSN\s+(\d{6}[NS]\d{7}[EW])',
+    r'(\d+(?:\.\d+)?)\s*(NM|KM|M)\s+RADIUS\s+(?:\S+\s+){0,4}?CENTERED\s+ON\s+PSN\s+(' + _coordPattern + r')',
     caseSensitive: false,
   );
+  static const _unitToMeters = {'NM': 1852.0, 'KM': 1000.0, 'M': 1.0}; // גורם המרה לכל יחידת רדיוס נתמכת
   // משפט הגובה — מ"FM" (התחלה: GND או גובה) עד "UP TO ..." ועד לנקודה הבאה
   static final _altSentenceRe = RegExp(r'FM\s+(?:GND|[\d,]+\s*FT)\s+UP\s+TO[^.]*', caseSensitive: false);
   static final _notamIdRe = RegExp(r'class="NotamID">\s*([^<\n]+?)\s*</td>');   // תא הטבלה עם מספר ה-NOTAM
   static final _locationRe = RegExp(r'class="Location">\s*([^<\n]+?)\s*</td>'); // תא הטבלה עם קוד ה-ICAO
   static final _msgTextRe = RegExp(r'class="MsgText">\s*([^<]*?)\s*</td>');     // שורת טקסט אחת מתוך כמה
 
-  /// ממיר קואורדינטת DMS דחוסה לנקודת LatLng עשרונית, או null אם הפורמט לא תואם.
+  /// ממיר קואורדינטת DMS דחוסה (בכל אחד משני הפורמטים הנתמכים) לנקודת LatLng עשרונית,
+  /// או null אם אף פורמט לא תואם. מנסה קודם את הפורמט הנפוץ (ספרות ואז אות-כיוון), ואם
+  /// לא תואם — את הפורמט ההפוך (אות-כיוון ואז ספרות), שנצפה בפועל בכמה NOTAM-ים של פוליגונים.
   static LatLng? _coordToLatLng(String coord) {
-    final m = _coordRe.firstMatch(coord);
-    if (m == null) return null;
-    final latD = int.parse(m.group(1)!), latM = int.parse(m.group(2)!), latS = int.parse(m.group(3)!);
-    final ns = m.group(4)!;
-    final lonD = int.parse(m.group(5)!), lonM = int.parse(m.group(6)!), lonS = int.parse(m.group(7)!);
-    final ew = m.group(8)!;
-    var lat = latD + latM / 60 + latS / 3600; // המרת DMS לעשרוני: מעלות + דקות/60 + שניות/3600
-    var lon = lonD + lonM / 60 + lonS / 3600;
+    var m = _coordSuffixRe.firstMatch(coord); // פורמט 1: 315907N0345601E (הנפוץ)
+    String latD, latM, latS, ns, lonD, lonM, lonS, ew;
+    if (m != null) {
+      latD = m.group(1)!; latM = m.group(2)!; latS = m.group(3)!; ns = m.group(4)!;
+      lonD = m.group(5)!; lonM = m.group(6)!; lonS = m.group(7)!; ew = m.group(8)!;
+    } else {
+      m = _coordPrefixRe.firstMatch(coord); // פורמט 2: N315907E0345601 (הפוך)
+      if (m == null) return null; // אף אחד משני הפורמטים לא תואם — הקורא מסנן null בעצמו
+      ns = m.group(1)!; latD = m.group(2)!; latM = m.group(3)!; latS = m.group(4)!;
+      ew = m.group(5)!; lonD = m.group(6)!; lonM = m.group(7)!; lonS = m.group(8)!;
+    }
+    // double.parse תומך גם בשניות עשרוניות (למשל "07.32"), לא רק int
+    var lat = double.parse(latD) + double.parse(latM) / 60 + double.parse(latS) / 3600; // מעלות + דקות/60 + שניות/3600
+    var lon = double.parse(lonD) + double.parse(lonM) / 60 + double.parse(lonS) / 3600;
     if (ns == 'S') lat = -lat; // דרום = ערך שלילי
     if (ew == 'W') lon = -lon; // מערב = ערך שלילי
     return LatLng(lat, lon);
@@ -457,12 +478,13 @@ class ApiService {
       String text) {
     final radiusMatch = _radiusRe.firstMatch(text); // קודם בודקים מעגל — יותר ספציפי מפוליגון
     if (radiusMatch != null) {
-      final center = _coordToLatLng(radiusMatch.group(2)!);
+      final center = _coordToLatLng(radiusMatch.group(3)!); // קבוצה 3 = הקואורדינטה (1=מספר, 2=יחידה)
       if (center != null) {
+        final unit = radiusMatch.group(2)!.toUpperCase();
         return (
           type: UasNotamGeometryType.circle,
           center: center,
-          radiusM: double.parse(radiusMatch.group(1)!) * 1852.0, // המרת NM למטרים
+          radiusM: double.parse(radiusMatch.group(1)!) * _unitToMeters[unit]!, // המרה ליחידה שנתפסה בפועל
           points: const <LatLng>[],
         );
       }
