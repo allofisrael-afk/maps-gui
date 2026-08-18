@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה
+import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../services/api_service.dart'; // גם geocodeCity() -> CityResult, בשימוש מוסק (inferred) ללא ייבוא ישיר
 import '../utils/heat_image.dart';
@@ -407,6 +408,116 @@ class MapState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── רדיוס-ראייה רדיאלי (Viewshed מכומת) — כלי נפרד מ-LOS, פוליגון גבול-ראייה יחיד ──
+  // מקביל ל-RadialLosControl בצד Desktop (MAP.py) — כאן כולו on-device, בלי job בצד שרת
+  // (אין שרת מקומי ב-Android בכלל, כמו LOS הרגיל). ר' ApiService.fetchRadialLos לאלגוריתם.
+  bool radialLosMode = false;          // האם מצב הצבת תצפית לרדיוס-ראייה פעיל
+  LatLng? radialLosObs;                // נקודת התצפית הנוכחית — null אם לא הוצבה עדיין
+  // שדות הפרמטרים — ברירות מחדל זהות ל-Desktop (RadialLosControl)
+  double radialRangeKm = 5.0;
+  double radialMinRangeKm = 5.0;
+  double radialAngleStepDeg = 10.0;
+  double radialStartBearingDeg = 315.0; // מגזר 90° סביב צפון כברירת מחדל — לא מעגל מלא חופף (שתי ידיות נפרדות)
+  double radialEndBearingDeg = 45.0;
+  double radialObsH = 11.0;
+  double radialTgtH = 0.0;
+  double radialRidgeMarginDeg = 0.0;
+  double radialVCenterDeg = 0.0;       // מרכז שדה-הראייה האנכי (0=אופקי) — "מכ"ם תצפית" רעיוני, לא כלי אמיתי
+  double radialVWidthDeg = 4.0;        // רוחב שדה-הראייה האנכי הכולל (±2° מהמרכז)
+  bool radialLosLoading = false;       // חישוב רץ כרגע (batches נשלפים ברקע)
+  int radialLosBatchesDone = 0;
+  int radialLosBatchesTotal = 0;
+  String? radialLosError;
+  RadialLosResult? radialLosResult;    // התוצאה האחרונה שחושבה — מוצגת כפוליגון+חישורים על המפה
+  RadialLosCancelToken? _radialLosCancelToken; // הפניה לטוקן הביטול של החישוב הנוכחי, לביטול מהיר
+
+  // הפעל/כבה מצב רדיוס-ראייה — לא מחשב שום דבר, רק מכין את המפה ללחיצה הבאה
+  void toggleRadialLosMode() {
+    radialLosMode = !radialLosMode;
+    if (!radialLosMode) clearRadialLosResult(); // כיבוי הכלי מנקה גם משקיף/תוצאה קודמים — לא נשאר "יתום" על המפה
+    notifyListeners();
+  }
+
+  // עדכון כללי לאחד משדות הפרמטרים הרדיאליים מתוך פאנל ה-UI (עריכת שדה מספר ידנית) —
+  // מתודה גנרית אחת במקום 10 setters כמעט-זהים; notifyListeners מוגן ולא ניתן לקריאה ישירה מבחוץ
+  void updateRadialLosParam(void Function() mutate) {
+    mutate();
+    notifyListeners();
+  }
+
+  // הצבת/הזזת נקודת המשקיף (לחיצה על המפה) — לא מפעילה חישוב, רק תצוגה מקדימה (מטופלת ב-UI לפי השדות)
+  void setRadialLosObserver(LatLng p) {
+    cancelRadialLos();          // ביטול חישוב קודם שעדיין רץ, אם יש
+    radialLosResult = null;     // תוצאה קודמת לא רלוונטית למשקיף חדש
+    radialLosError = null;
+    radialLosObs = p;
+    notifyListeners();
+  }
+
+  // גרירת ידית אזימוט-התחלה על המפה — קובעת גם זווית (רק לידית הזו) וגם טווח (משותף לשתי הידיות)
+  void updateRadialLosStartFromDrag(LatLng draggedPoint) {
+    if (radialLosObs == null) return;
+    const distCalc = Distance();
+    radialStartBearingDeg = distCalc.bearing(radialLosObs!, draggedPoint);
+    radialRangeKm = distCalc.distance(radialLosObs!, draggedPoint) / 1000; // מרחק משותף — מעדכן את שני הצדדים
+    notifyListeners();
+  }
+
+  // גרירת ידית אזימוט-סיום על המפה — אותו עיקרון בדיוק כמו ידית ההתחלה
+  void updateRadialLosEndFromDrag(LatLng draggedPoint) {
+    if (radialLosObs == null) return;
+    const distCalc = Distance();
+    radialEndBearingDeg = distCalc.bearing(radialLosObs!, draggedPoint);
+    radialRangeKm = distCalc.distance(radialLosObs!, draggedPoint) / 1000;
+    notifyListeners();
+  }
+
+  // מפעיל את החישוב האמיתי — נקרא רק בלחיצה מפורשת על "הפעל חישוב", לא אוטומטית בהצבת משקיף/גרירה
+  Future<void> runRadialLos() async {
+    if (radialLosObs == null || radialLosLoading) return;
+    final token = RadialLosCancelToken();
+    _radialLosCancelToken = token;
+    radialLosLoading = true; radialLosError = null;
+    radialLosBatchesDone = 0; radialLosBatchesTotal = 0;
+    notifyListeners();
+    try {
+      final result = await ApiService.fetchRadialLos(
+        observer: radialLosObs!,
+        rangeKm: radialRangeKm, minRangeKm: radialMinRangeKm, angleStepDeg: radialAngleStepDeg,
+        startBearingDeg: radialStartBearingDeg, endBearingDeg: radialEndBearingDeg,
+        obsH: radialObsH, tgtH: radialTgtH, ridgeMarginDeg: radialRidgeMarginDeg,
+        verticalCenterDeg: radialVCenterDeg, verticalWidthDeg: radialVWidthDeg,
+        onProgress: (done, total) { // נקרא אחרי כל batch — מציג התקדמות חיה בממשק
+          radialLosBatchesDone = done; radialLosBatchesTotal = total;
+          notifyListeners();
+        },
+        cancelToken: token,
+      );
+      if (token.isCancelled) return; // בוטל תוך כדי ריצה — לא מציג תוצאה (עשויה להיות חלקית/לא רלוונטית)
+      radialLosResult = result;
+    } catch (e) {
+      radialLosError = e.toString().replaceFirst('Exception: ', ''); // כשל (429/גובה משקיף לא זמין) — הצג למשתמש
+    } finally {
+      radialLosLoading = false; notifyListeners(); // מובטח תמיד לאפס — גם במקרה חריג לא-צפוי
+    }
+  }
+
+  // כפתור "בטל" — מסמן את הטוקן לביטול (ה-worker בודק בין כל batch) ומאפס מיד את מצב הטעינה בממשק
+  void cancelRadialLos() {
+    _radialLosCancelToken?.cancel();
+    radialLosLoading = false;
+    notifyListeners();
+  }
+
+  // ניקוי מלא — נקרא מ-resetMap וגם בהצבת משקיף חדש/כיבוי הכלי (לא נערמות תוצאות ישנות)
+  void clearRadialLosResult() {
+    cancelRadialLos();
+    radialLosObs = null;
+    radialLosResult = null;
+    radialLosError = null;
+    notifyListeners();
+  }
+
   // ── שכבת "אזורי פעילות טיסה (NOTAM)" — 7 קטגוריות, בהשראת מסך השכבות של DronesIL ──
   // חשוב: אזורים שבהם *מישהו אחר* קיבל אישור/פעילות מוכרזת — שכבת הימנעות/מודעות,
   // לא "מותר לך לטוס כאן". ר' ApiService.fetchUasNotamZones להסבר המקור ו-
@@ -495,6 +606,9 @@ class MapState extends ChangeNotifier {
     activeNotamCategories = {}; // ביטול סימון קטגוריות NOTAM — המטמון (uasNotamZones) נשאר כדי שלא יידרש fetch חוזר בהפעלה הבאה
     uasCoordActive = false; // כיבוי שכבת אזורי התיאום
     airportCtrActive = false; // כיבוי שכבת גבולות ה-CTR
+    _radialLosCancelToken?.cancel(); // ביטול job רדיוס-ראייה רץ, אם יש — לפני איפוס שאר השדות
+    radialLosMode = false; radialLosObs = null; radialLosResult = null; // איפוס מצב/משקיף/תוצאה רדיוס-ראייה
+    radialLosLoading = false; radialLosError = null;
     flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
     pinnedPoints = []; lastPinnedPoint = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
     cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת

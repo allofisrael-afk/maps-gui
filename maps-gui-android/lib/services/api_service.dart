@@ -1,3 +1,4 @@
+import 'dart:async'; // TimeoutException, לשליפת גבהים מרובת-batches ברדיוס-ראייה רדיאלי
 import 'dart:convert';
 import 'dart:math';
 import 'package:http/http.dart' as http;
@@ -6,8 +7,31 @@ import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל נקודות ופרופיל קו ראייה
 import '../models/city_result.dart'; // מודל תוצאת חיפוש עיר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
+import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
 import '../data/icao_glossary.dart'; // תרגום גס לעברית לטקסט NOTAM
 import '../data/notam_categories.dart'; // סיווג NOTAM ל-7 קטגוריות
+
+/// טוקן ביטול לחישוב רדיוס-ראייה רדיאלי — נבדק בין כל batch בזמן שליפת הגבהים,
+/// מאפשר למשתמש לעצור חישוב ארוך אמצע-הדרך (מקביל ל-cancelled ב-_radial_jobs בצד Desktop).
+class RadialLosCancelToken {
+  bool _cancelled = false;
+  void cancel() => _cancelled = true;
+  bool get isCancelled => _cancelled;
+}
+
+/// חריגה ייעודית ל-429 (מכסת בקשות Open-Meteo) — מפילה את כל החישוב, לא רק batch בודד,
+/// באותו אופן בדיוק כמו /elevation ו-/temp_grid בצד Desktop.
+class _RadialRateLimitException implements Exception {
+  _RadialRateLimitException(this.message);
+  final String message;
+}
+
+/// נקודת דגימה בודדת בתוך אלגוריתם ה-ratchet — מקביל למילון שמחזיר _horizon_ratchet בפייתון.
+class _RatchetPoint {
+  _RatchetPoint(this.distM, this.elevation, this.losH, this.visible);
+  final double distM, elevation, losH;
+  final bool visible;
+}
 
 class ApiService {
   static const String _elevBase = 'https://api.open-meteo.com/v1/elevation';
@@ -372,6 +396,224 @@ class ApiService {
       totalKm:      totalM / 1000,
       firstBlockKm: firstBlockM != null ? firstBlockM / 1000 : null, // null = גלוי לגמרי
       allVisible:   firstBlockM == null,
+    );
+  }
+
+  // ── רדיוס-ראייה רדיאלי (Viewshed מכומת) — כלי נפרד מ-LOS, פוליגון גבול-ראייה יחיד ──
+  // מקביל ל-/los_radial/* בצד Desktop (weather_server.py) — כאן כולו on-device, בלי job/polling
+  // בצד שרת (אין שרת בכלל ב-Android), במקום זאת progress callback + טוקן ביטול תוך כדי async.
+  static const double _radialRangeKmMin = 0.5, _radialRangeKmMax = 300.0; // טווח מרחק מותר, ק"מ
+  static const double _radialAngleStepMin = 3.0, _radialAngleStepMax = 45.0; // צעד זווית מותר, מעלות
+  static const double _radialRidgeMarginMin = 0.0, _radialRidgeMarginMax = 10.0; // מרווח רכס מותר, מעלות
+  static const double _radialVCenterMin = -45.0, _radialVCenterMax = 45.0; // מרכז אלומה אנכי מותר, מעלות
+  static const double _radialVWidthMin = 1.0, _radialVWidthMax = 90.0; // רוחב אלומה אנכי מותר, מעלות
+  static const int _radialBaseBudget = 720; // תקציב נקודות ל"רזולוציה גבוהה בטווח קצר"
+  static const double _radialTargetSpacingKm = 2.0; // מרווח יעד בין דגימות לאורך קרן, גובר בטווח ארוך
+  static const int _radialSamplesMin = 8, _radialSamplesMax = 150; // רצפת/תקרת דגימות לקרן בודדת
+  static const int _radialMaxTotalPoints = 4000; // תקרת נקודות כוללת — גובלת את זמן הריצה המרבי
+  static const int _radialBatchSize = 30; // נקודות לכל בקשת batch — כמו טמפרטורה/גבהים בצד Desktop
+  static const Duration _radialBatchPause = Duration(milliseconds: 500); // השהיה בין batches — מונע חסימת Open-Meteo
+
+  static double _clampD(double v, double lo, double hi) => v < lo ? lo : (v > hi ? hi : v);
+
+  /// ליבת אלגוריתם "מנוע האופק" — זהה ל-_horizon_ratchet בצד Desktop (weather_server.py),
+  /// כולל שני התיקונים שנמצאו בבדיקה חיה: (1) bareAngle (בלי hOffset) בונה את קו האופק,
+  /// testAngle (עם hOffset) נבדק מולו — אחרת gt_h גדול על כל נקודה "מזהם" את עצמו ומחסים
+  /// שטח ישר לגמרי בהדרגה; (2) הבדיקה הזו לא עוצרת אף פעם באמצע — הקורא (fetchRadialLos)
+  /// אחראי למצוא את הנקודה הגלויה הרחוקה ביותר, לא רק לעצור בכישלון הראשון.
+  static List<_RatchetPoint> _horizonRatchet(
+    List<double> distsM, List<double> elevs, double hObs, List<double> hOffsets, {
+    double marginSlope = 0.0,
+    double? minAngleSlope,
+    double? maxAngleSlope,
+  }) {
+    const R = 6371000.0; // רדיוס כדור הארץ, במטרים
+    const k = 0.13; // מקדם שבירה אטמוספרי
+    double maxAngle = double.negativeInfinity; // אופק הקרקע הגולמי בלבד (לא כולל hOffset)
+    final out = <_RatchetPoint>[];
+    for (int i = 0; i < distsM.length; i++) {
+      final d = distsM[i];
+      final elev = elevs[i];
+      final drop = d * d / (2 * R) * (1 - k); // ירידת קו הראייה בגלל עקמומיות+רפרקציה
+      if (d == 0) {
+        out.add(_RatchetPoint(d, elev, hObs, true)); // נקודת המוצא עצמה — תמיד גלויה
+      } else {
+        final bareAngle = (elev - drop - hObs) / d; // זווית הקרקע הגולמית — בונה את קו האופק
+        final testAngle = (elev + hOffsets[i] - drop - hObs) / d; // זווית הנקודה הנבדקת בפועל
+        bool visible = testAngle >= maxAngle + marginSlope; // חייב "לנצח" את קו האופק + מרווח הביטחון
+        if (minAngleSlope != null && testAngle < minAngleSlope) visible = false; // מתחת לשדה-הראייה האנכי המותר
+        if (maxAngleSlope != null && testAngle > maxAngleSlope) visible = false; // מעל שדה-הראייה האנכי המותר
+        if (bareAngle > maxAngle) maxAngle = bareAngle; // עדכון קו האופק — תמיד לפי הקרקע הגולמית
+        final losH = hObs + maxAngle * d; // גובה קו הראייה בנקודה הזו, לצורך תצוגה עתידית
+        out.add(_RatchetPoint(d, elev, losH, visible));
+      }
+    }
+    return out;
+  }
+
+  /// שליפת גבהים ל-batch נתון — עד 3 ניסיונות על timeout, לא זורק על כשל רגיל (מחזיר null
+  /// לכל הנקודות, לא מפיל את כל החישוב), אבל זורק מיידית על 429 (מפיל את כל החישוב, כמו Desktop).
+  static Future<List<double?>> _fetchRadialElevChunk(List<LatLng> points) async {
+    final uri = Uri.parse(
+      '$_elevBase?latitude=${points.map((p) => p.latitude.toStringAsFixed(6)).join(',')}'
+      '&longitude=${points.map((p) => p.longitude.toStringAsFixed(6)).join(',')}',
+    );
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response = await http.get(uri).timeout(const Duration(seconds: 30));
+        if (response.statusCode == 429) {
+          throw _RadialRateLimitException('מכסת בקשות Open-Meteo הגיעה למגבלה');
+        }
+        if (response.statusCode != 200) {
+          return List<double?>.filled(points.length, null); // שגיאת שרת אחרת — לא retry, לא מפיל הכל
+        }
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final elevs = (data['elevation'] as List).map((e) => (e as num).toDouble()).toList();
+        return List<double?>.generate(points.length, (i) => i < elevs.length ? elevs[i] : null);
+      } on _RadialRateLimitException {
+        rethrow; // 429 — מועבר הלאה מיד, לא retry, מפיל את כל fetchRadialLos
+      } on TimeoutException {
+        if (attempt < 2) {
+          await Future.delayed(Duration(milliseconds: 500 * (attempt + 1))); // 0.5/1 שנ' — כמו Desktop
+        } else {
+          return List<double?>.filled(points.length, null); // נכשל אחרי 3 ניסיונות — לא מפיל הכל
+        }
+      } catch (_) {
+        return List<double?>.filled(points.length, null); // כשל לא-timeout (רשת/פענוח) — לא retry, לא מפיל הכל
+      }
+    }
+    return List<double?>.filled(points.length, null);
+  }
+
+  /// מחשב רדיוס-ראייה רדיאלי מלאה — כל האזימוטים (או מגזר חלקי) ממשקיף אחד. onProgress נקרא
+  /// אחרי כל batch (לתצוגת התקדמות), cancelToken נבדק בין כל batch (לעצירה אמצע-הדרך). מחזיר
+  /// null אם בוטל, זורק חריגה על כשל (429/שגיאת גובה משקיף), אחרת מחזיר תוצאה מלאה.
+  static Future<RadialLosResult?> fetchRadialLos({
+    required LatLng observer,
+    required double rangeKm,
+    required double minRangeKm,
+    required double angleStepDeg,
+    required double startBearingDeg,
+    required double endBearingDeg,
+    required double obsH,
+    required double tgtH,
+    required double ridgeMarginDeg,
+    required double verticalCenterDeg,
+    required double verticalWidthDeg,
+    void Function(int done, int total)? onProgress,
+    RadialLosCancelToken? cancelToken,
+  }) async {
+    // הצמדת פרמטרים לטווח מותר, לא דחייה — כמו /los_radial/start בצד Desktop
+    rangeKm = _clampD(rangeKm, _radialRangeKmMin, _radialRangeKmMax);
+    minRangeKm = _clampD(minRangeKm, 0.0, rangeKm);
+    angleStepDeg = _clampD(angleStepDeg, _radialAngleStepMin, _radialAngleStepMax);
+    ridgeMarginDeg = _clampD(ridgeMarginDeg, _radialRidgeMarginMin, _radialRidgeMarginMax);
+    verticalCenterDeg = _clampD(verticalCenterDeg, _radialVCenterMin, _radialVCenterMax);
+    verticalWidthDeg = _clampD(verticalWidthDeg, _radialVWidthMin, _radialVWidthMax);
+
+    final rangeM = rangeKm * 1000.0;
+    final minRangeM = minRangeKm * 1000.0;
+    const distCalc = Distance(); // ברירת מחדל Vincenty (אליפסואידלי) — מדויק יותר מהמודל הכדורי בצד Desktop, ההבדל זניח כאן
+
+    // שלב 1: גובה המשקיף עצמו — בנפרד, לפני הכל, נכשל-מהר אם לא זמין
+    final obsElevs = await _fetchRadialElevChunk([observer]);
+    if (obsElevs.isEmpty || obsElevs[0] == null) {
+      throw Exception('לא ניתן לשלוף את גובה המשקיף');
+    }
+    final observerElev = obsElevs[0]!;
+    final hObs = observerElev + obsH; // גובה עין המשקיף בפועל
+
+    // שלב 2: בניית כיווני הסריקה — תמיכה במגזר חלקי + "עטיפה" מעל 360°/0°
+    var span = (endBearingDeg - startBearingDeg) % 360;
+    if (span == 0) span = 360; // start==end פירושו "הכל" (מעגל מלא), לא מגזר ברוחב אפס
+    final nBearings = max(1, (span / angleStepDeg).round());
+    final effectiveStepDeg = span / nBearings; // שלב אפקטיבי — מחלק את המגזר בדיוק
+    final bearings = List<double>.generate(nBearings, (i) => (startBearingDeg + i * effectiveStepDeg) % 360);
+
+    // שלב 3: צפיפות דגימה — מרבי בין "תקציב לפי כיוונים" (טווח קצר) ל"מרווח יעד קבוע" (טווח ארוך)
+    final budgetBased = min(20, max(_radialSamplesMin, _radialBaseBudget ~/ nBearings));
+    final spacingBased = ((rangeKm - minRangeKm) / _radialTargetSpacingKm).round() + 1;
+    int samplesPerRay = max(_radialSamplesMin, min(_radialSamplesMax, max(budgetBased, spacingBased)));
+    if (nBearings * samplesPerRay > _radialMaxTotalPoints) {
+      samplesPerRay = max(_radialSamplesMin, _radialMaxTotalPoints ~/ nBearings); // שילוב קיצוני — מצמצם
+    }
+
+    // שלב 4: בניית כל נקודות הדגימה מראש (כל כיוון × כל מרחק דגימה לאורכו) — רשימה שטוחה אחת
+    final allPoints = <LatLng>[];
+    final allDists = <double>[];
+    for (final bearing in bearings) {
+      for (int j = 0; j < samplesPerRay; j++) {
+        final frac = samplesPerRay > 1 ? j / (samplesPerRay - 1) : 0.0;
+        final dist = minRangeM + frac * (rangeM - minRangeM); // מרחק הדגימה ה-j לאורך הקרן
+        allPoints.add(dist <= 0 ? observer : distCalc.offset(observer, dist, bearing));
+        allDists.add(dist);
+      }
+    }
+
+    // שלב 5: שליפת גבהים ב-batches, עם השהיה ביניהם — עדכון התקדמות ובדיקת ביטול אחרי כל batch
+    final totalBatches = (allPoints.length / _radialBatchSize).ceil();
+    final elevations = List<double?>.filled(allPoints.length, null); // None = נקודה שלא נשלף עבורה גובה
+    for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+      if (cancelToken?.isCancelled ?? false) return null; // בדיקת ביטול בין כל batch
+      if (batchIdx > 0) await Future.delayed(_radialBatchPause); // השהיה בין batches — לא לפני הראשון
+      final start = batchIdx * _radialBatchSize;
+      final end = min(start + _radialBatchSize, allPoints.length);
+      final batchElevs = await _fetchRadialElevChunk(allPoints.sublist(start, end));
+      for (int k = 0; k < batchElevs.length; k++) {
+        elevations[start + k] = batchElevs[k]; // כשל חלקי משאיר null — לא מפיל את כל החישוב
+      }
+      onProgress?.call(batchIdx + 1, totalBatches);
+    }
+
+    // שלב 6: פירוק בחזרה לפי קרן, הרצת ה-ratchet לכל קרן בנפרד (מקומית — בלי עוד קריאות רשת)
+    final marginSlope = tan(ridgeMarginDeg * pi / 180);
+    final vHalf = verticalWidthDeg / 2.0;
+    final minAngleSlope = tan((verticalCenterDeg - vHalf) * pi / 180);
+    final maxAngleSlope = tan((verticalCenterDeg + vHalf) * pi / 180);
+    final rays = <RadialLosRay>[];
+    int clearCount = 0, failedRays = 0;
+    for (int rayIdx = 0; rayIdx < nBearings; rayIdx++) {
+      final start = rayIdx * samplesPerRay;
+      final rayPoints = allPoints.sublist(start, start + samplesPerRay);
+      final rayDists = allDists.sublist(start, start + samplesPerRay);
+      final rayElevs = elevations.sublist(start, start + samplesPerRay);
+      final survivingIdx = <int>[for (int i = 0; i < rayElevs.length; i++) if (rayElevs[i] != null) i]; // מסנן נקודות בלי גובה, שומר סדר
+      final samplesOk = survivingIdx.length;
+      if (samplesOk < 2) { // אין מספיק נתונים בכלל לאורך הקרן הזו
+        rays.add(RadialLosRay(bearingDeg: bearings[rayIdx], clearDistKm: 0.0, point: observer,
+            blocked: true, ok: false, samplesOk: samplesOk));
+        failedRays++;
+        continue;
+      }
+      final dists = survivingIdx.map((i) => rayDists[i]).toList();
+      final elevsOnly = survivingIdx.map((i) => rayElevs[i]!).toList();
+      final hOffsets = List<double>.filled(survivingIdx.length, tgtH); // tgtH מוחל על כל נקודה, לא רק האחרונה
+      final ratchet = _horizonRatchet(dists, elevsOnly, hObs, hOffsets,
+          marginSlope: marginSlope, minAngleSlope: minAngleSlope, maxAngleSlope: maxAngleSlope);
+      // קודקוד הקרן = הנקודה הגלויה **הרחוקה ביותר**, לא בהכרח רציפה מהקצה הקרוב (תיקון שנמצא בבדיקה חיה)
+      double clearDistM = 0.0;
+      LatLng clearPoint = observer;
+      for (int i = 0; i < ratchet.length; i++) {
+        if (ratchet[i].visible) {
+          clearDistM = ratchet[i].distM;
+          clearPoint = rayPoints[survivingIdx[i]];
+        }
+      }
+      final blocked = !ratchet.last.visible; // "פנוי לגמרי" רק אם הנקודה הרחוקה ביותר בקרן עצמה גלויה
+      if (!blocked) clearCount++;
+      rays.add(RadialLosRay(bearingDeg: bearings[rayIdx], clearDistKm: clearDistM / 1000,
+          point: clearPoint, blocked: blocked, ok: samplesOk == samplesPerRay, samplesOk: samplesOk));
+      if (samplesOk != samplesPerRay) failedRays++;
+    }
+
+    return RadialLosResult(
+      observer: observer, observerElev: observerElev, observerH: hObs,
+      obsH: obsH, tgtH: tgtH, ridgeMarginDeg: ridgeMarginDeg,
+      verticalCenterDeg: verticalCenterDeg, verticalWidthDeg: verticalWidthDeg,
+      rangeKm: rangeKm, minRangeKm: minRangeKm, angleStepDeg: effectiveStepDeg,
+      startBearingDeg: startBearingDeg, endBearingDeg: endBearingDeg, spanDeg: span,
+      nBearings: nBearings, samplesPerRay: samplesPerRay,
+      clearCount: clearCount, failedRays: failedRays, rays: rays,
     );
   }
 

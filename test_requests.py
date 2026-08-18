@@ -184,6 +184,15 @@ TEST_CASES = [
     TestCase("WeatherServer", WEATHER_PORT, "GET /los (קואורדינטות לא מספריות)", "GET", "/los",
              params={"lat1": "abc", "lon1": "abc", "lat2": "abc", "lon2": "abc"},
              validate=_validate_client_error),
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los_radial/start", "GET", "/los_radial/start",
+             # מגזר קטן/גס (30°, 4 כיוונים) — הבדיקה בודקת רק שה-job מתחיל כראוי, לא מחכה לתוצאה
+             params={"lat": 31.7683, "lon": 35.2137, "range_km": 3, "angle_step_deg": 90},
+             validate=_validate_json_keys("job_id")),
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los_radial/start (חסרים פרמטרים)", "GET", "/los_radial/start",
+             validate=_validate_client_error),
+    TestCase("WeatherServer", WEATHER_PORT, "GET /los_radial/status (job_id לא קיים)", "GET", "/los_radial/status",
+             params={"job_id": "00000000-0000-0000-0000-000000000000"},
+             validate=_validate_client_error),
 
     # --- FlightServer (5004) ---
     TestCase("FlightServer", FLIGHT_PORT, "GET /metrics", "GET", "/metrics",

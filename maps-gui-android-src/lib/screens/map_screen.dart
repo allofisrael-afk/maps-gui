@@ -135,6 +135,52 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ידיות גרירה לזווית/טווח של רדיוס-הראייה הרדיאלי — אותה טכניקה בדיוק כמו _buildHandlesOverlay
+  // (GestureDetector + מיקום ע"י latLngToScreenPoint), אבל כל ידית מייצגת אזימוט+טווח, לא פינת מלבן.
+  // אחרי חישוב מוצלח, הידיות עוברות לקצוות התוצאה האמיתית (לא לתצוגה המקדימה הישנה).
+  Widget _buildRadialLosHandlesOverlay(MapState state) {
+    final obs = state.radialLosObs;
+    if (obs == null) return const SizedBox.shrink();
+    const distCalc = Distance();
+    final result = state.radialLosResult;
+    final LatLng startPt, endPt;
+    if (result != null && result.rays.isNotEmpty) {
+      startPt = result.rays.first.point;
+      endPt = result.rays.last.point;
+    } else {
+      final rangeM = state.radialRangeKm * 1000;
+      startPt = distCalc.offset(obs, rangeM, state.radialStartBearingDeg);
+      endPt = distCalc.offset(obs, rangeM, state.radialEndBearingDeg);
+    }
+
+    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag) {
+      final screenPt = _mapController.camera.latLngToScreenPoint(pt);
+      return Positioned(
+        left: screenPt.x.toDouble() - 8, top: screenPt.y.toDouble() - 8,
+        width: 16, height: 16,
+        child: GestureDetector(
+          onPanUpdate: (d) {
+            final latLng = _globalToLatLng(d.globalPosition);
+            if (latLng != null) onDrag(latLng); // מעדכן אזימוט (עצמאי לידית) + טווח (משותף לשתיהן) ב-MapState
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9E2AF), shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF333333), width: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Positioned.fill(
+      child: Stack(children: [
+        buildHandle(startPt, state.updateRadialLosStartFromDrag),
+        buildHandle(endPt, state.updateRadialLosEndFromDrag),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
@@ -342,6 +388,8 @@ class _MapScreenState extends State<MapScreen> {
                 )).toList()),
               // ── שכבות קו ראייה: קטעי פוליגון ירוק/אדום וסמני תצפית/יעד ──
               ..._buildLosLayers(state), // כל הסשנים הפעילים
+              // ── שכבות רדיוס-ראייה רדיאלי — תצוגה מקדימה או תוצאה מחושבת ──
+              ..._buildRadialLosLayers(state),
               // ── סמן תצפית זמני: מוצג לאחר לחיצה ראשונה בטרם בחירת יעד ──
               if (state.losCurObs != null)
                 CircleLayer(circles: [
@@ -577,6 +625,10 @@ class _MapScreenState extends State<MapScreen> {
           if (!_selectMode && state.selectionStart != null && state.selectionEnd != null)
             _buildHandlesOverlay(state, cs),
 
+          // ── ידיות גרירה לרדיוס-ראייה רדיאלי (זווית+טווח) ──
+          if (state.radialLosMode && state.radialLosObs != null)
+            _buildRadialLosHandlesOverlay(state),
+
           // ── פאנל פרופיל קו ראייה (תחתית) ──
           if (state.losSessions.any((s) => s.points.isNotEmpty)) // הצג רק אם יש סשן מחושב
             _LosProfilePanel(state: state, cs: cs),
@@ -658,6 +710,14 @@ class _MapScreenState extends State<MapScreen> {
                 ],
               ),
             ),
+
+          // ── כפתור/פאנל רדיוס-ראייה רדיאלי — עצמאי, לא בתפריט העליון (שם כבר 5 כפתורים בשורה אחת, ר' AppBar הצף) ──
+          // ממוקם קבוע באמצע-ימין, מתחת לרצועת ההודעות העליונות (מחוון טעינה/שגיאת LOS) ומעל עמודות התחתית
+          Positioned(
+            top: 150,
+            right: 12,
+            child: _RadialLosPanel(state: state, cs: cs),
+          ),
 
           // ── מקראות שכבות רחפנים + הודעת כלל VLOS — עמודה אחת כדי שלא יתנגשו זו בזו ──
           // viewPadding.bottom = גובה פס הניווט הפיזי של אנדרואיד (לא רק BottomAppBar של האפליקציה) —
@@ -766,6 +826,61 @@ class _MapScreenState extends State<MapScreen> {
       ]));
     }
     return layers; // רשימת שכבות לכל הסשנים
+  }
+
+  // בונה את שכבות המפה לרדיוס-ראייה רדיאלי — תצוגה מקדימה (אין תוצאה עדיין, לפי השדות
+  // הנוכחיים בלבד) או תוצאה מחושבת (פוליגון רקע + קו חישור ירוק/אדום לכל אזימוט, כמו Desktop)
+  List<Widget> _buildRadialLosLayers(MapState state) {
+    final layers = <Widget>[];
+    final obs = state.radialLosObs;
+    if (obs == null) return layers; // אין עדיין נקודת תצפית — אין מה לצייר
+    const distCalc = Distance();
+    final result = state.radialLosResult;
+
+    if (result == null) {
+      // תצוגה מקדימה בלבד — שני קווים מקווקווים מהמשקיף, לפי השדות הנוכחיים, לא מחושבת
+      final rangeM = state.radialRangeKm * 1000;
+      final startPt = distCalc.offset(obs, rangeM, state.radialStartBearingDeg);
+      final endPt = distCalc.offset(obs, rangeM, state.radialEndBearingDeg);
+      layers.add(PolylineLayer(polylines: [
+        Polyline(points: [obs, startPt], color: const Color(0xFFF9E2AF), strokeWidth: 1.5,
+            pattern: StrokePattern.dashed(segments: [8, 6])), // לא const — הבנאי ניגש ל-segments.length, לא valid בהקשר const
+        Polyline(points: [obs, endPt], color: const Color(0xFFF9E2AF), strokeWidth: 1.5,
+            pattern: StrokePattern.dashed(segments: [8, 6])), // אותו תיקון — קו הסיום של המגזר
+      ]));
+    } else {
+      // תוצאה מחושבת — פוליגון רקע צהוב מעומעם (הצבע העיקרי בחישורים) + קו חישור לכל אזימוט
+      final polygonPoints = result.rays.map((r) => r.point).toList();
+      if (result.spanDeg < 360) polygonPoints.insert(0, result.observer); // פרוסת-פיצה למגזר חלקי
+      if (polygonPoints.length >= 3) {
+        layers.add(PolygonLayer(polygons: [
+          Polygon(points: polygonPoints, color: const Color(0xFFF9E2AF).withAlpha(30),
+              borderColor: const Color(0xFFF9E2AF), borderStrokeWidth: 1.5),
+        ]));
+      }
+      final minRangeM = result.minRangeKm * 1000;
+      final rangeM = result.rangeKm * 1000;
+      final spokes = <Polyline>[];
+      for (final ray in result.rays) {
+        final nearPt = distCalc.offset(result.observer, minRangeM, ray.bearingDeg); // תחילת הדגימה — גבול אזור העיוור
+        // ירוק — מתחילת הדגימה ועד הנקודה הגלויה האחרונה (תמיד מצויר, גם אם הכל גלוי)
+        spokes.add(Polyline(points: [nearPt, ray.point], color: const Color(0xFF44CC44), strokeWidth: 3));
+        if (ray.blocked) {
+          // אדום — ממשיך מהנקודה הגלויה האחרונה עד סוף הטווח המבוקש, לא רק עד נקודת החסימה
+          final farPt = distCalc.offset(result.observer, rangeM, ray.bearingDeg);
+          spokes.add(Polyline(points: [ray.point, farPt], color: const Color(0xFFFF4444), strokeWidth: 3));
+        }
+      }
+      layers.add(PolylineLayer(polylines: spokes));
+    }
+
+    // סמן המשקיף עצמו — עיגול בצבע הייחודי לכלי הזה, לא חופף לאף שכבה אחרת
+    layers.add(CircleLayer(circles: [
+      CircleMarker(point: obs, radius: 9, color: const Color(0xFFF9E2AF),
+          borderColor: const Color(0xFF333333), borderStrokeWidth: 2),
+    ]));
+
+    return layers;
   }
 
   // גבולות כל אזורי ה-NOTAM המוצגים כרגע (לפי הקטגוריות המסומנות) — לשימוש בהתאמת תצוגת המפה.
@@ -1232,6 +1347,13 @@ class _MapScreenState extends State<MapScreen> {
     // מצב בחירת נקודות חום ידנית גובר על הכל — לחיצה מוסיפה נקודה בלבד (מקביל ל-heatmapPickerActive בדסקטופ)
     if (state.manualHeatMode) {
       state.addManualHeatPoint(point);
+      return;
+    }
+    // מצב רדיוס-ראייה רדיאלי — לחיצה בודדת (לא זוג כמו LOS) ממקמת/מזיזה משקיף בלבד;
+    // לא מפעילה חישוב (רק תצוגה מקדימה, מטופלת ב-_buildRadialLosLayers לפי השדות הנוכחיים)
+    if (state.radialLosMode) {
+      if (state.radialLosLoading) return; // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
+      state.setRadialLosObserver(point);
       return;
     }
     // מצב LOS גובר על כל שאר הפעולות — לחיצה מוסיפה תצפית או מריצה חישוב
@@ -1844,6 +1966,230 @@ class _CollapsibleLegendState extends State<_CollapsibleLegend> {
                 widget.body, // תוכן המקרא הספציפי (שורות צבעים + הערת שוליים) שהועבר מבחוץ
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── כלי רדיוס-ראייה רדיאלי — כפתור אייקון-תחילה, ורק בבחירתו נפתח פאנל הפרמטרים + הבחירה על המפה ──
+// מקביל ל-RadialLosControl בצד Desktop (MAP.py), אך כאן ה-toggle עצמו גם קובע את radialLosMode ב-state
+// (אין הפרדה בין "מצומצם" ל"פעיל" כמו ב-_CollapsibleLegend — כאן המצב המצומצם=כבוי, הפתוח=radialLosMode)
+class _RadialLosPanel extends StatefulWidget {
+  const _RadialLosPanel({required this.state, required this.cs});
+  final MapState state;       // מצב המפה המלא — קריאה/כתיבה ישירה לשדות הרדיאליים
+  final ColorScheme cs;       // ערכת הצבעים הנוכחית, לעיצוב עקבי עם שאר הכרטיסים הצפים
+
+  @override
+  State<_RadialLosPanel> createState() => _RadialLosPanelState();
+}
+
+class _RadialLosPanelState extends State<_RadialLosPanel> {
+  // בקר טקסט לכל שדה מספרי — נדרש כדי לאפשר עריכה חופשית (כולל מחיקה זמנית) בלי לאבד פוקוס בכל notifyListeners
+  late final TextEditingController _rangeCtrl;
+  late final TextEditingController _minRangeCtrl;
+  late final TextEditingController _stepCtrl;
+  late final TextEditingController _startCtrl;
+  late final TextEditingController _endCtrl;
+  late final TextEditingController _obsHCtrl;
+  late final TextEditingController _tgtHCtrl;
+  late final TextEditingController _marginCtrl;
+  late final TextEditingController _vCenterCtrl;
+  late final TextEditingController _vWidthCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.state;
+    // אתחול כל בקר מהערך הנוכחי ב-state (ברירות המחדל של MapState אם עדיין לא נערך)
+    _rangeCtrl = TextEditingController(text: _fmt(s.radialRangeKm));
+    _minRangeCtrl = TextEditingController(text: _fmt(s.radialMinRangeKm));
+    _stepCtrl = TextEditingController(text: _fmt(s.radialAngleStepDeg));
+    _startCtrl = TextEditingController(text: _fmt(s.radialStartBearingDeg));
+    _endCtrl = TextEditingController(text: _fmt(s.radialEndBearingDeg));
+    _obsHCtrl = TextEditingController(text: _fmt(s.radialObsH));
+    _tgtHCtrl = TextEditingController(text: _fmt(s.radialTgtH));
+    _marginCtrl = TextEditingController(text: _fmt(s.radialRidgeMarginDeg));
+    _vCenterCtrl = TextEditingController(text: _fmt(s.radialVCenterDeg));
+    _vWidthCtrl = TextEditingController(text: _fmt(s.radialVWidthDeg));
+  }
+
+  // עיגול תצוגה ל-1 ספרה אחרי הנקודה — מונע "5.0000000001" מחישובי גרירה
+  String _fmt(double v) => v.toStringAsFixed(1);
+
+  @override
+  void didUpdateWidget(covariant _RadialLosPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // גרירת ידית על המפה (updateRadialLosStartFromDrag/EndFromDrag) משנה את השדות מבחוץ —
+    // מסנכרן את הטקסט בשדות הרלוונטיים בלי לדרוס אם המשתמש מקליד בהם ממש עכשיו (משווה לערך המספרי, לא למחרוזת)
+    _syncIfNeeded(_rangeCtrl, widget.state.radialRangeKm);
+    _syncIfNeeded(_startCtrl, widget.state.radialStartBearingDeg);
+    _syncIfNeeded(_endCtrl, widget.state.radialEndBearingDeg);
+  }
+
+  void _syncIfNeeded(TextEditingController ctrl, double value) {
+    final parsed = double.tryParse(ctrl.text);
+    if (parsed == null || (parsed - value).abs() > 0.05) ctrl.text = _fmt(value); // סובלנות קטנה לשגיאות עיגול
+  }
+
+  @override
+  void dispose() {
+    // שחרור כל הבקרים — מונע memory leak כשהפאנל מוסר מהעץ (למשל באיפוס מפה)
+    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _obsHCtrl, _tgtHCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  // שורת שדה בודד: תווית מימין (RTL) + תיבת קלט קטנה — תבנית אחידה לכל 10 הפרמטרים
+  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 52,
+            height: 26,
+            child: TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) {
+                final d = double.tryParse(v);
+                if (d == null) return; // קלט לא תקין (או ריק זמנית) — לא מעדכן state עד שיהיה מספר תקין
+                widget.state.updateRadialLosParam(() => onChanged(d)); // מעדכן state ומצייר מחדש תצוגה מקדימה על המפה
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs;
+    final s = widget.state;
+
+    if (!s.radialLosMode) {
+      // מצב כבוי — עיגול אייקון בלבד, כמו _CollapsibleLegend, לא חוסם את המפה
+      return Material(
+        color: cs.surface.withAlpha(230),
+        shape: const CircleBorder(),
+        elevation: 3,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: s.toggleRadialLosMode, // מפעיל את מצב הכלי — פותח את הפאנל המלא
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.radar, size: 20, color: cs.onSurface),
+          ),
+        ),
+      );
+    }
+
+    // מצב פעיל — הפאנל המלא: כותרת+סגירה, 10 שדות פרמטרים, מצב ריצה/שגיאה/תוצאה, כפתור הפעלה/ביטול
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: cs.surface.withAlpha(240),
+        borderRadius: BorderRadius.circular(10),
+        elevation: 4,
+        child: Container(
+          width: 190,
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(children: [
+                    Icon(Icons.radar, size: 15, color: cs.primary), // אייקון זהה לכפתור המצומצם, לזיהוי עקבי
+                    const SizedBox(width: 4),
+                    Text('רדיוס ראייה', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                  ]),
+                  InkWell(
+                    onTap: s.toggleRadialLosMode, // סוגר את הכלי — גם מנקה משקיף/תוצאה קודמים (ר' MapState)
+                    child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              if (s.radialLosObs == null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text('הקש על המפה למיקום המשקיף',
+                      style: TextStyle(fontSize: 10, color: cs.primary), textAlign: TextAlign.center),
+                ),
+              _field('טווח (ק"מ, עד 300)', _rangeCtrl, (v) => s.radialRangeKm = v),
+              _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radialMinRangeKm = v),
+              _field('צעד זווית (°)', _stepCtrl, (v) => s.radialAngleStepDeg = v),
+              _field('אזימוט התחלה (°)', _startCtrl, (v) => s.radialStartBearingDeg = v),
+              _field('אזימוט סיום (°)', _endCtrl, (v) => s.radialEndBearingDeg = v),
+              _field('גובה משקיף (מ\')', _obsHCtrl, (v) => s.radialObsH = v),
+              _field('גובה יעד (מ\')', _tgtHCtrl, (v) => s.radialTgtH = v),
+              _field('מרווח רכס (°)', _marginCtrl, (v) => s.radialRidgeMarginDeg = v),
+              _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radialVCenterDeg = v),
+              _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radialVWidthDeg = v),
+              const SizedBox(height: 4),
+              if (s.radialLosLoading) ...[
+                // ריצה פעילה — שורת התקדמות (מספר batches שהושלמו) + כפתור ביטול בלבד
+                Text(
+                  s.radialLosBatchesTotal > 0
+                      ? 'מחשב... ${s.radialLosBatchesDone}/${s.radialLosBatchesTotal}'
+                      : 'מתחיל חישוב...',
+                  style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    onPressed: s.cancelRadialLos, // מבטל את החישוב הרץ מיידית בצד הלקוח
+                    style: FilledButton.styleFrom(
+                        backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer, visualDensity: VisualDensity.compact),
+                    child: const Text('בטל', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+              ] else ...[
+                if (s.radialLosError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(s.radialLosError!, style: TextStyle(fontSize: 9.5, color: cs.error), textAlign: TextAlign.center),
+                  ),
+                if (s.radialLosResult != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${s.radialLosResult!.rangeKm.toStringAsFixed(0)} ק"מ, ${s.radialLosResult!.nBearings} כיוונים, ${s.radialLosResult!.clearCount} פנויים לגמרי',
+                      style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    // מופעל רק אם כבר הוצב משקיף — לפני כן אין מה לחשב
+                    onPressed: s.radialLosObs != null ? s.runRadialLos : null,
+                    style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFF9E2AF), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
+                    child: const Text('הפעל חישוב', style: TextStyle(fontSize: 11)),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),

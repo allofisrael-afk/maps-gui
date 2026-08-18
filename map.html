@@ -112,6 +112,8 @@
         var _elevGrad = [[0,[0,0,204]],[0.2,[0,170,255]],[0.4,[0,255,204]],[0.6,[170,255,0]],[0.8,[255,170,0]],[1,[204,0,0]]];
         var _tempGrad = [[0,[0,0,204]],[0.25,[0,170,255]],[0.5,[0,255,204]],[0.75,[255,170,0]],[1,[204,0,0]]];
 
+        var _mapReady = false;  // האם המפה סיימה להיטען — כפתורי LOS/רדיוס-ראייה מוצגים מיד אך מנוטרלים עד אז (map.whenReady, בהמשך)
+
         // ── מצב כלי קווי ראייה (LOS) ──
         var losActive   = false;  // האם מצב הוספת קו ראייה חדש פעיל (cursor crosshair)
         var losSessions = [];     // כל הסשנים שחושבו: [{obsMk, tgtMk, lineLayers, data, color, idx}]
@@ -121,8 +123,37 @@
         var _losBtnEl   = null;   // הפניה לכפתור 👁 לצורך שינוי צבעו
         var _losObsInput = null; // שדה קלט גובה הצופה מעל הקרקע (מ')
         var _losTgtInput = null; // שדה קלט גובה היעד מעל הקרקע (מ')
+        var _losFieldsWrapEl = null; // מיכל שדות הגובה — מוסתר עד שהכלי נבחר (אותה חוויית משתמש כמו רדיוס-ראייה)
         // פלטת צבעים — כל סשן מקבל צבע אחר לסמניו ולכותרת גרפו
         var _losPalette = ['#4488ff','#ffaa00','#cc44ff','#00cccc','#ff4488','#88ff44'];
+
+        // ── מצב כלי רדיוס-ראייה רדיאלי (Viewshed מכומת) — כלי נפרד מ-LOS הרגיל ──
+        var radialLosActive    = false; // האם מצב הצבת תצפית לרדיוס-ראייה פעיל (cursor crosshair)
+        var radialLosLoading   = false; // job רץ כרגע בשרת — מונע הפעלה כפולה
+        var radialLosObs       = null;  // נקודת התצפית הנוכחית (L.LatLng), null אם לא הוצבה עדיין
+        var radialLosObsMk     = null;  // סמן התצפית על המפה
+        var radialLosStartLn   = null;  // קו תצוגה מקדימה לאזימוט ההתחלה
+        var radialLosEndLn     = null;  // קו תצוגה מקדימה לאזימוט הסיום
+        var radialLosStartMk   = null;  // ידית גרירה בקצה קו ההתחלה — קובעת גם זווית וגם טווח משותף
+        var radialLosEndMk     = null;  // ידית גרירה בקצה קו הסיום
+        var radialLosPolygon   = null;  // L.polygon עם התוצאה המחושבת (מוחלף בכל "הפעל חישוב" מוצלח)
+        var radialLosSpokes    = [];    // קווי "חישור" צבעוניים (ירוק/אדום) — אחד לכל כיוון, ר' _drawRadialLosPolygon
+        var radialLosJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
+        var radialLosPollTimer = null;  // מזהה ה-setInterval של ה-polling, לצורך עצירה
+        var radialLosInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות)
+        var _radialLosBtnEl      = null; // הפניה לכפתור 📡 לצורך שינוי צבעו
+        var _radialPanelBodyEl   = null; // גוף הפאנל (שדות+כפתורים) — מוסתר עד שהכלי נבחר (חוויית משתמש: אייקון קודם, פרמטרים אחר כך)
+        var _radialCancelBtnEl   = null; // הפניה לכפתור "בטל" לצורך הצגה/הסתרה
+        var _radialRangeInput    = null; // שדה קלט טווח מרחק (ק"מ)
+        var _radialMinRangeInput = null; // שדה קלט טווח מינימלי/אזור עיוור (ק"מ)
+        var _radialStepInput     = null; // שדה קלט צעד זווית (מעלות)
+        var _radialStartInput    = null; // שדה קלט אזימוט התחלה (מעלות)
+        var _radialEndInput      = null; // שדה קלט אזימוט סיום (מעלות)
+        var _radialObsInput      = null; // שדה קלט גובה הצופה (מ')
+        var _radialTgtInput      = null; // שדה קלט גובה היעד/מכשול (מ')
+        var _radialMarginInput   = null; // שדה קלט מרווח רכס (מעלות)
+        var _radialVCenterInput  = null; // שדה קלט מרכז שדה-הראייה האנכי (מעלות) — נחשף לפי בקשת המשתמש (היה קבוע)
+        var _radialVWidthInput   = null; // שדה קלט רוחב שדה-הראייה האנכי הכולל (מעלות)
 
         // בניית אייקון עגול לסמן LOS ניתן לגרירה — עיגול מלא לתצפית, מקווקו ליעד
         function _losMarkerIcon(col, dashed) {
@@ -428,6 +459,31 @@
             var f1=p1.lat*r, f2=p2.lat*r, df=(p2.lat-p1.lat)*r, dl=(p2.lng-p1.lng)*r;
             var a = Math.sin(df/2)*Math.sin(df/2)+Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)*Math.sin(dl/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function _bearingDeg(p1, p2) {
+            // אזימוט התחלתי (0=צפון, בכיוון השעון) מ-p1 אל p2 — נוסחת "initial bearing" סטנדרטית.
+            // משמש לחישוב הזווית בזמן גרירת ידית רדיוס-הראייה הרדיאלי — חישוב JS מקומי, לא קורא לשרת.
+            var r = Math.PI/180;
+            var f1=p1.lat*r, f2=p2.lat*r, dl=(p2.lng-p1.lng)*r;
+            var y = Math.sin(dl) * Math.cos(f2);
+            var x = Math.cos(f1)*Math.sin(f2) - Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+            var brng = Math.atan2(y, x) / r;
+            return (brng + 360) % 360;  // נרמול ל-[0,360)
+        }
+
+        function _destPointJs(origin, bearingDeg, distanceM) {
+            // גרסת JS של _destination_point הפייתוני (weather_server.py) — נקודת יעד ממקור+אזימוט+מרחק,
+            // קירוב כדורי. משמש לצייר את קווי התצוגה המקדימה של רדיוס-הראייה הרדיאלי בלי לקרוא לשרת.
+            if (distanceM <= 0) return L.latLng(origin.lat, origin.lng);
+            var r = Math.PI/180, R = 6371000;
+            var phi1 = origin.lat*r, lam1 = origin.lng*r, theta = bearingDeg*r, delta = distanceM/R;
+            var phi2 = Math.asin(Math.sin(phi1)*Math.cos(delta) + Math.cos(phi1)*Math.sin(delta)*Math.cos(theta));
+            var lam2 = lam1 + Math.atan2(
+                Math.sin(theta)*Math.sin(delta)*Math.cos(phi1),
+                Math.cos(delta) - Math.sin(phi1)*Math.sin(phi2)
+            );
+            return L.latLng(phi2/r, ((lam2/r + 540) % 360) - 180);  // נרמול קו האורך ל-[-180,180]
         }
 
         function _fmtDist(m) {
@@ -1015,6 +1071,8 @@
             clearRuler();  // מנקה קווי/נקודות/תוויות סרגל ומאפס rulerActive+cursor — היה חסר, קווי מדידה נשארו על המפה אחרי איפוס
             clearLosMap();   // ניקוי כל קווי הראייה, הסמנים והפאנל — LOS מאופס יחד עם שאר השכבות
             if (losActive) { toggleLos(); }  // כיבוי מצב LOS אם פעיל, כדי לאפס cursor וכפתור
+            clearRadialLosResult();  // ניקוי תוצאת/תצוגת רדיוס-ראייה (כולל עצירת polling וביטול job בשרת אם רץ)
+            if (radialLosActive) { toggleRadialLos(); }  // כיבוי מצב רדיוס-ראייה אם פעיל
             clearElevationLayer();  // מנקה גם שכבה טעונה וגם בחירה באמצע ביצוע (כולל שלב ההמתנה ללחיצה הראשונה)
             heatmapData = [];
             if (map.hasLayer(heatmap)) { heatmap.setLatLngs([]); map.removeLayer(heatmap); }
@@ -1402,6 +1460,19 @@
             if (heatmapPickerActive) {
                 heatmapData.push([parseFloat(lat), parseFloat(lon), 1.0]);
                 heatmap.setLatLngs(heatmapData);
+            } else if (radialLosActive) {
+                // מצב רדיוס-ראייה רדיאלי — לחיצה בודדת (לא זוג כמו LOS) ממקמת/מזיזה משקיף
+                // ומציגה תצוגה מקדימה בלבד; החישוב האמיתי מופעל רק בלחיצה מפורשת על "הפעל חישוב"
+                if (radialLosLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
+                clearRadialLosResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל לחיצה
+                radialLosObs = e.latlng;
+                radialLosObsMk = L.marker(e.latlng, {icon: _radialLosMarkerIcon(), draggable: true}).addTo(map);
+                radialLosObsMk.bindTooltip('תצפית רדיוס ראייה', {permanent:false, direction:'top'});
+                radialLosObsMk.on('dragend', function() {
+                    radialLosObs = radialLosObsMk.getLatLng();
+                    _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                });
+                _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
             } else if (losActive) {
                 // losActive בודק לפני elevationActive — מצב LOS גובר על כל שכבה פעילה אחרת
                 // מצב LOS פעיל — לחיצה 1 = תצפית, לחיצה 2 = יעד + חישוב + מיד מוכן לצמד הבא
@@ -1581,6 +1652,9 @@
                 losCurObs = null;  // איפוס נקודת תצפית זמנית
             } else {
                 map.getContainer().style.cursor = 'crosshair';  // cursor crosshair = מצב בחירת נקודה
+            }
+            if (_losFieldsWrapEl) {
+                _losFieldsWrapEl.style.display = losActive ? 'flex' : 'none';  // חשיפה/הסתרה של שדות הגובה
             }
             if (_losBtnEl) {
                 // עדכון מראה הכפתור: ירוק=פעיל, לבן=כבוי
@@ -1846,19 +1920,25 @@
                 btn.title = 'קו ראייה';   // tooltip בעת hover
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;' +
                     'width:28px;height:28px;font-size:15px;background:white;color:#333;text-decoration:none;' +
-                    'border-radius:4px;cursor:pointer;flex-shrink:0;';
+                    'border-radius:4px;cursor:pointer;flex-shrink:0;opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה (map.whenReady, בהמשך)
                 btn.innerHTML = '&#128065;';  // קוד Unicode לאייקון 👁
                 _losBtnEl = btn;              // שמירת הפניה לשינוי צבע ב-toggleLos
                 // stopPropagation — מניעת הגעת הלחיצה ל-map.on('click') שהייתה בוחרת נקודת LOS
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e);
                     L.DomEvent.preventDefault(e);
+                    if (!_mapReady) return;  // הגנה נוספת מעבר ל-pointer-events — המפה עדיין לא מוכנה
                     toggleLos();
                 });
 
-                // שדות גובה הצופה/היעד — נקראים בעת יצירת כל צמד תצפית/יעד חדש (לפני התחלת מצב LOS)
+                // שדות גובה הצופה/היעד — מוסתרים כברירת מחדל, נחשפים רק אחרי בחירת הכלי (toggleLos),
+                // כמו כלי רדיוס-הראייה הרדיאלי — אייקון בלבד קודם, פרמטרים רק אחרי בחירה מפורשת
+                var losFieldsWrap = L.DomUtil.create('div', '', container);
+                losFieldsWrap.style.cssText = 'display:none;align-items:center;gap:5px;';
+                _losFieldsWrapEl = losFieldsWrap;
+
                 function _mkHeightField(labelText, defaultVal, tip) {
-                    var wrap = L.DomUtil.create('label', '', container);
+                    var wrap = L.DomUtil.create('label', '', losFieldsWrap);
                     wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;font-size:9px;color:#666;line-height:1.2;';
                     wrap.title = tip;
                     var lbl = L.DomUtil.create('span', '', wrap);
@@ -1877,6 +1957,319 @@
             }
         });
         new LosControl().addTo(map);  // הוספת ה-Control למפה
+
+        // ── כלי רדיוס-ראייה רדיאלי (Viewshed מכומת) — כלי נפרד מ-LOS, פוליגון גבול יחיד ──
+        function _radialLosMarkerIcon() {
+            // אייקון סמן התצפית — עיגול מלא בצבע הצהוב הייחודי לכלי הזה (לא חופף לאף שכבה אחרת)
+            return L.divIcon({
+                html: '<div style="width:16px;height:16px;border-radius:50%;background:#f9e2af;border:2px solid #333;"></div>',
+                className: '', iconSize: [16,16], iconAnchor: [8,8]
+            });
+        }
+
+        function _radialHandleIcon() {
+            // אייקון ידית גרירה לזווית/טווח — עיגול קטן יותר, אותו צבע כמו סמן התצפית
+            return L.divIcon({
+                html: '<div style="width:12px;height:12px;border-radius:50%;background:#f9e2af;border:2px solid #333;cursor:move;"></div>',
+                className: '', iconSize: [12,12], iconAnchor: [6,6]
+            });
+        }
+
+        function _updateRadialLosPreview() {
+            // מצייר/מעדכן את שני קווי התצוגה המקדימה (אזימוט התחלה/סוף) + הידיות בקצותיהם,
+            // לפי הערכים הנוכחיים בשדות. לא שולח שום בקשה לשרת — חישוב גיאומטרי מקומי בלבד.
+            if (!radialLosObs) return;  // אין עדיין נקודת תצפית — אין מה לצייר
+            var rangeKm  = _radialRangeInput ? parseFloat(_radialRangeInput.value) : NaN;
+            var startDeg = _radialStartInput ? parseFloat(_radialStartInput.value) : NaN;
+            var endDeg   = _radialEndInput   ? parseFloat(_radialEndInput.value)   : NaN;
+            if (isNaN(rangeKm))  rangeKm  = 5;   // ברירת מחדל — תואמת לברירת המחדל בשרת
+            if (isNaN(startDeg)) startDeg = 315; // ברירת מחדל — מגזר 90° סביב צפון, לא מעגל מלא חופף
+            if (isNaN(endDeg))   endDeg   = 45;
+            var startPt = _destPointJs(radialLosObs, startDeg, rangeKm * 1000);
+            var endPt   = _destPointJs(radialLosObs, endDeg,   rangeKm * 1000);
+            if (radialLosStartLn) map.removeLayer(radialLosStartLn);  // מנקה קו קודם לפני ציור מחדש
+            if (radialLosEndLn)   map.removeLayer(radialLosEndLn);
+            radialLosStartLn = L.polyline([radialLosObs, startPt], {color:'#f9e2af', weight:1.5, dashArray:'4,4'}).addTo(map);
+            radialLosEndLn   = L.polyline([radialLosObs, endPt],   {color:'#f9e2af', weight:1.5, dashArray:'4,4'}).addTo(map);
+            if (!radialLosStartMk) {  // יוצר את הידית פעם אחת בלבד — בפעמים הבאות רק מזיז אותה
+                radialLosStartMk = L.marker(startPt, {icon: _radialHandleIcon(), draggable:true}).addTo(map);
+                radialLosStartMk.on('drag', function(ev) { _onRadialHandleDrag(ev, 'start'); });
+            } else {
+                radialLosStartMk.setLatLng(startPt);
+            }
+            if (!radialLosEndMk) {
+                radialLosEndMk = L.marker(endPt, {icon: _radialHandleIcon(), draggable:true}).addTo(map);
+                radialLosEndMk.on('drag', function(ev) { _onRadialHandleDrag(ev, 'end'); });
+            } else {
+                radialLosEndMk.setLatLng(endPt);
+            }
+        }
+
+        function _onRadialHandleDrag(ev, which) {
+            // גרירת ידית — קובעת גם אזימוט (רק לידית הזו) וגם טווח משותף (שתי הידיות זזות לאותו רדיוס חדש),
+            // כי כל ידית היא נקודה דו-ממדית חופשית אבל range_km הוא שדה אחד משותף למגזר כולו.
+            if (!radialLosObs) return;
+            var p = ev.target.getLatLng();
+            var bearing = _bearingDeg(radialLosObs, p);   // הזווית של הידית הזו בלבד
+            var distM   = _haversineM(radialLosObs, p);    // המרחק — משותף לשתי הידיות
+            if (which === 'start' && _radialStartInput) _radialStartInput.value = bearing.toFixed(1);
+            if (which === 'end'   && _radialEndInput)   _radialEndInput.value   = bearing.toFixed(1);
+            if (_radialRangeInput) _radialRangeInput.value = (distM / 1000).toFixed(2);  // מעדכן את שדה הטווח המשותף
+            _updateRadialLosPreview();  // מצייר מחדש את שני הקווים ברדיוס החדש + הזוויות המעודכנות
+        }
+
+        function _runRadialLos() {
+            // מפעיל את החישוב האמיתי בשרת (בניגוד לתצוגה המקדימה, שהיא מקומית בלבד) — נקרא רק
+            // בלחיצה מפורשת על "הפעל חישוב", לא אוטומטית בלחיצה על המפה או בגרירת ידית.
+            if (!radialLosObs || radialLosLoading) return;
+            var rangeKm    = _radialRangeInput    ? parseFloat(_radialRangeInput.value)    : NaN;
+            var minRangeKm = _radialMinRangeInput ? parseFloat(_radialMinRangeInput.value) : NaN;
+            var stepDeg    = _radialStepInput     ? parseFloat(_radialStepInput.value)     : NaN;
+            var startDeg   = _radialStartInput    ? parseFloat(_radialStartInput.value)    : NaN;
+            var endDeg     = _radialEndInput      ? parseFloat(_radialEndInput.value)      : NaN;
+            var obsH       = _radialObsInput      ? parseFloat(_radialObsInput.value)      : NaN;
+            var tgtH       = _radialTgtInput      ? parseFloat(_radialTgtInput.value)      : NaN;
+            var marginDeg  = _radialMarginInput   ? parseFloat(_radialMarginInput.value)   : NaN;
+            var vCenter    = _radialVCenterInput  ? parseFloat(_radialVCenterInput.value)  : NaN;
+            var vWidth     = _radialVWidthInput   ? parseFloat(_radialVWidthInput.value)   : NaN;
+            if (isNaN(rangeKm))    rangeKm = 5;
+            if (isNaN(minRangeKm)) minRangeKm = 5;
+            if (isNaN(stepDeg))    stepDeg = 10;
+            if (isNaN(startDeg))   startDeg = 315;
+            if (isNaN(endDeg))     endDeg = 45;
+            if (isNaN(obsH))       obsH = 11;
+            if (isNaN(tgtH))       tgtH = 0;
+            if (isNaN(marginDeg))  marginDeg = 0;
+            if (isNaN(vCenter))    vCenter = 0;
+            if (isNaN(vWidth))     vWidth = 4;
+            radialLosLoading = true;
+            document.title = '__radial_los_loading__';  // איתות ל-Python — שורת לוג
+            if (radialLosInfoEl) radialLosInfoEl.textContent = 'מתחיל חישוב…';
+            if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'block';  // מציג את כפתור הביטול רק בזמן ריצה
+            var url = 'http://localhost:5002/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
+                      '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
+                      '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
+                      '&obs_h=' + obsH + '&tgt_h=' + tgtH + '&ridge_margin_deg=' + marginDeg +
+                      '&vertical_center_deg=' + vCenter + '&vertical_width_deg=' + vWidth;
+            fetch(url)
+            .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function(data) {
+                if (data.error) throw new Error(data.error);
+                radialLosJobId = data.job_id;
+                radialLosPollTimer = setInterval(_pollRadialLosStatus, 1000);  // בדיקת התקדמות כל שנייה
+            })
+            .catch(function(err) {
+                radialLosLoading = false;
+                document.title = '__radial_los_error__';
+                if (radialLosInfoEl) radialLosInfoEl.textContent = '';
+                if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
+                alert('שגיאה בהפעלת חישוב רדיוס ראייה: ' + err.message);
+            });
+        }
+
+        function _pollRadialLosStatus() {
+            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
+            if (!radialLosJobId) return;
+            fetch('http://localhost:5002/los_radial/status?job_id=' + radialLosJobId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.status === 'running') {
+                    if (radialLosInfoEl) {
+                        var total = data.batches_total;
+                        radialLosInfoEl.textContent = total
+                            ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)'
+                            : 'מתחיל…';
+                    }
+                    return;  // עדיין רץ — ממתין ל-tick הבא, לא עוצר את ה-polling
+                }
+                clearInterval(radialLosPollTimer);  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling
+                radialLosPollTimer = null;
+                radialLosLoading = false;
+                if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
+                if (data.status === 'done') {
+                    document.title = '__radial_los_loaded__';
+                    _drawRadialLosPolygon(data.result);
+                    if (radialLosInfoEl) radialLosInfoEl.textContent =
+                        data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                        data.result.clear_count + ' פנויים לגמרי';
+                } else if (data.status === 'error') {
+                    document.title = '__radial_los_error__';
+                    if (radialLosInfoEl) radialLosInfoEl.textContent = '';
+                    alert('שגיאה בחישוב רדיוס ראייה: ' + (data.error || 'לא ידועה'));
+                } else if (data.status === 'cancelled') {
+                    document.title = '__radial_los_cancelled__';
+                    if (radialLosInfoEl) radialLosInfoEl.textContent = '';
+                }
+                radialLosJobId = null;
+            })
+            .catch(function() {
+                // כשל רשת בבדיקת סטטוס בודדת — לא עוצר את ה-polling, ה-tick הבא ינסה שוב
+            });
+        }
+
+        function _drawRadialLosPolygon(result) {
+            // מצייר את הפוליגון הסופי (מחושב, לא תצוגה מקדימה) + קו "חישור" צבעוני לכל כיוון —
+            // ירוק = הגיע פנוי עד הטווח המלא (blocked=false), אדום = נחסם לפני כן (blocked=true).
+            // אותם צבעים בדיוק כמו קו-הראייה הרגיל (_drawLosOnMap) — עקביות חזותית בין שני הכלים.
+            // מזיז גם את ידיות הגרירה לקצוות הקשת האמיתיים, כדי שאפשר להמשיך לכוון ולהריץ שוב.
+            if (radialLosPolygon) { map.removeLayer(radialLosPolygon); radialLosPolygon = null; }
+            radialLosSpokes.forEach(function(s) { map.removeLayer(s); });  // ניקוי חישורים מחישוב קודם
+            radialLosSpokes = [];
+            var pts = result.rays.map(function(r) { return [r.lat, r.lon]; });
+            if (result.span_deg < 360) {
+                pts.unshift([result.observer_lat, result.observer_lon]);  // פרוסת-פיצה — כולל נקודת המשקיף כקודקוד
+            }
+            if (pts.length >= 3) {  // פוליגון תקין דורש 3+ קודקודים — אם לא, מדלגים על הפוליגון (החישורים עדיין מצוירים)
+                radialLosPolygon = L.polygon(pts, {
+                    color: '#f9e2af', weight: 1.5, fillColor: '#f9e2af', fillOpacity: 0.12  // רקע כללי מעומעם — הצבע העיקרי עכשיו בחישורים
+                }).addTo(map);
+            }
+            var obsLatLng = L.latLng(result.observer_lat, result.observer_lon);
+            var minRangeM = (result.min_range_km || 0) * 1000;  // תחילת כל חישור — גבול אזור העיוור, לא המשקיף עצמו
+            var rangeM    = result.range_km * 1000;  // סוף הטווח המבוקש — הקו האדום ממשיך עד כאן, לא נעצר בנקודת החסימה
+            result.rays.forEach(function(r) {
+                var nearPt  = _destPointJs(obsLatLng, r.bearing_deg, minRangeM);  // נקודת ההתחלה בפועל של הדגימה לכיוון הזה
+                var clearPt = L.latLng(r.lat, r.lon);  // הנקודה הרחוקה ביותר שעדיין רואים ממנה (קודקוד הפוליגון)
+                // ירוק — מתחילת הדגימה ועד הנקודה הגלויה האחרונה (תמיד מצויר, גם אם הכל גלוי)
+                radialLosSpokes.push(L.polyline([nearPt, clearPt], {color: '#00cc44', weight: 3}).addTo(map));
+                if (r.blocked) {
+                    // אדום — ממשיך מהנקודה הגלויה האחרונה עד סוף הטווח המבוקש (לא רק עד נקודת החסימה)
+                    var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);
+                    radialLosSpokes.push(L.polyline([clearPt, farPt], {color: '#ff3300', weight: 3}).addTo(map));
+                }
+            });
+            if (result.rays.length > 0) {  // הזזת הידיות לקצוות הקשת האמיתיים, לא לקצה התצוגה המקדימה הישן
+                var firstRay = result.rays[0], lastRay = result.rays[result.rays.length - 1];
+                if (radialLosStartMk) radialLosStartMk.setLatLng([firstRay.lat, firstRay.lon]);
+                if (radialLosEndMk)   radialLosEndMk.setLatLng([lastRay.lat, lastRay.lon]);
+            }
+        }
+
+        function _cancelRadialLos() {
+            // כפתור "בטל" — עוצר מיד בצד הלקוח (בלי לחכות לתשובת השרת), ומודיע גם לשרת שיפסיק
+            if (radialLosPollTimer) { clearInterval(radialLosPollTimer); radialLosPollTimer = null; }
+            if (radialLosJobId) {
+                fetch('http://localhost:5002/los_radial/cancel?job_id=' + radialLosJobId, {method:'POST'});
+            }
+            radialLosJobId = null;
+            radialLosLoading = false;
+            if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
+            if (radialLosInfoEl) radialLosInfoEl.textContent = '';
+        }
+
+        function clearRadialLosResult() {
+            // ניקוי מלא — נקרא מ-resetMapState וגם בהצבת משקיף חדש (לא נערמים תוצאות ישנות)
+            _cancelRadialLos();  // עוצר polling + מבטל job בשרת אם עדיין רץ
+            if (radialLosObsMk)   { map.removeLayer(radialLosObsMk);   radialLosObsMk   = null; }
+            if (radialLosStartLn) { map.removeLayer(radialLosStartLn); radialLosStartLn = null; }
+            if (radialLosEndLn)   { map.removeLayer(radialLosEndLn);   radialLosEndLn   = null; }
+            if (radialLosStartMk) { map.removeLayer(radialLosStartMk); radialLosStartMk = null; }
+            if (radialLosEndMk)   { map.removeLayer(radialLosEndMk);   radialLosEndMk   = null; }
+            if (radialLosPolygon) { map.removeLayer(radialLosPolygon); radialLosPolygon = null; }
+            radialLosSpokes.forEach(function(s) { map.removeLayer(s); });  // ניקוי כל קווי החישור הצבעוניים
+            radialLosSpokes = [];
+            radialLosObs = null;
+        }
+
+        function toggleRadialLos() {
+            // הפעלה/כיבוי מצב "רדיוס ראייה" — לא מחשב שום דבר, רק מכין את המפה ללחיצה הבאה.
+            // חושף/מסתיר גם את פאנל הפרמטרים — לפי בקשת המשתמש, הפאנל לא מוצג עד שהכלי נבחר.
+            radialLosActive = !radialLosActive;
+            map.getContainer().style.cursor = radialLosActive ? 'crosshair' : '';
+            if (_radialLosBtnEl) {
+                _radialLosBtnEl.style.background = radialLosActive ? '#2ecc40' : 'white';
+                _radialLosBtnEl.style.color      = radialLosActive ? 'white'  : '#333';
+            }
+            if (_radialPanelBodyEl) {
+                _radialPanelBodyEl.style.display = radialLosActive ? 'flex' : 'none';  // חשיפה/הסתרה של שדות הפרמטרים
+            }
+            if (!radialLosActive) {
+                clearRadialLosResult();  // כיבוי הכלי מנקה גם משקיף/תצוגה מקדימה/תוצאה — לא נשאר "יתום" על המפה
+            }
+        }
+
+        var RadialLosControl = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function() {
+                var container = L.DomUtil.create('div', 'leaflet-control');
+                container.style.cssText = 'display:flex;flex-direction:column;gap:3px;background:white;' +
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:4px 6px;font-family:Arial;max-width:230px;';
+
+                var row1 = L.DomUtil.create('div', '', container);  // שורה 1: כפתור ההפעלה בלבד — תמיד מוצג, גם מכווץ
+                row1.style.cssText = 'display:flex;align-items:center;gap:5px;';
+                var btn = L.DomUtil.create('a', '', row1);
+                btn.href = '#'; btn.title = 'רדיוס ראייה';  // tooltip בעת hover — התווית הטקסטואלית היחידה במצב מכווץ, כמו כפתור 👁 של LOS הרגיל
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:26px;height:26px;' +
+                    'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
+                    'opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה (map.whenReady, בהמשך)
+                btn.innerHTML = '&#128225;';  // 📡 — שונה מ-👁 של כלי קו-הראייה הרגיל
+                _radialLosBtnEl = btn;
+                L.DomEvent.on(btn, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    if (!_mapReady) return;  // הגנה נוספת מעבר ל-pointer-events — המפה עדיין לא מוכנה
+                    toggleRadialLos();
+                });
+
+                // גוף הפאנל (שדות+כפתורים) — מוסתר כברירת מחדל, נחשף רק אחרי בחירת הכלי (toggleRadialLos)
+                // כדי שהמפה לא תהיה עמוסה בשדות לפני שהמשתמש בכלל בחר להשתמש בכלי הזה.
+                var panelBody = L.DomUtil.create('div', '', container);
+                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;';
+                _radialPanelBodyEl = panelBody;
+
+                function _mkField(labelText, defaultVal, step, minV, maxV, tip) {
+                    // בונה שדה קלט מספרי בודד עם תווית — כל שדה מעדכן את התצוגה המקדימה בעת עריכה (דו-כיווני מול הגרירה)
+                    var wrap = L.DomUtil.create('label', '', panelBody);
+                    wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                    wrap.title = tip;
+                    var span = L.DomUtil.create('span', '', wrap);
+                    span.textContent = labelText;
+                    var inp = L.DomUtil.create('input', '', wrap);
+                    inp.type = 'number'; inp.value = defaultVal; inp.step = step;
+                    inp.min = minV; inp.max = maxV;
+                    inp.style.cssText = 'width:55px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
+                    L.DomEvent.on(inp, 'input', function() { _updateRadialLosPreview(); });
+                    return inp;
+                }
+                _radialRangeInput    = _mkField('טווח (ק"מ, עד 300)',  5,   0.5, 0.5, 300, 'מרחק מרבי לבדיקת ראייה');
+                _radialMinRangeInput = _mkField('טווח מינימלי (ק"מ)',  5,   0.5, 0,   300, 'אזור עיוור קרוב למשקיף שלא נבדק כלל');
+                _radialStepInput     = _mkField('צעד זווית (°)',       10,  1,   3,   45,  'רווח בין כיוונים — קובע כמה קודקודים בפוליגון');
+                _radialStartInput    = _mkField('אזימוט התחלה (°)',    315, 1,   0,   360, 'ניתן לגרור גם על המפה');
+                _radialEndInput      = _mkField('אזימוט סיום (°)',     45,  1,   0,   360, 'ניתן לגרור גם על המפה');
+                _radialObsInput      = _mkField('גובה צופה (מ\')',     11,  1,   0,   500, 'גובה המשקיף מעל הקרקע');
+                _radialTgtInput      = _mkField('גובה יעד (מ\')',       0,  1,   0,   500, 'גובה עצם/מכשול הנבדק לאורך כל קרן');
+                _radialMarginInput   = _mkField('מרווח רכס (°)',        0,  0.5, 0,   10,  'שולי ביטחון מעל הרכס הגבוה ביותר שנצפה');
+                _radialVCenterInput  = _mkField('מרכז אלומה אנכי (°)',  0,  0.5, -45, 45,  'זווית עילוי/הטיה מרכזית (0=אופקי) — שדה-ראייה של "מכ"ם" רעיוני, לא כלי אמיתי');
+                _radialVWidthInput   = _mkField('רוחב אלומה אנכי (°)',  4,  0.5, 1,   90,  'רוחב שדה-הראייה האנכי הכולל סביב המרכז — מוגבל בכוונה, לא כל טווח הגובה נבדק');
+
+                var runBtn = L.DomUtil.create('button', '', panelBody);
+                runBtn.textContent = 'הפעל חישוב';
+                runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
+                L.DomEvent.on(runBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _runRadialLos(); });
+
+                var cancelBtn = L.DomUtil.create('button', '', panelBody);
+                cancelBtn.textContent = 'בטל';
+                cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
+                L.DomEvent.on(cancelBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _cancelRadialLos(); });
+                _radialCancelBtnEl = cancelBtn;
+
+                var info = L.DomUtil.create('div', '', panelBody);
+                info.style.cssText = 'font-size:10px;color:#555;text-align:center;direction:rtl;min-height:12px;';
+                radialLosInfoEl = info;
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            }
+        });
+        new RadialLosControl().addTo(map);  // הוספת ה-Control למפה
+
+        // שני כפתורי הכלים (👁/📡) מוצגים מיד אך מנוטרלים (עמומים, לא לחיצים) עד שהמפה עצמה
+        // מוכנה — map.whenReady מריץ את הקריאה מיד אם המפה כבר מוכנה, או ממתין אם לא.
+        map.whenReady(function() {
+            _mapReady = true;
+            if (_losBtnEl) { _losBtnEl.style.opacity = '1'; _losBtnEl.style.pointerEvents = 'auto'; }
+            if (_radialLosBtnEl) { _radialLosBtnEl.style.opacity = '1'; _radialLosBtnEl.style.pointerEvents = 'auto'; }
+        });
 
         // ── הודעת מידע — כלל טיסת VLOS ──
         // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,

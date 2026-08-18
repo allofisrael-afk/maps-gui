@@ -1833,6 +1833,10 @@ class MapApp(QMainWindow):
             '__los_loading__':        (self._on_los_loading,        True),
             '__los_loaded__':         (self._on_los_loaded,         True),
             '__los_error__':          (self._on_los_error,          True),
+            '__radial_los_loading__': (self._on_radial_los_loading, True),
+            '__radial_los_loaded__':  (self._on_radial_los_loaded,  True),
+            '__radial_los_error__':   (self._on_radial_los_error,   True),
+            '__radial_los_cancelled__': (self._on_radial_los_cancelled, True),
             '__uas_notam_loading__':  (self._on_uas_notam_loading,  True),
         }
 
@@ -1901,6 +1905,22 @@ class MapApp(QMainWindow):
     def _on_los_error(self):
         # JS שלח איתות — החישוב נכשל (בעיית רשת או שגיאת שרת)
         self.log_action("שגיאה בחישוב קו ראייה — בדוק חיבור רשת", is_success=False)
+
+    def _on_radial_los_loading(self):
+        # JS שלח איתות — חישוב רדיוס-ראייה החל, השרת שולף גבהים ב-batches מ-Open-Meteo ברקע
+        self.log_action("מחשב רדיוס ראייה — שולף נתוני גובה (עשוי לקחת עד כמה דקות בטווח ארוך)...")
+
+    def _on_radial_los_loaded(self):
+        # JS שלח איתות — החישוב הסתיים בהצלחה, הפוליגון מוצג על המפה
+        self.log_action("רדיוס ראייה חושב בהצלחה", is_success=True)
+
+    def _on_radial_los_error(self):
+        # JS שלח איתות — החישוב נכשל (בעיית רשת, שגיאת שרת, או job לא נמצא)
+        self.log_action("שגיאה בחישוב רדיוס ראייה — בדוק חיבור רשת", is_success=False)
+
+    def _on_radial_los_cancelled(self):
+        # JS שלח איתות — המשתמש ביטל את החישוב באמצע ריצה
+        self.log_action("חישוב רדיוס ראייה בוטל")
 
     def _on_uas_notam_loading(self):
         self.log_action("טוען נתוני NOTAM...")
