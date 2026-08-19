@@ -1837,6 +1837,10 @@ class MapApp(QMainWindow):
             '__radial_los_loaded__':  (self._on_radial_los_loaded,  True),
             '__radial_los_error__':   (self._on_radial_los_error,   True),
             '__radial_los_cancelled__': (self._on_radial_los_cancelled, True),
+            '__radar_doppler_loading__':   (self._on_radar_doppler_loading,   True),
+            '__radar_doppler_loaded__':    (self._on_radar_doppler_loaded,    True),
+            '__radar_doppler_error__':     (self._on_radar_doppler_error,     True),
+            '__radar_doppler_cancelled__': (self._on_radar_doppler_cancelled, True),
             '__uas_notam_loading__':  (self._on_uas_notam_loading,  True),
         }
 
@@ -1921,6 +1925,22 @@ class MapApp(QMainWindow):
     def _on_radial_los_cancelled(self):
         # JS שלח איתות — המשתמש ביטל את החישוב באמצע ריצה
         self.log_action("חישוב רדיוס ראייה בוטל")
+
+    def _on_radar_doppler_loading(self):
+        # JS שלח איתות — חישוב תצפית מכ"ם דופלר החל, השרת שולף גבהים ב-batches ברקע
+        self.log_action("מחשב תצפית מכ\"ם דופלר — שולף נתוני גובה (עשוי לקחת עד כמה דקות בטווח ארוך)...")
+
+    def _on_radar_doppler_loaded(self):
+        # JS שלח איתות — החישוב הסתיים בהצלחה, הפוליגון מוצג על המפה
+        self.log_action("תצפית מכ\"ם דופלר חושבה בהצלחה", is_success=True)
+
+    def _on_radar_doppler_error(self):
+        # JS שלח איתות — החישוב נכשל (בעיית רשת, שגיאת שרת, או job לא נמצא)
+        self.log_action("שגיאה בחישוב תצפית מכ\"ם דופלר — בדוק חיבור רשת", is_success=False)
+
+    def _on_radar_doppler_cancelled(self):
+        # JS שלח איתות — המשתמש ביטל את החישוב באמצע ריצה
+        self.log_action("חישוב תצפית מכ\"ם דופלר בוטל")
 
     def _on_uas_notam_loading(self):
         self.log_action("טוען נתוני NOTAM...")

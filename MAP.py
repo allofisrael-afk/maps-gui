@@ -177,6 +177,50 @@ def create_map():
         var _radialVCenterInput  = null; // שדה קלט מרכז שדה-הראייה האנכי (מעלות) — נחשף לפי בקשת המשתמש (היה קבוע)
         var _radialVWidthInput   = null; // שדה קלט רוחב שדה-הראייה האנכי הכולל (מעלות)
 
+        // ── מצב כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד מרדיוס-הראייה ──
+        // אותו רעיון בדיוק (משקיף, כל הכיוונים, תצוגה מקדימה+ידיות גרירה, job+polling+ביטול),
+        // עם תוצאה בעלת 3 צבעים במקום 2 (ר' _drawRadarDopplerResult) ופאנל גדול הרבה יותר (19 שדות)
+        var radarActive    = false; // האם מצב הצבת תצפית פעיל (cursor crosshair)
+        var radarLoading   = false; // job רץ כרגע בשרת — מונע הפעלה כפולה
+        var radarObs       = null;  // נקודת התצפית הנוכחית (L.LatLng), null אם לא הוצבה עדיין
+        var radarObsMk     = null;  // סמן התצפית על המפה
+        var radarStartLn   = null;  // קו תצוגה מקדימה לאזימוט ההתחלה
+        var radarEndLn     = null;  // קו תצוגה מקדימה לאזימוט הסיום
+        var radarStartMk   = null;  // ידית גרירה בקצה קו ההתחלה — קובעת גם זווית וגם טווח משותף
+        var radarEndMk     = null;  // ידית גרירה בקצה קו הסיום
+        var radarPolygon   = null;  // L.polygon עם התוצאה המחושבת
+        var radarSpokes    = [];    // קווי "חישור" תלת-צבעוניים (ירוק/כתום/אדום) — אחד-שניים לכל כיוון
+        var radarJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
+        var radarPollTimer = null;  // מזהה ה-setInterval של ה-polling
+        var radarInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות/סיכום)
+        var _radarBtnEl        = null; // הפניה לכפתור 🎯 לצורך שינוי צבעו
+        var _radarPanelBodyEl  = null; // גוף הפאנל (שדות+כפתורים) — מוסתר עד שהכלי נבחר
+        var _radarCancelBtnEl  = null; // הפניה לכפתור "בטל" לצורך הצגה/הסתרה
+        // קבוצת שדות גיאומטריה — זהה במהות לרדיוס-הראייה
+        var _radarRangeInput    = null; // טווח מרחק לבדיקה (ק"מ)
+        var _radarMinRangeInput = null; // טווח מינימלי/אזור עיוור (ק"מ)
+        var _radarStepInput     = null; // צעד זווית (מעלות)
+        var _radarStartInput    = null; // אזימוט התחלה (מעלות)
+        var _radarEndInput      = null; // אזימוט סיום (מעלות)
+        var _radarHAntInput     = null; // גובה אנטנה (מ')
+        var _radarMarginInput   = null; // מרווח רכס (מעלות)
+        var _radarVCenterInput  = null; // מרכז שדה-הראייה האנכי (מעלות)
+        var _radarVWidthInput   = null; // רוחב שדה-הראייה האנכי הכולל (מעלות)
+        // קבוצת שדות משוואת מכ"ם — חדשים, קובעים טווח גילוי לפי פיזיקה, לא רק חסימת שטח
+        var _radarPowerInput    = null; // הספק שידור שיא (קילוואט)
+        var _radarGainInput     = null; // רווח אנטנה (dBi)
+        var _radarFreqSelect    = null; // תדר עבודה — dropdown לפי פס (L/S/X-band)
+        var _radarSensInput     = null; // רגישות מקלט (dBm)
+        var _radarRcsSelect     = null; // שטח חתך רדארי (RCS) — dropdown לפי סוג מטרה
+        // קבוצת שדות דופלר — חדשים, קובעים אם תנועת המטרה מתגלה בכלל
+        var _radarPrfInput      = null; // תדר חזרת פולסים (Hz)
+        var _radarMdvInput      = null; // מהירות רדיאלית מינימלית לגילוי (קשר)
+        var _radarSpeedInput    = null; // מהירות המטרה המשוערת (קשר)
+        var _radarHeadingInput  = null; // כיוון תנועת המטרה המשוער (מעלות)
+        // קבוצת שדות תפוצה — חדשים, אפקט "ריבוד" מהשתקפות קרקע/ים
+        var _radarLobingCheck   = null; // toggle: האם להציג את אפקט הריבוד
+        var _radarReflSelect    = null; // סוג משטח מחזיר — dropdown (יבשה/ים)
+
         // בניית אייקון עגול לסמן LOS ניתן לגרירה — עיגול מלא לתצפית, מקווקו ליעד
         function _losMarkerIcon(col, dashed) {{
             var border = dashed ? 'dashed' : 'solid';
@@ -1095,6 +1139,8 @@ def create_map():
             if (losActive) {{ toggleLos(); }}  // כיבוי מצב LOS אם פעיל, כדי לאפס cursor וכפתור
             clearRadialLosResult();  // ניקוי תוצאת/תצוגת רדיוס-ראייה (כולל עצירת polling וביטול job בשרת אם רץ)
             if (radialLosActive) {{ toggleRadialLos(); }}  // כיבוי מצב רדיוס-ראייה אם פעיל
+            clearRadarDopplerResult();  // ניקוי תוצאת/תצוגת תצפית מכ"ם דופלר (כולל עצירת polling וביטול job בשרת אם רץ)
+            if (radarActive) {{ toggleRadarDoppler(); }}  // כיבוי מצב תצפית מכ"ם דופלר אם פעיל
             clearElevationLayer();  // מנקה גם שכבה טעונה וגם בחירה באמצע ביצוע (כולל שלב ההמתנה ללחיצה הראשונה)
             heatmapData = [];
             if (map.hasLayer(heatmap)) {{ heatmap.setLatLngs([]); map.removeLayer(heatmap); }}
@@ -1495,6 +1541,18 @@ def create_map():
                     _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
                 }});
                 _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+            }} else if (radarActive) {{
+                // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי (לחיצה=משקיף+תצוגה מקדימה בלבד)
+                if (radarLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
+                clearRadarDopplerResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל לחיצה
+                radarObs = e.latlng;
+                radarObsMk = L.marker(e.latlng, {{icon: _radarMarkerIcon(), draggable: true}}).addTo(map);
+                radarObsMk.bindTooltip('תצפית מכ"ם דופלר', {{permanent:false, direction:'top'}});
+                radarObsMk.on('dragend', function() {{
+                    radarObs = radarObsMk.getLatLng();
+                    _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                }});
+                _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
             }} else if (losActive) {{
                 // losActive בודק לפני elevationActive — מצב LOS גובר על כל שכבה פעילה אחרת
                 // מצב LOS פעיל — לחיצה 1 = תצפית, לחיצה 2 = יעד + חישוב + מיד מוכן לצמד הבא
@@ -2285,12 +2343,375 @@ def create_map():
         }});
         new RadialLosControl().addTo(map);  // הוספת ה-Control למפה
 
-        // שני כפתורי הכלים (👁/📡) מוצגים מיד אך מנוטרלים (עמומים, לא לחיצים) עד שהמפה עצמה
+        // ── כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד ──
+        // תצוגה מקדימה+גרירת ידיות זהה לרדיוס-הראייה (משתמש באותם _destPointJs/_bearingDeg/_haversineM),
+        // בצבע ייחודי (ציאן) כדי לא להתבלבל עם הצהוב של רדיוס-הראייה. ההבדל האמיתי הוא בציור התוצאה
+        // (_drawRadarDopplerResult) — 3 צבעים במקום 2, כי יש עכשיו סיבת-אי-גילוי שלישית (דופלר).
+        function _radarMarkerIcon() {{
+            // אייקון סמן התצפית — עיגול מלא בצבע ציאן, לא חופף לצהוב של רדיוס-הראייה או למג'נטה של ה-CTR
+            return L.divIcon({{
+                html: '<div style="width:16px;height:16px;border-radius:50%;background:#22d3ee;border:2px solid #333;"></div>',
+                className: '', iconSize: [16,16], iconAnchor: [8,8]
+            }});
+        }}
+
+        function _radarHandleIcon() {{
+            // אייקון ידית גרירה לזווית/טווח — אותו צבע כמו סמן התצפית, קטן יותר
+            return L.divIcon({{
+                html: '<div style="width:12px;height:12px;border-radius:50%;background:#22d3ee;border:2px solid #333;cursor:move;"></div>',
+                className: '', iconSize: [12,12], iconAnchor: [6,6]
+            }});
+        }}
+
+        function _updateRadarDopplerPreview() {{
+            // מצייר/מעדכן את שני קווי התצוגה המקדימה (אזימוט התחלה/סוף) + הידיות בקצותיהם —
+            // אותה טכניקה בדיוק כמו _updateRadialLosPreview, חישוב מקומי בלבד, בלי לקרוא לשרת
+            if (!radarObs) return;  // אין עדיין נקודת תצפית — אין מה לצייר
+            var rangeKm  = _radarRangeInput ? parseFloat(_radarRangeInput.value) : NaN;
+            var startDeg = _radarStartInput ? parseFloat(_radarStartInput.value) : NaN;
+            var endDeg   = _radarEndInput   ? parseFloat(_radarEndInput.value)   : NaN;
+            if (isNaN(rangeKm))  rangeKm  = 50;  // ברירת מחדל — תואמת לברירת המחדל בשרת (שונה מרדיוס-הראייה: 50, לא 5)
+            if (isNaN(startDeg)) startDeg = 315; // מגזר 90° סביב צפון כברירת מחדל — לא מעגל מלא חופף
+            if (isNaN(endDeg))   endDeg   = 45;
+            var startPt = _destPointJs(radarObs, startDeg, rangeKm * 1000);
+            var endPt   = _destPointJs(radarObs, endDeg,   rangeKm * 1000);
+            if (radarStartLn) map.removeLayer(radarStartLn);  // מנקה קו קודם לפני ציור מחדש
+            if (radarEndLn)   map.removeLayer(radarEndLn);
+            radarStartLn = L.polyline([radarObs, startPt], {{color:'#22d3ee', weight:1.5, dashArray:'4,4'}}).addTo(map);
+            radarEndLn   = L.polyline([radarObs, endPt],   {{color:'#22d3ee', weight:1.5, dashArray:'4,4'}}).addTo(map);
+            if (!radarStartMk) {{  // יוצר את הידית פעם אחת בלבד — בפעמים הבאות רק מזיז אותה
+                radarStartMk = L.marker(startPt, {{icon: _radarHandleIcon(), draggable:true}}).addTo(map);
+                radarStartMk.on('drag', function(ev) {{ _onRadarHandleDrag(ev, 'start'); }});
+            }} else {{
+                radarStartMk.setLatLng(startPt);
+            }}
+            if (!radarEndMk) {{
+                radarEndMk = L.marker(endPt, {{icon: _radarHandleIcon(), draggable:true}}).addTo(map);
+                radarEndMk.on('drag', function(ev) {{ _onRadarHandleDrag(ev, 'end'); }});
+            }} else {{
+                radarEndMk.setLatLng(endPt);
+            }}
+        }}
+
+        function _onRadarHandleDrag(ev, which) {{
+            // גרירת ידית — קובעת גם אזימוט (רק לידית הזו) וגם טווח משותף (שתי הידיות זזות לאותו רדיוס חדש)
+            if (!radarObs) return;
+            var p = ev.target.getLatLng();
+            var bearing = _bearingDeg(radarObs, p);
+            var distM   = _haversineM(radarObs, p);
+            if (which === 'start' && _radarStartInput) _radarStartInput.value = bearing.toFixed(1);
+            if (which === 'end'   && _radarEndInput)   _radarEndInput.value   = bearing.toFixed(1);
+            if (_radarRangeInput) _radarRangeInput.value = (distM / 1000).toFixed(2);
+            _updateRadarDopplerPreview();
+        }}
+
+        function _runRadarDoppler() {{
+            // מפעיל את החישוב האמיתי בשרת — נקרא רק בלחיצה מפורשת על "הפעל חישוב"
+            if (!radarObs || radarLoading) return;
+            function num(el, def) {{ var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }}
+            var rangeKm    = num(_radarRangeInput, 50);
+            var minRangeKm = num(_radarMinRangeInput, 1);
+            var stepDeg    = num(_radarStepInput, 10);
+            var startDeg   = num(_radarStartInput, 315);
+            var endDeg     = num(_radarEndInput, 45);
+            var hAnt       = num(_radarHAntInput, 15);
+            var marginDeg  = num(_radarMarginInput, 0);
+            var vCenter    = num(_radarVCenterInput, 0);
+            var vWidth     = num(_radarVWidthInput, 10);
+            var powerKw    = num(_radarPowerInput, 100);
+            var gainDbi    = num(_radarGainInput, 30);
+            var freqMhz    = _radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000;
+            var sensDbm    = num(_radarSensInput, -100);
+            var rcsM2      = _radarRcsSelect ? parseFloat(_radarRcsSelect.value) : 2;
+            var prfHz      = num(_radarPrfInput, 1000);
+            var mdvKt      = num(_radarMdvInput, 20);
+            var speedKt    = num(_radarSpeedInput, 250);
+            var headingDeg = num(_radarHeadingInput, 0);
+            var lobingOn   = _radarLobingCheck ? _radarLobingCheck.checked : false;
+            var reflKey    = _radarReflSelect ? _radarReflSelect.value : 'land';
+            radarLoading = true;
+            document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
+            if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
+            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
+            var url = 'http://localhost:5002/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+                      '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
+                      '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
+                      '&h_antenna=' + hAnt + '&ridge_margin_deg=' + marginDeg +
+                      '&vertical_center_deg=' + vCenter + '&vertical_width_deg=' + vWidth +
+                      '&power_kw=' + powerKw + '&gain_dbi=' + gainDbi + '&freq_mhz=' + freqMhz +
+                      '&sensitivity_dbm=' + sensDbm + '&rcs_m2=' + rcsM2 +
+                      '&prf_hz=' + prfHz + '&mdv_kt=' + mdvKt + '&target_speed_kt=' + speedKt +
+                      '&target_heading_deg=' + headingDeg +
+                      '&lobing_enabled=' + (lobingOn ? 'true' : 'false') + '&reflectivity=' + reflKey;
+            fetch(url)
+            .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
+            .then(function(data) {{
+                if (data.error) throw new Error(data.error);
+                radarJobId = data.job_id;
+                radarPollTimer = setInterval(_pollRadarDopplerStatus, 1000);  // בדיקת התקדמות כל שנייה
+            }})
+            .catch(function(err) {{
+                radarLoading = false;
+                document.title = '__radar_doppler_error__';
+                if (radarInfoEl) radarInfoEl.textContent = '';
+                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+                alert('שגיאה בהפעלת חישוב תצפית מכ"ם דופלר: ' + err.message);
+            }});
+        }}
+
+        function _pollRadarDopplerStatus() {{
+            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
+            if (!radarJobId) return;
+            fetch('http://localhost:5002/radar_doppler/status?job_id=' + radarJobId)
+            .then(function(r) {{ return r.json(); }})
+            .then(function(data) {{
+                if (data.status === 'running') {{
+                    if (radarInfoEl) {{
+                        var total = data.batches_total;
+                        radarInfoEl.textContent = total
+                            ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)'
+                            : 'מתחיל…';
+                    }}
+                    return;  // עדיין רץ — ממתין ל-tick הבא
+                }}
+                clearInterval(radarPollTimer);  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling
+                radarPollTimer = null;
+                radarLoading = false;
+                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+                if (data.status === 'done') {{
+                    document.title = '__radar_doppler_loaded__';
+                    _drawRadarDopplerResult(data.result);
+                    if (radarInfoEl) radarInfoEl.textContent =
+                        data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                        data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר';
+                }} else if (data.status === 'error') {{
+                    document.title = '__radar_doppler_error__';
+                    if (radarInfoEl) radarInfoEl.textContent = '';
+                    alert('שגיאה בחישוב תצפית מכ"ם דופלר: ' + (data.error || 'לא ידועה'));
+                }} else if (data.status === 'cancelled') {{
+                    document.title = '__radar_doppler_cancelled__';
+                    if (radarInfoEl) radarInfoEl.textContent = '';
+                }}
+                radarJobId = null;
+            }})
+            .catch(function() {{
+                // כשל רשת בבדיקת סטטוס בודדת — לא עוצר את ה-polling, ה-tick הבא ינסה שוב
+            }});
+        }}
+
+        function _drawRadarDopplerResult(result) {{
+            // מצייר את הפוליגון הסופי + קטע/שני קטעים צבעוניים לכל כיוון — 3 מצבים אפשריים:
+            // ירוק בלבד עד סוף הטווח = מזוהה לגמרי. ירוק+אדום = מזוהה חלקית (נחסם שטח/טווח מכ"ם בהמשך).
+            // כתום (במקום ירוק) = הכיוון הזה כולו "עיוור" לדופלר (מהירות המטרה המשוערת לא מתגלה בזווית
+            // הזו כלל) — גם אם השטח/טווח המכ"ם היו מאפשרים גילוי, ואז ממשיך אדום עד סוף הטווח אם נחסם.
+            if (radarPolygon) {{ map.removeLayer(radarPolygon); radarPolygon = null; }}
+            radarSpokes.forEach(function(s) {{ map.removeLayer(s); }});  // ניקוי חישורים מחישוב קודם
+            radarSpokes = [];
+            var pts = result.rays.map(function(r) {{ return [r.radar_lat, r.radar_lon]; }});
+            if (result.span_deg < 360) {{
+                pts.unshift([result.observer_lat, result.observer_lon]);  // פרוסת-פיצה — כולל נקודת המשקיף כקודקוד
+            }}
+            if (pts.length >= 3) {{
+                radarPolygon = L.polygon(pts, {{
+                    color: '#22d3ee', weight: 1.5, fillColor: '#22d3ee', fillOpacity: 0.10
+                }}).addTo(map);
+            }}
+            var obsLatLng = L.latLng(result.observer_lat, result.observer_lon);
+            var minRangeM = (result.min_range_km || 0) * 1000;
+            var rangeM    = result.range_km * 1000;
+            result.rays.forEach(function(r) {{
+                var nearPt   = _destPointJs(obsLatLng, r.bearing_deg, minRangeM);  // תחילת הדגימה בפועל — גבול אזור העיוור
+                var radarPt  = L.latLng(r.radar_lat, r.radar_lon);  // הנקודה הרחוקה ביותר בטווח המכ"ם (בלי קשר לדופלר)
+                var nearColor = r.doppler_ok ? '#00cc44' : '#ff9500';  // ירוק אם הכיוון "נראה" לדופלר, כתום אם כל הכיוון עיוור לו
+                radarSpokes.push(L.polyline([nearPt, radarPt], {{color: nearColor, weight: 3}}).addTo(map));
+                if (r.blocked) {{
+                    // אדום — ממשיך מהנקודה הרחוקה ביותר בטווח המכ"ם עד סוף הטווח המבוקש (שטח/טווח מכ"ם לא הספיקו)
+                    var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);
+                    radarSpokes.push(L.polyline([radarPt, farPt], {{color: '#ff3300', weight: 3}}).addTo(map));
+                }}
+            }});
+            if (result.rays.length > 0) {{  // הזזת הידיות לקצוות הקשת האמיתיים
+                var firstRay = result.rays[0], lastRay = result.rays[result.rays.length - 1];
+                if (radarStartMk) radarStartMk.setLatLng([firstRay.radar_lat, firstRay.radar_lon]);
+                if (radarEndMk)   radarEndMk.setLatLng([lastRay.radar_lat, lastRay.radar_lon]);
+            }}
+        }}
+
+        function _cancelRadarDoppler() {{
+            // כפתור "בטל" — עוצר מיד בצד הלקוח, ומודיע גם לשרת שיפסיק
+            if (radarPollTimer) {{ clearInterval(radarPollTimer); radarPollTimer = null; }}
+            if (radarJobId) {{
+                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + radarJobId, {{method:'POST'}});
+            }}
+            radarJobId = null;
+            radarLoading = false;
+            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+            if (radarInfoEl) radarInfoEl.textContent = '';
+        }}
+
+        function clearRadarDopplerResult() {{
+            // ניקוי מלא — נקרא מ-resetMapState וגם בהצבת משקיף חדש
+            _cancelRadarDoppler();  // עוצר polling + מבטל job בשרת אם עדיין רץ
+            if (radarObsMk)   {{ map.removeLayer(radarObsMk);   radarObsMk   = null; }}
+            if (radarStartLn) {{ map.removeLayer(radarStartLn); radarStartLn = null; }}
+            if (radarEndLn)   {{ map.removeLayer(radarEndLn);   radarEndLn   = null; }}
+            if (radarStartMk) {{ map.removeLayer(radarStartMk); radarStartMk = null; }}
+            if (radarEndMk)   {{ map.removeLayer(radarEndMk);   radarEndMk   = null; }}
+            if (radarPolygon) {{ map.removeLayer(radarPolygon); radarPolygon = null; }}
+            radarSpokes.forEach(function(s) {{ map.removeLayer(s); }});
+            radarSpokes = [];
+            radarObs = null;
+        }}
+
+        function toggleRadarDoppler() {{
+            // הפעלה/כיבוי מצב "תצפית מכ"ם דופלר" — לא מחשב שום דבר, רק מכין את המפה ללחיצה הבאה
+            radarActive = !radarActive;
+            map.getContainer().style.cursor = radarActive ? 'crosshair' : '';
+            if (_radarBtnEl) {{
+                _radarBtnEl.style.background = radarActive ? '#2ecc40' : 'white';
+                _radarBtnEl.style.color      = radarActive ? 'white'  : '#333';
+            }}
+            if (_radarPanelBodyEl) {{
+                _radarPanelBodyEl.style.display = radarActive ? 'flex' : 'none';
+            }}
+            if (!radarActive) {{
+                clearRadarDopplerResult();  // כיבוי הכלי מנקה גם משקיף/תצוגה מקדימה/תוצאה — לא נשאר "יתום" על המפה
+            }}
+        }}
+
+        var RadarDopplerControl = L.Control.extend({{
+            options: {{ position: 'topright' }},
+            onAdd: function() {{
+                var container = L.DomUtil.create('div', 'leaflet-control');
+                container.style.cssText = 'display:flex;flex-direction:column;gap:3px;background:white;' +
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:4px 6px;font-family:Arial;max-width:250px;';
+
+                var row1 = L.DomUtil.create('div', '', container);  // שורה 1: כפתור ההפעלה בלבד — תמיד מוצג
+                row1.style.cssText = 'display:flex;align-items:center;gap:5px;';
+                var btn = L.DomUtil.create('a', '', row1);
+                btn.href = '#'; btn.title = 'תצפית מכ"ם דופלר';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:26px;height:26px;' +
+                    'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
+                    'opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה
+                btn.innerHTML = '&#127919;';  // 🎯 — שונה מ-📡 של רדיוס-הראייה ומ-👁 של קו-הראייה
+                _radarBtnEl = btn;
+                L.DomEvent.on(btn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    if (!_mapReady) return;
+                    toggleRadarDoppler();
+                }});
+
+                var panelBody = L.DomUtil.create('div', '', container);
+                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:70vh;overflow-y:auto;';
+                _radarPanelBodyEl = panelBody;
+
+                function _mkHeader(text) {{
+                    // כותרת קבוצה קטנה — מפרידה חזותית בין 4 קבוצות הפרמטרים (גיאומטריה/מכ"ם/דופלר/תפוצה)
+                    var h = L.DomUtil.create('div', '', panelBody);
+                    h.textContent = text;
+                    h.style.cssText = 'font-size:9px;font-weight:bold;color:#888;margin-top:3px;border-top:1px solid #eee;padding-top:2px;';
+                    return h;
+                }}
+                function _mkField(labelText, defaultVal, step, minV, maxV, tip) {{
+                    var wrap = L.DomUtil.create('label', '', panelBody);
+                    wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                    wrap.title = tip;
+                    var span = L.DomUtil.create('span', '', wrap);
+                    span.textContent = labelText;
+                    var inp = L.DomUtil.create('input', '', wrap);
+                    inp.type = 'number'; inp.value = defaultVal; inp.step = step;
+                    inp.min = minV; inp.max = maxV;
+                    inp.style.cssText = 'width:55px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
+                    L.DomEvent.on(inp, 'input', function() {{ _updateRadarDopplerPreview(); }});
+                    return inp;
+                }}
+                function _mkSelect(labelText, options, defaultIdx, tip) {{
+                    // שדה בחירה מרשימה — למשל סוג מטרה (RCS) או פס תדרים, במקום קלט מספרי גולמי
+                    var wrap = L.DomUtil.create('label', '', panelBody);
+                    wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                    wrap.title = tip;
+                    var span = L.DomUtil.create('span', '', wrap);
+                    span.textContent = labelText;
+                    var sel = L.DomUtil.create('select', '', wrap);
+                    sel.style.cssText = 'width:95px;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';
+                    options.forEach(function(opt, i) {{
+                        var o = L.DomUtil.create('option', '', sel);
+                        o.value = opt[1]; o.textContent = opt[0];
+                        if (i === defaultIdx) o.selected = true;
+                    }});
+                    return sel;
+                }}
+
+                _mkHeader('גיאומטריה');
+                _radarRangeInput    = _mkField('טווח (ק"מ, עד 300)',  50, 1,   0.5, 300, 'מרחק מרבי לבדיקת גילוי');
+                _radarMinRangeInput = _mkField('טווח מינימלי (ק"מ)',  1,  0.5, 0,   300, 'אזור עיוור קרוב למשקיף שלא נבדק כלל');
+                _radarStepInput     = _mkField('צעד זווית (°)',       10, 1,   3,   45,  'רווח בין כיוונים — קובע כמה קודקודים בפוליגון');
+                _radarStartInput    = _mkField('אזימוט התחלה (°)',    315, 1,  0,   360, 'ניתן לגרור גם על המפה');
+                _radarEndInput      = _mkField('אזימוט סיום (°)',     45,  1,  0,   360, 'ניתן לגרור גם על המפה');
+                _radarHAntInput     = _mkField('גובה אנטנה (מ\\')',    15, 1,   0,   500, 'גובה האנטנה מעל הקרקע');
+                _radarMarginInput   = _mkField('מרווח רכס (°)',        0,  0.5, 0,   10,  'שולי ביטחון מעל הרכס הגבוה ביותר שנצפה');
+                _radarVCenterInput  = _mkField('מרכז אלומה אנכי (°)',  0,  0.5, -45, 45,  'זווית עילוי/הטיה מרכזית (0=אופקי)');
+                _radarVWidthInput   = _mkField('רוחב אלומה אנכי (°)', 10,  0.5, 1,   90,  'רוחב שדה-הראייה האנכי הכולל סביב המרכז');
+
+                _mkHeader('משוואת מכ"ם — טווח גילוי');
+                _radarPowerInput = _mkField('הספק שידור (קילוואט)', 100, 1, 0.1, 5000, 'הספק שידור שיא — יותר הספק = טווח גילוי גדול יותר');
+                _radarGainInput  = _mkField('רווח אנטנה (dBi)',      30,  1, 0,   50,   'רווח האנטנה — יותר רווח = טווח גילוי גדול יותר');
+                _radarFreqSelect = _mkSelect('תדר עבודה', [
+                    ['L-band (1.3 GHz)', '1300'], ['S-band (3 GHz)', '3000'], ['X-band (10 GHz)', '10000']
+                ], 1, 'תדר גבוה יותר = אורך גל קצר יותר, בד"כ טווח קטן יותר');
+                _radarSensInput  = _mkField('רגישות מקלט (dBm)', -100, 1, -140, -60, 'רגישות טובה יותר (מספר שלילי יותר) = טווח גילוי גדול יותר');
+                _radarRcsSelect  = _mkSelect('סוג מטרה (RCS)', [
+                    ['רחפן קטן (0.01 מ"ר)', '0.01'], ['מל"ט בינוני (0.1 מ"ר)', '0.1'],
+                    ['מטוס קל (2 מ"ר)', '2'], ['מטוס תובלה (50 מ"ר)', '50']
+                ], 2, 'שטח חתך רדארי משוער — מטרה גדולה יותר מתגלה מרחוק יותר');
+
+                _mkHeader('דופלר — האם התנועה מתגלה');
+                _radarPrfInput     = _mkField('תדר חזרת פולסים (Hz)', 1000, 10, 50, 20000, 'PRF — קובע גם מהירויות עיוורות וגם טווח לא-חד-משמעי');
+                _radarMdvInput     = _mkField('מהירות מינימלית לגילוי (קשר)', 20, 1, 0, 200, 'MDV — מטרה איטית מזה מסוננת כרקע נייח');
+                _radarSpeedInput   = _mkField('מהירות המטרה (קשר)', 250, 5, 0, 1500, 'מהירות התנועה המשוערת של המטרה הנבדקת');
+                _radarHeadingInput = _mkField('כיוון תנועת המטרה (°)', 0, 1, 0, 360, 'לאן המטרה טסה — קובע את המהירות הרדיאלית בכל אזימוט');
+
+                _mkHeader('תפוצה — השתקפות קרקע/ים');
+                var lobingWrap = L.DomUtil.create('label', '', panelBody);
+                lobingWrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                lobingWrap.title = 'מציג "חורים" בכיסוי הנובעים מהתאבכות בין הקרן הישירה לבין ההשתקפות מהקרקע';
+                var lobingSpan = L.DomUtil.create('span', '', lobingWrap);
+                lobingSpan.textContent = 'הצג השפעת ריבוד (lobing)';
+                _radarLobingCheck = L.DomUtil.create('input', '', lobingWrap);
+                _radarLobingCheck.type = 'checkbox';
+                _radarReflSelect = _mkSelect('סוג משטח מחזיר', [
+                    ['יבשה מחוספסת', 'land'], ['ים חלק', 'sea']
+                ], 0, 'רלוונטי רק כש"הצג השפעת ריבוד" מסומן — משטח חלק יותר מחזיר חזק יותר');
+
+                var runBtn = L.DomUtil.create('button', '', panelBody);
+                runBtn.textContent = 'הפעל חישוב';
+                runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#22d3ee;cursor:pointer;margin-top:3px;';
+                L.DomEvent.on(runBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _runRadarDoppler(); }});
+
+                var cancelBtn = L.DomUtil.create('button', '', panelBody);
+                cancelBtn.textContent = 'בטל';
+                cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
+                L.DomEvent.on(cancelBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _cancelRadarDoppler(); }});
+                _radarCancelBtnEl = cancelBtn;
+
+                var info = L.DomUtil.create('div', '', panelBody);
+                info.style.cssText = 'font-size:10px;color:#555;text-align:center;direction:rtl;min-height:12px;';
+                radarInfoEl = info;
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            }}
+        }});
+        new RadarDopplerControl().addTo(map);  // הוספת ה-Control למפה
+
+        // שלושת כפתורי הכלים (👁/📡/🎯) מוצגים מיד אך מנוטרלים (עמומים, לא לחיצים) עד שהמפה עצמה
         // מוכנה — map.whenReady מריץ את הקריאה מיד אם המפה כבר מוכנה, או ממתין אם לא.
         map.whenReady(function() {{
             _mapReady = true;
             if (_losBtnEl) {{ _losBtnEl.style.opacity = '1'; _losBtnEl.style.pointerEvents = 'auto'; }}
             if (_radialLosBtnEl) {{ _radialLosBtnEl.style.opacity = '1'; _radialLosBtnEl.style.pointerEvents = 'auto'; }}
+            if (_radarBtnEl) {{ _radarBtnEl.style.opacity = '1'; _radarBtnEl.style.pointerEvents = 'auto'; }}
         }});
 
         // ── הודעת מידע — כלל טיסת VLOS ──
