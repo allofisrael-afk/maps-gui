@@ -181,6 +181,51 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ידיות גרירה לזווית/טווח של תצפית מכ"ם דופלר — אותה טכניקה בדיוק כמו _buildRadialLosHandlesOverlay,
+  // צבע ציאן ייחודי (לא צהוב) כדי להבדיל חזותית משתי הכלים כשמשתמשים בהם לסירוגין
+  Widget _buildRadarDopplerHandlesOverlay(MapState state) {
+    final obs = state.radarObs;
+    if (obs == null) return const SizedBox.shrink();
+    const distCalc = Distance();
+    final result = state.radarResult;
+    final LatLng startPt, endPt;
+    if (result != null && result.rays.isNotEmpty) {
+      startPt = result.rays.first.point;
+      endPt = result.rays.last.point;
+    } else {
+      final rangeM = state.radarRangeKm * 1000;
+      startPt = distCalc.offset(obs, rangeM, state.radarStartBearingDeg);
+      endPt = distCalc.offset(obs, rangeM, state.radarEndBearingDeg);
+    }
+
+    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag) {
+      final screenPt = _mapController.camera.latLngToScreenPoint(pt);
+      return Positioned(
+        left: screenPt.x.toDouble() - 8, top: screenPt.y.toDouble() - 8,
+        width: 16, height: 16,
+        child: GestureDetector(
+          onPanUpdate: (d) {
+            final latLng = _globalToLatLng(d.globalPosition);
+            if (latLng != null) onDrag(latLng);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF22D3EE), shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF333333), width: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Positioned.fill(
+      child: Stack(children: [
+        buildHandle(startPt, state.updateRadarStartFromDrag),
+        buildHandle(endPt, state.updateRadarEndFromDrag),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<MapState>();
@@ -390,6 +435,8 @@ class _MapScreenState extends State<MapScreen> {
               ..._buildLosLayers(state), // כל הסשנים הפעילים
               // ── שכבות רדיוס-ראייה רדיאלי — תצוגה מקדימה או תוצאה מחושבת ──
               ..._buildRadialLosLayers(state),
+              // ── שכבות תצפית מכ"ם דופלר — תצוגה מקדימה או תוצאה מחושבת (תלת-צבעונית) ──
+              ..._buildRadarDopplerLayers(state),
               // ── סמן תצפית זמני: מוצג לאחר לחיצה ראשונה בטרם בחירת יעד ──
               if (state.losCurObs != null)
                 CircleLayer(circles: [
@@ -629,6 +676,10 @@ class _MapScreenState extends State<MapScreen> {
           if (state.radialLosMode && state.radialLosObs != null)
             _buildRadialLosHandlesOverlay(state),
 
+          // ── ידיות גרירה לתצפית מכ"ם דופלר (זווית+טווח) ──
+          if (state.radarMode && state.radarObs != null)
+            _buildRadarDopplerHandlesOverlay(state),
+
           // ── פאנל פרופיל קו ראייה (תחתית) ──
           if (state.losSessions.any((s) => s.points.isNotEmpty)) // הצג רק אם יש סשן מחושב
             _LosProfilePanel(state: state, cs: cs),
@@ -711,12 +762,31 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // ── כפתור/פאנל רדיוס-ראייה רדיאלי — עצמאי, לא בתפריט העליון (שם כבר 5 כפתורים בשורה אחת, ר' AppBar הצף) ──
-          // ממוקם קבוע באמצע-ימין, מתחת לרצועת ההודעות העליונות (מחוון טעינה/שגיאת LOS) ומעל עמודות התחתית
+          // ── כפתורי/פאנלי רדיוס-ראייה רדיאלי + מכ"ם דופלר — עצמאיים, לא בתפריט העליון (שם כבר ──
+          // 5 כפתורים בשורה אחת, ר' AppBar הצף). עמודה אחת (לא שני Positioned נפרדים עם קיזוזים
+          // ידניים) כדי ששני הפאנלים לעולם לא יחפפו זה את זה, גם כששניהם פתוחים בו-זמנית.
+          // חייבים לעטוף גם בגובה חסום+גלילה **ברמת העמודה המשולבת** (לא רק בתוך כל פאנל בנפרד) —
+          // כשהמכ"ם-דופלר (22 שדות) וגם רדיוס-הראייה פתוחים יחד, הגובה המשולב חורג מהמסך במכשירים
+          // רבים ומתנגש חזותית עם ווידג'טים אחרים למטה (סרגל קנה-המידה/כרטיס מזג האוויר) — נמצא
+          // בבדיקה חיה של המשתמש (צילום מסך: מספרים חתוכים, טקסט זר מציץ מבין השדות).
           Positioned(
             top: 150,
             right: 12,
-            child: _RadialLosPanel(state: state, cs: cs),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height - 150 - MediaQuery.of(context).padding.bottom - 70,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _RadialLosPanel(state: state, cs: cs),
+                    const SizedBox(height: 8),
+                    _RadarDopplerPanel(state: state, cs: cs),
+                  ],
+                ),
+              ),
+            ),
           ),
 
           // ── מקראות שכבות רחפנים + הודעת כלל VLOS — עמודה אחת כדי שלא יתנגשו זו בזו ──
@@ -877,6 +947,61 @@ class _MapScreenState extends State<MapScreen> {
     // סמן המשקיף עצמו — עיגול בצבע הייחודי לכלי הזה, לא חופף לאף שכבה אחרת
     layers.add(CircleLayer(circles: [
       CircleMarker(point: obs, radius: 9, color: const Color(0xFFF9E2AF),
+          borderColor: const Color(0xFF333333), borderStrokeWidth: 2),
+    ]));
+
+    return layers;
+  }
+
+  // בונה את שכבות המפה לתצפית מכ"ם דופלר — אותו רעיון כמו רדיוס-הראייה, אך תוצאה
+  // **תלת-צבעונית**: ירוק=מזוהה, כתום=כל הכיוון חסום דופלר (doppler_ok=false, גם אם
+  // השטח/טווח המכ"ם היו מאפשרים גילוי), אדום=נחסם שטח או מעבר לטווח המכ"ם/סריקה.
+  List<Widget> _buildRadarDopplerLayers(MapState state) {
+    final layers = <Widget>[];
+    final obs = state.radarObs;
+    if (obs == null) return layers;
+    const distCalc = Distance();
+    final result = state.radarResult;
+
+    if (result == null) {
+      // תצוגה מקדימה בלבד — שני קווים מקווקווים בציאן, לפי השדות הנוכחיים
+      final rangeM = state.radarRangeKm * 1000;
+      final startPt = distCalc.offset(obs, rangeM, state.radarStartBearingDeg);
+      final endPt = distCalc.offset(obs, rangeM, state.radarEndBearingDeg);
+      layers.add(PolylineLayer(polylines: [
+        Polyline(points: [obs, startPt], color: const Color(0xFF22D3EE), strokeWidth: 1.5,
+            pattern: StrokePattern.dashed(segments: [8, 6])),
+        Polyline(points: [obs, endPt], color: const Color(0xFF22D3EE), strokeWidth: 1.5,
+            pattern: StrokePattern.dashed(segments: [8, 6])),
+      ]));
+    } else {
+      final polygonPoints = result.rays.map((r) => r.point).toList();
+      if (result.spanDeg < 360) polygonPoints.insert(0, result.observer);
+      if (polygonPoints.length >= 3) {
+        layers.add(PolygonLayer(polygons: [
+          Polygon(points: polygonPoints, color: const Color(0xFF22D3EE).withAlpha(26),
+              borderColor: const Color(0xFF22D3EE), borderStrokeWidth: 1.5),
+        ]));
+      }
+      final minRangeM = result.minRangeKm * 1000;
+      final rangeM = result.rangeKm * 1000;
+      final spokes = <Polyline>[];
+      for (final ray in result.rays) {
+        final nearPt = distCalc.offset(result.observer, minRangeM, ray.bearingDeg);
+        // ירוק אם הכיוון "נראה" לדופלר, כתום אם כל הכיוון עיוור לו (ר' doppler_ok)
+        final nearColor = ray.dopplerOk ? const Color(0xFF44CC44) : const Color(0xFFFF9500);
+        spokes.add(Polyline(points: [nearPt, ray.point], color: nearColor, strokeWidth: 3));
+        if (ray.blocked) {
+          // אדום — ממשיך מהנקודה הרחוקה ביותר בטווח המכ"ם עד סוף הטווח המבוקש
+          final farPt = distCalc.offset(result.observer, rangeM, ray.bearingDeg);
+          spokes.add(Polyline(points: [ray.point, farPt], color: const Color(0xFFFF4444), strokeWidth: 3));
+        }
+      }
+      layers.add(PolylineLayer(polylines: spokes));
+    }
+
+    layers.add(CircleLayer(circles: [
+      CircleMarker(point: obs, radius: 9, color: const Color(0xFF22D3EE),
           borderColor: const Color(0xFF333333), borderStrokeWidth: 2),
     ]));
 
@@ -1354,6 +1479,12 @@ class _MapScreenState extends State<MapScreen> {
     if (state.radialLosMode) {
       if (state.radialLosLoading) return; // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
       state.setRadialLosObserver(point);
+      return;
+    }
+    // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי
+    if (state.radarMode) {
+      if (state.radarLoading) return;
+      state.setRadarObserver(point);
       return;
     }
     // מצב LOS גובר על כל שאר הפעולות — לחיצה מוסיפה תצפית או מריצה חישוב
@@ -2197,7 +2328,465 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   }
 }
 
+// ── כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד. אותו דפוס בדיוק כמו ──
+// _RadialLosPanel (אייקון-תחילה, פאנל נפתח רק בבחירה), אך עם 22 שדות (4 קבוצות: גיאומטריה/
+// משוואת מכ"ם/דופלר/תפוצה+סוג אנטנה) ו"עמדות שמורות" (שמירה/טעינה מקומית, ר' MapState.saveStation).
+class _RadarDopplerPanel extends StatefulWidget {
+  const _RadarDopplerPanel({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+
+  @override
+  State<_RadarDopplerPanel> createState() => _RadarDopplerPanelState();
+}
+
+class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
+  late final TextEditingController _rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl;
+  late final TextEditingController _hAntCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl;
+  late final TextEditingController _powerCtrl, _gainCtrl, _sensCtrl;
+  late final TextEditingController _prfCtrl, _mdvCtrl, _speedCtrl, _headingCtrl;
+  late final TextEditingController _boresightCtrl, _maxScanCtrl;
+  final _stationNameCtrl = TextEditingController();
+  List<Map<String, dynamic>> _stations = [];
+  String? _selectedStation;
+
+  static const List<double> _rcsOptions = [0.01, 0.1, 2, 50];
+  static const List<String> _rcsLabels = ['רחפן קטן (0.01 מ"ר)', 'מל"ט בינוני (0.1 מ"ר)', 'מטוס קל (2 מ"ר)', 'מטוס תובלה (50 מ"ר)'];
+  static const List<double> _freqOptions = [1300, 3000, 10000];
+  static const List<String> _freqLabels = ['L-band (1.3 GHz)', 'S-band (3 GHz)', 'X-band (10 GHz)'];
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.state;
+    _rangeCtrl = TextEditingController(text: _fmt(s.radarRangeKm));
+    _minRangeCtrl = TextEditingController(text: _fmt(s.radarMinRangeKm));
+    _stepCtrl = TextEditingController(text: _fmt(s.radarAngleStepDeg));
+    _startCtrl = TextEditingController(text: _fmt(s.radarStartBearingDeg));
+    _endCtrl = TextEditingController(text: _fmt(s.radarEndBearingDeg));
+    _hAntCtrl = TextEditingController(text: _fmt(s.radarHAntenna));
+    _marginCtrl = TextEditingController(text: _fmt(s.radarRidgeMarginDeg));
+    _vCenterCtrl = TextEditingController(text: _fmt(s.radarVCenterDeg));
+    _vWidthCtrl = TextEditingController(text: _fmt(s.radarVWidthDeg));
+    _powerCtrl = TextEditingController(text: _fmt(s.radarPowerKw));
+    _gainCtrl = TextEditingController(text: _fmt(s.radarGainDbi));
+    _sensCtrl = TextEditingController(text: _fmt(s.radarSensitivityDbm));
+    _prfCtrl = TextEditingController(text: _fmt(s.radarPrfHz));
+    _mdvCtrl = TextEditingController(text: _fmt(s.radarMdvKt));
+    _speedCtrl = TextEditingController(text: _fmt(s.radarTargetSpeedKt));
+    _headingCtrl = TextEditingController(text: _fmt(s.radarTargetHeadingDeg));
+    _boresightCtrl = TextEditingController(text: _fmt(s.radarBoresightDeg));
+    _maxScanCtrl = TextEditingController(text: _fmt(s.radarMaxScanDeg));
+    _refreshStations();
+  }
+
+  String _fmt(double v) => v.toStringAsFixed(1);
+
+  @override
+  void didUpdateWidget(covariant _RadarDopplerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // גרירת ידית על המפה משנה את השדות מבחוץ — מסנכרן בלי לדרוס הקלדה פעילה (כמו ב-_RadialLosPanel)
+    _syncIfNeeded(_rangeCtrl, widget.state.radarRangeKm);
+    _syncIfNeeded(_startCtrl, widget.state.radarStartBearingDeg);
+    _syncIfNeeded(_endCtrl, widget.state.radarEndBearingDeg);
+  }
+
+  void _syncIfNeeded(TextEditingController ctrl, double value) {
+    final parsed = double.tryParse(ctrl.text);
+    if (parsed == null || (parsed - value).abs() > 0.05) ctrl.text = _fmt(value);
+  }
+
+  // מסנכרן את כל הבקרים מה-state הנוכחי — נקרא אחרי טעינת עמדה שמורה (כל השדות משתנים בבת אחת)
+  void _syncAllControllers() {
+    final s = widget.state;
+    _rangeCtrl.text = _fmt(s.radarRangeKm);
+    _minRangeCtrl.text = _fmt(s.radarMinRangeKm);
+    _stepCtrl.text = _fmt(s.radarAngleStepDeg);
+    _startCtrl.text = _fmt(s.radarStartBearingDeg);
+    _endCtrl.text = _fmt(s.radarEndBearingDeg);
+    _hAntCtrl.text = _fmt(s.radarHAntenna);
+    _marginCtrl.text = _fmt(s.radarRidgeMarginDeg);
+    _vCenterCtrl.text = _fmt(s.radarVCenterDeg);
+    _vWidthCtrl.text = _fmt(s.radarVWidthDeg);
+    _powerCtrl.text = _fmt(s.radarPowerKw);
+    _gainCtrl.text = _fmt(s.radarGainDbi);
+    _sensCtrl.text = _fmt(s.radarSensitivityDbm);
+    _prfCtrl.text = _fmt(s.radarPrfHz);
+    _mdvCtrl.text = _fmt(s.radarMdvKt);
+    _speedCtrl.text = _fmt(s.radarTargetSpeedKt);
+    _headingCtrl.text = _fmt(s.radarTargetHeadingDeg);
+    _boresightCtrl.text = _fmt(s.radarBoresightDeg);
+    _maxScanCtrl.text = _fmt(s.radarMaxScanDeg);
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _hAntCtrl, _marginCtrl,
+        _vCenterCtrl, _vWidthCtrl, _powerCtrl, _gainCtrl, _sensCtrl, _prfCtrl, _mdvCtrl, _speedCtrl,
+        _headingCtrl, _boresightCtrl, _maxScanCtrl, _stationNameCtrl]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 52,
+            height: 26,
+            child: TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) {
+                final d = double.tryParse(v);
+                if (d == null) return;
+                widget.state.updateRadarParam(() => onChanged(d));
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // שורת כותרת קבוצה קטנה — מפרידה חזותית בין 4 קבוצות הפרמטרים, כמו ב-Desktop (_mkHeader)
+  Widget _header(String text) {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 3, bottom: 1),
+      child: Container(
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: cs.outlineVariant, width: 0.5))),
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(text, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant)),
+      ),
+    );
+  }
+
+  Widget _dropdownRow<T>(String label, T value, List<T> options, List<String> labels, void Function(T) onChanged) {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
+          const SizedBox(width: 4),
+          DropdownButton<T>(
+            value: value,
+            isDense: true,
+            style: TextStyle(fontSize: 9, color: cs.onSurface),
+            underline: const SizedBox.shrink(),
+            items: [for (int i = 0; i < options.length; i++) DropdownMenuItem(value: options[i], child: Text(labels[i]))],
+            onChanged: (v) { if (v != null) widget.state.updateRadarParam(() => onChanged(v)); },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshStations() async {
+    final list = await widget.state.loadStations('radar_doppler');
+    if (!mounted) return;
+    setState(() { _stations = list; _selectedStation = null; });
+  }
+
+  // כל 22 הפרמטרים + מיקום — אותם שמות שדה בדיוק כמו ב-Desktop (weather_server.py), לעקביות
+  Map<String, dynamic> _paramsFromState() {
+    final s = widget.state;
+    return {
+      'lat': s.radarObs?.latitude, 'lon': s.radarObs?.longitude,
+      'range_km': s.radarRangeKm, 'min_range_km': s.radarMinRangeKm, 'angle_step_deg': s.radarAngleStepDeg,
+      'start_bearing_deg': s.radarStartBearingDeg, 'end_bearing_deg': s.radarEndBearingDeg,
+      'h_antenna': s.radarHAntenna, 'ridge_margin_deg': s.radarRidgeMarginDeg,
+      'vertical_center_deg': s.radarVCenterDeg, 'vertical_width_deg': s.radarVWidthDeg,
+      'power_kw': s.radarPowerKw, 'gain_dbi': s.radarGainDbi, 'freq_mhz': s.radarFreqMhz,
+      'sensitivity_dbm': s.radarSensitivityDbm, 'rcs_m2': s.radarRcsM2,
+      'prf_hz': s.radarPrfHz, 'mdv_kt': s.radarMdvKt, 'target_speed_kt': s.radarTargetSpeedKt,
+      'target_heading_deg': s.radarTargetHeadingDeg,
+      'lobing_enabled': s.radarLobingEnabled, 'reflectivity': s.radarReflectivity,
+      'antenna_type': s.radarAntennaType, 'boresight_deg': s.radarBoresightDeg, 'max_scan_deg': s.radarMaxScanDeg,
+    };
+  }
+
+  Future<void> _saveStation() async {
+    final name = _stationNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    await widget.state.saveStation('radar_doppler', name, _paramsFromState());
+    _stationNameCtrl.clear();
+    await _refreshStations();
+  }
+
+  void _loadStation(Map<String, dynamic> station) {
+    final params = (station['params'] as Map).cast<String, dynamic>();
+    final s = widget.state;
+    double d(String key, double fallback) => params[key] != null ? (params[key] as num).toDouble() : fallback;
+    s.updateRadarParam(() {
+      s.radarRangeKm = d('range_km', s.radarRangeKm);
+      s.radarMinRangeKm = d('min_range_km', s.radarMinRangeKm);
+      s.radarAngleStepDeg = d('angle_step_deg', s.radarAngleStepDeg);
+      s.radarStartBearingDeg = d('start_bearing_deg', s.radarStartBearingDeg);
+      s.radarEndBearingDeg = d('end_bearing_deg', s.radarEndBearingDeg);
+      s.radarHAntenna = d('h_antenna', s.radarHAntenna);
+      s.radarRidgeMarginDeg = d('ridge_margin_deg', s.radarRidgeMarginDeg);
+      s.radarVCenterDeg = d('vertical_center_deg', s.radarVCenterDeg);
+      s.radarVWidthDeg = d('vertical_width_deg', s.radarVWidthDeg);
+      s.radarPowerKw = d('power_kw', s.radarPowerKw);
+      s.radarGainDbi = d('gain_dbi', s.radarGainDbi);
+      s.radarFreqMhz = d('freq_mhz', s.radarFreqMhz);
+      s.radarSensitivityDbm = d('sensitivity_dbm', s.radarSensitivityDbm);
+      s.radarRcsM2 = d('rcs_m2', s.radarRcsM2);
+      s.radarPrfHz = d('prf_hz', s.radarPrfHz);
+      s.radarMdvKt = d('mdv_kt', s.radarMdvKt);
+      s.radarTargetSpeedKt = d('target_speed_kt', s.radarTargetSpeedKt);
+      s.radarTargetHeadingDeg = d('target_heading_deg', s.radarTargetHeadingDeg);
+      if (params['lobing_enabled'] != null) s.radarLobingEnabled = params['lobing_enabled'] as bool;
+      if (params['reflectivity'] != null) s.radarReflectivity = params['reflectivity'] as String;
+      if (params['antenna_type'] != null) s.radarAntennaType = params['antenna_type'] as String;
+      s.radarBoresightDeg = d('boresight_deg', s.radarBoresightDeg);
+      s.radarMaxScanDeg = d('max_scan_deg', s.radarMaxScanDeg);
+    });
+    if (params['lat'] != null && params['lon'] != null) {
+      s.setRadarObserver(LatLng((params['lat'] as num).toDouble(), (params['lon'] as num).toDouble()));
+    }
+    _syncAllControllers();
+  }
+
+  Future<void> _deleteStation(String name) async {
+    await widget.state.deleteStation('radar_doppler', name);
+    await _refreshStations();
+  }
+
+  // שורת "עמדות שמורות" — שם+שמירה, ואז dropdown+טעינה/מחיקה, אותו רעיון כמו _buildStationUI ב-Desktop
+  Widget _stationUI() {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 26,
+              child: TextField(
+                controller: _stationNameCtrl,
+                style: const TextStyle(fontSize: 10),
+                decoration: const InputDecoration(
+                  isDense: true, hintText: 'שם עמדה',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _saveStation, icon: const Icon(Icons.save, size: 16),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            tooltip: 'שמור עמדה נוכחית',
+          ),
+        ]),
+        if (_stations.isNotEmpty)
+          Row(children: [
+            Expanded(
+              child: DropdownButton<String>(
+                value: _selectedStation,
+                isDense: true, isExpanded: true,
+                hint: Text('בחר עמדה שמורה', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                style: TextStyle(fontSize: 9, color: cs.onSurface),
+                underline: const SizedBox.shrink(),
+                items: [for (final st in _stations) DropdownMenuItem(value: st['name'] as String, child: Text(st['name'] as String))],
+                onChanged: (v) => setState(() => _selectedStation = v),
+              ),
+            ),
+            IconButton(
+              onPressed: _selectedStation == null ? null : () {
+                final st = _stations.firstWhere((s) => s['name'] == _selectedStation);
+                _loadStation(st);
+              },
+              icon: const Icon(Icons.folder_open, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'טען עמדה נבחרת',
+            ),
+            IconButton(
+              onPressed: _selectedStation == null ? null : () => _deleteStation(_selectedStation!),
+              icon: const Icon(Icons.delete_outline, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'מחק עמדה נבחרת',
+            ),
+          ]),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs;
+    final s = widget.state;
+
+    if (!s.radarMode) {
+      // מצב כבוי — עיגול אייקון בלבד, כמו _RadialLosPanel
+      return Material(
+        color: cs.surface.withAlpha(230),
+        shape: const CircleBorder(),
+        elevation: 3,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: s.toggleRadarMode,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.track_changes, size: 20, color: cs.onSurface), // 🎯 אייקון שונה מ-radar (רדיוס-ראייה)
+          ),
+        ),
+      );
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: cs.surface.withAlpha(240),
+        borderRadius: BorderRadius.circular(10),
+        elevation: 4,
+        child: Container(
+          width: 210,
+          padding: const EdgeInsets.all(8),
+          // אין הגבלת/גלילת גובה כאן בכוונה — הגלילה מטופלת ברמת ה-Positioned המשולב עם
+          // רדיוס-הראייה ב-map_screen.dart (build), כדי שלא יהיו שני ScrollView מקוננים
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.track_changes, size: 15, color: cs.primary),
+                      const SizedBox(width: 4),
+                      Text('תצפית מכ"ם דופלר', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                    ]),
+                    InkWell(
+                      onTap: s.toggleRadarMode,
+                      child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                if (s.radarObs == null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('הקש על המפה למיקום המשקיף',
+                        style: TextStyle(fontSize: 10, color: cs.primary), textAlign: TextAlign.center),
+                  ),
+                _header('גיאומטריה'),
+                _field('טווח (ק"מ, עד 300)', _rangeCtrl, (v) => s.radarRangeKm = v),
+                _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radarMinRangeKm = v),
+                _field('צעד זווית (°)', _stepCtrl, (v) => s.radarAngleStepDeg = v),
+                _field('אזימוט התחלה (°)', _startCtrl, (v) => s.radarStartBearingDeg = v),
+                _field('אזימוט סיום (°)', _endCtrl, (v) => s.radarEndBearingDeg = v),
+                _field('גובה אנטנה (מ\')', _hAntCtrl, (v) => s.radarHAntenna = v),
+                _field('מרווח רכס (°)', _marginCtrl, (v) => s.radarRidgeMarginDeg = v),
+                _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radarVCenterDeg = v),
+                _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radarVWidthDeg = v),
+
+                _header('משוואת מכ"ם — טווח גילוי'),
+                _field('הספק שידור (קילוואט)', _powerCtrl, (v) => s.radarPowerKw = v),
+                _field('רווח אנטנה (dBi)', _gainCtrl, (v) => s.radarGainDbi = v),
+                _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, _freqOptions, _freqLabels, (v) => s.radarFreqMhz = v),
+                _field('רגישות מקלט (dBm)', _sensCtrl, (v) => s.radarSensitivityDbm = v),
+                _dropdownRow<double>('סוג מטרה (RCS)', s.radarRcsM2, _rcsOptions, _rcsLabels, (v) => s.radarRcsM2 = v),
+
+                _header('סוג אנטנה'),
+                _dropdownRow<String>('סוג אנטנה', s.radarAntennaType, const ['generic', 'phased_array'],
+                    const ['גנרי (רווח אחיד)', 'מערך-מופעים'], (v) => s.radarAntennaType = v),
+                if (s.radarAntennaType == 'phased_array') ...[
+                  _field('כיוון-פנים (°)', _boresightCtrl, (v) => s.radarBoresightDeg = v),
+                  _field('זווית סריקה מקסימלית (°)', _maxScanCtrl, (v) => s.radarMaxScanDeg = v),
+                ],
+
+                _header('דופלר — האם התנועה מתגלה'),
+                _field('תדר חזרת פולסים (Hz)', _prfCtrl, (v) => s.radarPrfHz = v),
+                _field('מהירות מינימלית לגילוי (קשר)', _mdvCtrl, (v) => s.radarMdvKt = v),
+                _field('מהירות המטרה (קשר)', _speedCtrl, (v) => s.radarTargetSpeedKt = v),
+                _field('כיוון תנועת המטרה (°)', _headingCtrl, (v) => s.radarTargetHeadingDeg = v),
+
+                _header('תפוצה — השתקפות קרקע/ים'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 1.5),
+                  child: Row(children: [
+                    Expanded(child: Text('הצג השפעת ריבוד (lobing)', style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
+                    Switch(
+                      value: s.radarLobingEnabled,
+                      onChanged: (v) => s.updateRadarParam(() => s.radarLobingEnabled = v),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ]),
+                ),
+                _dropdownRow<String>('סוג משטח מחזיר', s.radarReflectivity, const ['land', 'sea'],
+                    const ['יבשה מחוספסת', 'ים חלק'], (v) => s.radarReflectivity = v),
+
+                _header('עמדות שמורות'),
+                _stationUI(),
+
+                const SizedBox(height: 4),
+                if (s.radarLoading) ...[
+                  Text(
+                    s.radarBatchesTotal > 0 ? 'מחשב... ${s.radarBatchesDone}/${s.radarBatchesTotal}' : 'מתחיל חישוב...',
+                    style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonal(
+                      onPressed: s.cancelRadarDoppler,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer, visualDensity: VisualDensity.compact),
+                      child: const Text('בטל', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                ] else ...[
+                  if (s.radarError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(s.radarError!, style: TextStyle(fontSize: 9.5, color: cs.error), textAlign: TextAlign.center),
+                    ),
+                  if (s.radarResult != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '${s.radarResult!.rangeKm.toStringAsFixed(0)} ק"מ, ${s.radarResult!.nBearings} כיוונים, '
+                        '${s.radarResult!.clearCount} מזוהים, ${s.radarResult!.dopplerBlockedRays} חסומי-דופלר',
+                        style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonal(
+                      onPressed: s.radarObs != null ? s.runRadarDoppler : null,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF22D3EE), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
+                      child: const Text('הפעל חישוב', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── מקרא שכבת NOTAM רחפנים ─────────────────────────────────
+
 // מקרא דינמי — שורת צבע+תווית לכל קטגוריה שמסומנת כרגע (ולא רשימה קבועה של קטגוריה אחת)
 class _UasNotamLegend extends StatelessWidget {
   const _UasNotamLegend({required this.activeCategories});

@@ -1,3 +1,4 @@
+import json  # קריאה/כתיבה של קובץ "עמדות שמורות" (saved_stations.json)
 import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ
 import time  # השהיות בין ניסיונות חוזרים ובין batches
@@ -856,6 +857,15 @@ _RADAR_REFLECTIVITY = {'land': 0.5, 'sea': 0.9}  # מקדם החזרה מפוש�
 _RADAR_REFLECTIVITY_DEFAULT = 'land'
 _RADAR_JOB_TTL_SEC = 600  # ניקוי jobs ישנים אחרי 10 דק', כמו _RADIAL_JOB_TTL_SEC
 
+# ── סוג אנטנה: גנרי (רווח קבוע לכל אזימוט) מול מערך-מופעים (phased array) — נבחר ע"י המשתמש בפאנל ──
+# מכ"ם מערך-מופעים אמיתי מנווט את הקרן אלקטרונית מסביב לכיוון-פנים קבוע (boresight) — הרווח האפקטיבי
+# יורד ככל שמסטים מכיוון הפנים (הפסד סריקה, "cosine loss"), ומעבר לזווית סריקה מקסימלית (טיפוסית ~60°)
+# האנטנה כלל לא מכסה את הכיוון הזה. גנרי = בלי אף אחת מהתופעות האלה (רווח אחיד בכל הכיוונים).
+_RADAR_ANTENNA_TYPES = ('generic', 'phased_array')
+_RADAR_ANTENNA_TYPE_DEFAULT = 'generic'
+_RADAR_BORESIGHT_DEG_DEFAULT = 0.0  # כיוון-פנים של המערך — צפונה כברירת מחדל
+_RADAR_MAX_SCAN_DEG_DEFAULT, _RADAR_MAX_SCAN_DEG_MIN, _RADAR_MAX_SCAN_DEG_MAX = 60.0, 5.0, 180.0  # זווית סריקה מקסימלית מכיוון הפנים
+
 
 def _radar_max_range_m(power_kw, gain_dbi, freq_mhz, rcs_m2, sensitivity_dbm, losses_db=_RADAR_SYSTEM_LOSSES_DB):
     """טווח גילוי מקסימלי לפי משוואת המכ"ם הסטנדרטית (monostatic):
@@ -907,6 +917,23 @@ def _max_unambiguous_range_m(prf_hz):
     return 299792458.0 / (2.0 * prf_hz)
 
 
+def _angular_diff_deg(a, b):
+    """הפרש הזוויות הקצר ביותר בין שתי מעלות (0-180) — למשל בין 350° ל-10° ההפרש הוא 20°, לא 340°."""
+    d = abs(a - b) % 360
+    return min(d, 360 - d)
+
+
+def _scan_loss_factor(bearing_deg, boresight_deg, max_scan_deg):
+    """גורם הפסד-סריקה למכ"ם מערך-מופעים — הרווח האפקטיבי יורד ככל שמסטים את הקרן
+    האלקטרונית הרחק מכיוון-הפנים (boresight), ומעבר לזווית הסריקה המקסימלית האנטנה
+    כלל לא מכסה את הכיוון (מחזיר 0.0). R_max תלוי ב-G² בתוך שורש רביעי — כלומר R∝G^0.5 —
+    ולכן ההפסד על הטווח (לא על הרווח עצמו) הוא שורש של הפסד ה-cosine הסטנדרטי."""
+    scan_angle = _angular_diff_deg(bearing_deg, boresight_deg)
+    if scan_angle > max_scan_deg:
+        return 0.0  # מחוץ לתחום הסריקה של המערך — לא מכוסה כלל, לא רק מוחלש
+    return math.sqrt(math.cos(math.radians(scan_angle)))
+
+
 # job ברקע + polling + ביטול — אותו דפוס בדיוק כמו רדיוס-ראייה רדיאלי (_radial_jobs למעלה),
 # אבל ב-dict נפרד לגמרי, כדי ששני סוגי החישובים יוכלו לרוץ בו-זמנית בלי להתנגש
 _radar_jobs = {}  # job_id -> dict מצב (status/batches_done/batches_total/result/error/cancelled/created)
@@ -929,7 +956,8 @@ def _radar_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bear
                    h_antenna, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg,
                    power_kw, gain_dbi, freq_mhz, rcs_m2, sensitivity_dbm,
                    prf_hz, mdv_kt, target_speed_kt, target_heading_deg,
-                   lobing_enabled, reflectivity_key):
+                   lobing_enabled, reflectivity_key,
+                   antenna_type, boresight_deg, max_scan_deg):
     """רץ ב-thread נפרד (daemon) — כל החישוב הכבד. מבנה זהה ל-_radial_worker (שלבים
     1-6: גובה משקיף, בניית כיוונים, צפיפות דגימה, בניית נקודות, שליפת גבהים ב-batches),
     ושלב 7 חדש: לכל קרן — בדיקת חסימת שטח (ratchet) + טווח מכ"ם/ריבוד (תלוי-נקודה) +
@@ -1020,6 +1048,10 @@ def _radar_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bear
             # לפי הזווית בין כיוון התנועה של המטרה לבין קו-הראייה מהמשקיף לאזימוט הזה
             radial_speed_ms = abs(target_speed_ms * math.cos(math.radians(target_heading_deg - bearing)))
             doppler_ok = _doppler_detectable(radial_speed_ms, mdv_ms, wavelength_m, prf_hz)
+            # הפסד-סריקה של מערך-מופעים — קבוע לאורך כל הקרן (תלוי רק באזימוט מול כיוון-הפנים), כמו הדופלר;
+            # 1.0 עבור אנטנה גנרית (בלי תופעת סריקה בכלל)
+            ray_scan_loss = (_scan_loss_factor(bearing, boresight_deg, max_scan_deg)
+                              if antenna_type == 'phased_array' else 1.0)
 
             ray_points = all_points[ray_idx * samples_per_ray:(ray_idx + 1) * samples_per_ray]  # נקודות הדגימה של הקרן הזו
             ray_elevs = elevations[ray_idx * samples_per_ray:(ray_idx + 1) * samples_per_ray]  # הגבהים המקבילים
@@ -1047,6 +1079,7 @@ def _radar_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bear
                     ceiling = radar_ceiling_m * _lobing_factor(elev_angle_deg, h_antenna, wavelength_m, reflectivity)
                 else:
                     ceiling = radar_ceiling_m  # ריבוד כבוי — התקרה הנקייה בלבד
+                ceiling *= ray_scan_loss  # הפסד-סריקה של מערך-מופעים (1.0 אם גנרי/בתוך תחום הסריקה המלא)
                 if d <= ceiling:
                     radar_dist_m = d
                     radar_lat, radar_lon = surviving[i][0]['lat'], surviving[i][0]['lon']
@@ -1081,6 +1114,7 @@ def _radar_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bear
             'prf_hz': prf_hz, 'mdv_kt': mdv_kt, 'target_speed_kt': target_speed_kt,
             'target_heading_deg': target_heading_deg,
             'lobing_enabled': lobing_enabled, 'reflectivity_key': reflectivity_key,
+            'antenna_type': antenna_type, 'boresight_deg': boresight_deg, 'max_scan_deg': max_scan_deg,
             'clear_count': clear_count, 'doppler_blocked_rays': doppler_blocked_rays,
             'failed_rays': failed_rays, 'rays': rays,
         }
@@ -1213,6 +1247,20 @@ def start_radar_doppler():
     if reflectivity_key not in _RADAR_REFLECTIVITY:
         reflectivity_key = _RADAR_REFLECTIVITY_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
 
+    antenna_type = request.args.get('antenna_type', _RADAR_ANTENNA_TYPE_DEFAULT)
+    if antenna_type not in _RADAR_ANTENNA_TYPES:
+        antenna_type = _RADAR_ANTENNA_TYPE_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
+    try:
+        boresight_deg = float(request.args.get('boresight_deg', _RADAR_BORESIGHT_DEG_DEFAULT))
+    except (TypeError, ValueError):
+        boresight_deg = _RADAR_BORESIGHT_DEG_DEFAULT
+    boresight_deg = boresight_deg % 360  # מנרמל כל ערך (כולל שלילי) לטווח 0-360
+    try:
+        max_scan_deg = float(request.args.get('max_scan_deg', _RADAR_MAX_SCAN_DEG_DEFAULT))
+    except (TypeError, ValueError):
+        max_scan_deg = _RADAR_MAX_SCAN_DEG_DEFAULT
+    max_scan_deg = min(max(max_scan_deg, _RADAR_MAX_SCAN_DEG_MIN), _RADAR_MAX_SCAN_DEG_MAX)
+
     job_id = str(uuid.uuid4())  # מזהה ייחודי ל-job הזה
     with _radar_jobs_lock:
         _cleanup_old_radar_jobs()  # ניקוי jobs ישנים לפני הוספת חדש — מונע דליפת זיכרון
@@ -1226,7 +1274,8 @@ def start_radar_doppler():
               h_antenna, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg,
               power_kw, gain_dbi, freq_mhz, rcs_m2, sensitivity_dbm,
               prf_hz, mdv_kt, target_speed_kt, target_heading_deg,
-              lobing_enabled, reflectivity_key),
+              lobing_enabled, reflectivity_key,
+              antenna_type, boresight_deg, max_scan_deg),
         daemon=True,  # daemon — לא מונע יציאה מהתהליך אם השרת נסגר תוך כדי ריצה
     )
     thread.start()
@@ -1254,6 +1303,86 @@ def cancel_radar_doppler():
     with _radar_jobs_lock:
         if job_id in _radar_jobs:  # מתעלם בשקט אם ה-job כבר לא קיים (למשל הסתיים/נוקה) — אין מה לבטל
             _radar_jobs[job_id]['cancelled'] = True
+    return jsonify({'ok': True})
+
+
+# ── "עמדות שמורות" — מיקום+פרמטרים ניתנים לשמירה תחת שם, לכל אחד משלושת כלי התצפית בנפרד ──
+# משותף ל-LOS/רדיוס-ראייה/מכ"ם-דופלר — לא מחזיק ידע על צורת ה-params של כל כלי, רק שומר/מחזיר
+# אותם כמו שהם (JS אחראי על התוכן). קובץ JSON שטוח פשוט (כמו weather_data.csv במקום אחר בפרויקט) —
+# לא מסד נתונים, כי כמות הנתונים קטנה וזה שימוש מקומי-בלבד של משתמש יחיד.
+_STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_stations.json')  # תמיד לצד weather_server.py, לא תלוי-תיקיית-עבודה
+_STATIONS_LOCK = threading.Lock()  # מגן על קריאה/כתיבה בו-זמנית לקובץ מכמה בקשות
+_STATIONS_MAX_PER_TOOL = 20  # תקרת עמדות שמורות לכל כלי — מונע צמיחה בלתי מוגבלת של הקובץ
+_STATIONS_VALID_TOOLS = ('los', 'radial_los', 'radar_doppler')  # מפתחות תקינים — שם JS מזהה כל כלי
+
+
+def _load_stations():
+    """קורא את קובץ העמדות השמורות — מחזיר dict ריק אם הקובץ לא קיים עדיין או פגום."""
+    if not os.path.exists(_STATIONS_FILE):
+        return {}
+    try:
+        with open(_STATIONS_FILE, encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logging.error(f"שגיאה בקריאת {_STATIONS_FILE}: {e}")
+        return {}  # קובץ פגום — מתייחסים כאילו אין עמדות שמורות, לא קורסים
+
+
+def _save_stations(data):
+    """כותב את כל מבנה העמדות השמורות בחזרה לקובץ — קריאה מלאה+כתיבה מלאה (לא append), פשוט מספיק לכמות הנתונים הקטנה."""
+    with open(_STATIONS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+@app.route("/stations/list", methods=["GET"])
+def list_stations():
+    """מחזיר את כל העמדות השמורות לכלי מסוים — [{name, params}, ...], ריק אם אין עדיין."""
+    tool = request.args.get('tool')
+    if tool not in _STATIONS_VALID_TOOLS:
+        return jsonify({'error': 'כלי לא מוכר'}), 400
+    with _STATIONS_LOCK:
+        data = _load_stations()
+    return jsonify({'stations': data.get(tool, [])})
+
+
+@app.route("/stations/save", methods=["POST"])
+def save_station():
+    """שומר/מעדכן עמדה תחת שם — אם כבר קיימת עמדה באותו שם לאותו כלי, מוחלפת (לא נוצרת כפולה)."""
+    body = request.json or {}
+    tool = body.get('tool')
+    name = (body.get('name') or '').strip()
+    params = body.get('params')
+    if tool not in _STATIONS_VALID_TOOLS:
+        return jsonify({'error': 'כלי לא מוכר'}), 400
+    if not name:
+        return jsonify({'error': 'חסר שם לעמדה'}), 400
+    if not isinstance(params, dict):
+        return jsonify({'error': 'חסרים פרמטרים'}), 400
+    with _STATIONS_LOCK:
+        data = _load_stations()
+        tool_list = data.setdefault(tool, [])
+        tool_list[:] = [s for s in tool_list if s.get('name') != name]  # מסיר עמדה קודמת באותו שם, אם קיימת — לא כפילות
+        tool_list.append({'name': name, 'params': params})
+        if len(tool_list) > _STATIONS_MAX_PER_TOOL:  # חרג מהתקרה — מוחק את הישנה ביותר (הראשונה ברשימה)
+            del tool_list[0]
+        _save_stations(data)
+    return jsonify({'ok': True})
+
+
+@app.route("/stations/delete", methods=["POST"])
+def delete_station():
+    """מוחק עמדה שמורה לפי שם — מתעלם בשקט אם השם/הכלי לא נמצאו."""
+    body = request.json or {}
+    tool = body.get('tool')
+    name = body.get('name')
+    if tool not in _STATIONS_VALID_TOOLS:
+        return jsonify({'error': 'כלי לא מוכר'}), 400
+    with _STATIONS_LOCK:
+        data = _load_stations()
+        tool_list = data.get(tool, [])
+        tool_list[:] = [s for s in tool_list if s.get('name') != name]
+        _save_stations(data)
     return jsonify({'ok': True})
 
 

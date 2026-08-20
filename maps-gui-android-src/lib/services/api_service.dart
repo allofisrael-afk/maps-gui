@@ -8,6 +8,7 @@ import '../models/los_session.dart'; // מודל נקודות ופרופיל ק�
 import '../models/city_result.dart'; // מודל תוצאת חיפוש עיר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
+import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
 import '../data/icao_glossary.dart'; // תרגום גס לעברית לטקסט NOTAM
 import '../data/notam_categories.dart'; // סיווג NOTAM ל-7 קטגוריות
 
@@ -614,6 +615,277 @@ class ApiService {
       startBearingDeg: startBearingDeg, endBearingDeg: endBearingDeg, spanDeg: span,
       nBearings: nBearings, samplesPerRay: samplesPerRay,
       clearCount: clearCount, failedRays: failedRays, rays: rays,
+    );
+  }
+
+  // ── תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד. אותו רעיון כמו רדיוס-הראייה ──
+  // (משקיף, כל האזימוטים, פוליגון גבול יחיד) עם 3 שכבות פיזיקה חדשות: משוואת מכ"ם (טווח
+  // גילוי), דופלר (מהירויות עיוורות/MDV, תלוי-אזימוט), ותפוצה (lobing, תלוי-נקודה) —
+  // בדיוק כמו /radar_doppler/* בצד Desktop (weather_server.py). RadialLosCancelToken
+  // (למעלה) משמש גם כאן — אין בו שום דבר ספציפי לרדיוס-ראייה, אין טעם בטוקן נפרד.
+  // גבולות clamp בלבד — ערכי ברירת המחדל עצמם חיים ב-map_state.dart (שדות המצב), כמו רדיוס-הראייה
+  static const double _radarPowerKwMin = 0.1, _radarPowerKwMax = 5000.0;
+  static const double _radarGainDbiMin = 0.0, _radarGainDbiMax = 50.0;
+  static const double _radarFreqMhzMin = 100.0, _radarFreqMhzMax = 20000.0;
+  static const double _radarSensitivityDbmMin = -140.0, _radarSensitivityDbmMax = -60.0;
+  static const double _radarSystemLossesDb = 6.0; // קבוע, לא נחשף כשדה
+  static const double _radarRcsM2Min = 0.001, _radarRcsM2Max = 1000.0;
+
+  static const double _radarPrfHzMin = 50.0, _radarPrfHzMax = 20000.0;
+  static const double _radarMdvKtMin = 0.0, _radarMdvKtMax = 200.0;
+  static const double _radarTargetSpeedKtMin = 0.0, _radarTargetSpeedKtMax = 1500.0;
+  static const double _radarBlindSpeedToleranceFrac = 0.05;
+  static const double _ktToMs = 0.514444;
+
+  static const Map<String, double> _radarReflectivity = {'land': 0.5, 'sea': 0.9};
+  static const String _radarReflectivityDefault = 'land';
+
+  static const List<String> _radarAntennaTypes = ['generic', 'phased_array'];
+  static const String _radarAntennaTypeDefault = 'generic';
+  static const double _radarMaxScanMin = 5.0, _radarMaxScanMax = 180.0;
+
+  static const double _speedOfLight = 299792458.0;
+
+  /// טווח גילוי מקסימלי לפי משוואת המכ"ם הסטנדרטית — זהה בדיוק ל-_radar_max_range_m בפייתון.
+  static double _radarMaxRangeM(double powerKw, double gainDbi, double freqMhz, double rcsM2, double sensitivityDbm,
+      {double lossesDb = _radarSystemLossesDb}) {
+    final pt = powerKw * 1000.0;
+    final g = pow(10, gainDbi / 10.0);
+    final wavelengthM = _speedOfLight / (freqMhz * 1e6);
+    final pMin = pow(10, (sensitivityDbm - 30) / 10.0);
+    final l = pow(10, lossesDb / 10.0);
+    final numerator = pt * (g * g) * (wavelengthM * wavelengthM) * rcsM2;
+    final denominator = pow(4 * pi, 3) * pMin * l;
+    if (numerator <= 0 || denominator <= 0) return 0.0;
+    return pow(numerator / denominator, 0.25).toDouble();
+  }
+
+  /// גורם עוצמת "ריבוד" (multipath lobing) — זהה בדיוק ל-_lobing_factor בפייתון.
+  static double _lobingFactor(double elevationAngleDeg, double hAntennaM, double wavelengthM, double reflectivity) {
+    final thetaRad = elevationAngleDeg * pi / 180;
+    final deltaPhi = (4 * pi * hAntennaM * sin(thetaRad)) / wavelengthM;
+    final real = 1 + reflectivity * cos(deltaPhi);
+    final imag = reflectivity * sin(deltaPhi);
+    return sqrt(real * real + imag * imag);
+  }
+
+  /// True אם מהירות רדיאלית נתונה תתגלה ע"י מכ"ם דופלר — זהה בדיוק ל-_doppler_detectable בפייתון.
+  static bool _dopplerDetectable(double radialSpeedMs, double mdvMs, double wavelengthM, double prfHz,
+      {double toleranceFrac = _radarBlindSpeedToleranceFrac}) {
+    if (radialSpeedMs < mdvMs) return false;
+    final vBlindUnit = wavelengthM * prfHz / 2.0;
+    if (vBlindUnit <= 0) return true;
+    final n = (radialSpeedMs / vBlindUnit).round();
+    if (n >= 1 && (radialSpeedMs - n * vBlindUnit).abs() <= toleranceFrac * (n * vBlindUnit)) return false;
+    return true;
+  }
+
+  /// טווח לא-חד-משמעי מקסימלי — זהה בדיוק ל-_max_unambiguous_range_m בפייתון.
+  static double _maxUnambiguousRangeM(double prfHz) => _speedOfLight / (2.0 * prfHz);
+
+  /// הפרש הזוויות הקצר ביותר בין שתי מעלות (0-180) — זהה בדיוק ל-_angular_diff_deg בפייתון.
+  static double _angularDiffDeg(double a, double b) {
+    final d = (a - b).abs() % 360;
+    return min(d, 360 - d);
+  }
+
+  /// גורם הפסד-סריקה למכ"ם מערך-מופעים — זהה בדיוק ל-_scan_loss_factor בפייתון.
+  static double _scanLossFactor(double bearingDeg, double boresightDeg, double maxScanDeg) {
+    final scanAngle = _angularDiffDeg(bearingDeg, boresightDeg);
+    if (scanAngle > maxScanDeg) return 0.0;
+    return sqrt(cos(scanAngle * pi / 180));
+  }
+
+  /// מחשב תצפית מכ"ם דופלר מלאה — אותו מבנה בדיוק כמו fetchRadialLos (שלבים 1-5 זהים:
+  /// גובה משקיף, בניית כיוונים, צפיפות דגימה, בניית נקודות, שליפת גבהים ב-batches),
+  /// ושלב 6 שונה: לכל קרן — חסימת שטח (ratchet) + טווח מכ"ם/ריבוד (תלוי-נקודה) +
+  /// דופלר+הפסד-סריקה (תלוי-אזימוט בלבד, קבוע לאורך כל קרן).
+  static Future<RadarDopplerResult?> fetchRadarDoppler({
+    required LatLng observer,
+    required double rangeKm,
+    required double minRangeKm,
+    required double angleStepDeg,
+    required double startBearingDeg,
+    required double endBearingDeg,
+    required double hAntenna,
+    required double ridgeMarginDeg,
+    required double verticalCenterDeg,
+    required double verticalWidthDeg,
+    required double powerKw,
+    required double gainDbi,
+    required double freqMhz,
+    required double rcsM2,
+    required double sensitivityDbm,
+    required double prfHz,
+    required double mdvKt,
+    required double targetSpeedKt,
+    required double targetHeadingDeg,
+    required bool lobingEnabled,
+    required String reflectivityKey,
+    required String antennaType,
+    required double boresightDeg,
+    required double maxScanDeg,
+    void Function(int done, int total)? onProgress,
+    RadialLosCancelToken? cancelToken,
+  }) async {
+    rangeKm = _clampD(rangeKm, _radialRangeKmMin, _radialRangeKmMax); // גבולות גיאומטריים גנריים משותפים עם רדיוס-הראייה
+    minRangeKm = _clampD(minRangeKm, 0.0, rangeKm);
+    angleStepDeg = _clampD(angleStepDeg, _radialAngleStepMin, _radialAngleStepMax);
+    ridgeMarginDeg = _clampD(ridgeMarginDeg, _radialRidgeMarginMin, _radialRidgeMarginMax);
+    verticalCenterDeg = _clampD(verticalCenterDeg, _radialVCenterMin, _radialVCenterMax);
+    verticalWidthDeg = _clampD(verticalWidthDeg, _radialVWidthMin, _radialVWidthMax);
+    powerKw = _clampD(powerKw, _radarPowerKwMin, _radarPowerKwMax);
+    gainDbi = _clampD(gainDbi, _radarGainDbiMin, _radarGainDbiMax);
+    freqMhz = _clampD(freqMhz, _radarFreqMhzMin, _radarFreqMhzMax);
+    rcsM2 = _clampD(rcsM2, _radarRcsM2Min, _radarRcsM2Max);
+    sensitivityDbm = _clampD(sensitivityDbm, _radarSensitivityDbmMin, _radarSensitivityDbmMax);
+    prfHz = _clampD(prfHz, _radarPrfHzMin, _radarPrfHzMax);
+    mdvKt = _clampD(mdvKt, _radarMdvKtMin, _radarMdvKtMax);
+    targetSpeedKt = _clampD(targetSpeedKt, _radarTargetSpeedKtMin, _radarTargetSpeedKtMax);
+    targetHeadingDeg = targetHeadingDeg % 360;
+    if (!_radarAntennaTypes.contains(antennaType)) antennaType = _radarAntennaTypeDefault;
+    boresightDeg = boresightDeg % 360;
+    maxScanDeg = _clampD(maxScanDeg, _radarMaxScanMin, _radarMaxScanMax);
+    if (!_radarReflectivity.containsKey(reflectivityKey)) reflectivityKey = _radarReflectivityDefault;
+
+    final rangeM = rangeKm * 1000.0;
+    final minRangeM = minRangeKm * 1000.0;
+    const distCalc = Distance();
+
+    // שלב 1: גובה המשקיף/אנטנה — בנפרד, נכשל-מהר אם לא זמין
+    final obsElevs = await _fetchRadialElevChunk([observer]);
+    if (obsElevs.isEmpty || obsElevs[0] == null) {
+      throw Exception('לא ניתן לשלוף את גובה המשקיף');
+    }
+    final observerElev = obsElevs[0]!;
+    final hObs = observerElev + hAntenna;
+
+    // שלב 2: פיזיקת מכ"ם/דופלר שלא תלויה בגיאומטריה הספציפית — פעם אחת
+    final wavelengthM = _speedOfLight / (freqMhz * 1e6);
+    final radarCleanRangeM = _radarMaxRangeM(powerKw, gainDbi, freqMhz, rcsM2, sensitivityDbm);
+    final unambigRangeM = _maxUnambiguousRangeM(prfHz);
+    final radarCeilingM = min(radarCleanRangeM, unambigRangeM);
+    final mdvMs = mdvKt * _ktToMs;
+    final targetSpeedMs = targetSpeedKt * _ktToMs;
+    final reflectivity = _radarReflectivity[reflectivityKey] ?? _radarReflectivity[_radarReflectivityDefault]!;
+
+    // שלב 3: בניית כיווני הסריקה — תמיכה במגזר חלקי + "עטיפה" מעל 360°/0°
+    var span = (endBearingDeg - startBearingDeg) % 360;
+    if (span == 0) span = 360;
+    final nBearings = max(1, (span / angleStepDeg).round());
+    final effectiveStepDeg = span / nBearings;
+    final bearings = List<double>.generate(nBearings, (i) => (startBearingDeg + i * effectiveStepDeg) % 360);
+
+    // שלב 4: צפיפות דגימה — אותה נוסחה בדיוק כמו רדיוס-ראייה (קבועים גנריים משותפים)
+    final budgetBased = min(20, max(_radialSamplesMin, _radialBaseBudget ~/ nBearings));
+    final spacingBased = ((rangeKm - minRangeKm) / _radialTargetSpacingKm).round() + 1;
+    int samplesPerRay = max(_radialSamplesMin, min(_radialSamplesMax, max(budgetBased, spacingBased)));
+    if (nBearings * samplesPerRay > _radialMaxTotalPoints) {
+      samplesPerRay = max(_radialSamplesMin, _radialMaxTotalPoints ~/ nBearings);
+    }
+
+    // שלב 5: בניית נקודות הדגימה + שליפת גבהים ב-batches — זהה לרדיוס-ראייה
+    final allPoints = <LatLng>[];
+    final allDists = <double>[];
+    for (final bearing in bearings) {
+      for (int j = 0; j < samplesPerRay; j++) {
+        final frac = samplesPerRay > 1 ? j / (samplesPerRay - 1) : 0.0;
+        final dist = minRangeM + frac * (rangeM - minRangeM);
+        allPoints.add(dist <= 0 ? observer : distCalc.offset(observer, dist, bearing));
+        allDists.add(dist);
+      }
+    }
+    final totalBatches = (allPoints.length / _radialBatchSize).ceil();
+    final elevations = List<double?>.filled(allPoints.length, null);
+    for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+      if (cancelToken?.isCancelled ?? false) return null;
+      if (batchIdx > 0) await Future.delayed(_radialBatchPause);
+      final start = batchIdx * _radialBatchSize;
+      final end = min(start + _radialBatchSize, allPoints.length);
+      final batchElevs = await _fetchRadialElevChunk(allPoints.sublist(start, end));
+      for (int k = 0; k < batchElevs.length; k++) {
+        elevations[start + k] = batchElevs[k];
+      }
+      onProgress?.call(batchIdx + 1, totalBatches);
+    }
+
+    // שלב 6: פירוק לפי קרן — חסימת שטח (ratchet) + טווח מכ"ם/ריבוד/סריקה (תלוי-נקודה) + דופלר (תלוי-אזימוט)
+    final marginSlope = tan(ridgeMarginDeg * pi / 180);
+    final vHalf = verticalWidthDeg / 2.0;
+    final minAngleSlope = tan((verticalCenterDeg - vHalf) * pi / 180);
+    final maxAngleSlope = tan((verticalCenterDeg + vHalf) * pi / 180);
+    final rays = <RadarDopplerRay>[];
+    int clearCount = 0, dopplerBlockedRays = 0, failedRays = 0;
+    for (int rayIdx = 0; rayIdx < nBearings; rayIdx++) {
+      final bearing = bearings[rayIdx];
+      // מהירות רדיאלית משוערת של המטרה באזימוט הזה — תלויה רק בכיוון (קבועה לאורך כל הקרן)
+      final radialSpeedMs = (targetSpeedMs * cos((targetHeadingDeg - bearing) * pi / 180)).abs();
+      final dopplerOk = _dopplerDetectable(radialSpeedMs, mdvMs, wavelengthM, prfHz);
+      // הפסד-סריקה של מערך-מופעים — קבוע לאורך כל הקרן, כמו הדופלר; 1.0 עבור אנטנה גנרית
+      final rayScanLoss = antennaType == 'phased_array' ? _scanLossFactor(bearing, boresightDeg, maxScanDeg) : 1.0;
+
+      final start = rayIdx * samplesPerRay;
+      final rayPoints = allPoints.sublist(start, start + samplesPerRay);
+      final rayDists = allDists.sublist(start, start + samplesPerRay);
+      final rayElevs = elevations.sublist(start, start + samplesPerRay);
+      final survivingIdx = <int>[for (int i = 0; i < rayElevs.length; i++) if (rayElevs[i] != null) i];
+      final samplesOk = survivingIdx.length;
+      if (samplesOk < 2) {
+        rays.add(RadarDopplerRay(bearingDeg: bearing, radarDistKm: 0.0, point: observer,
+            dopplerOk: dopplerOk, blocked: true, ok: false, samplesOk: samplesOk));
+        failedRays++;
+        continue;
+      }
+      final dists = survivingIdx.map((i) => rayDists[i]).toList();
+      final elevsOnly = survivingIdx.map((i) => rayElevs[i]!).toList();
+      final hOffsets = List<double>.filled(survivingIdx.length, 0.0); // אין "גובה יעד" נפרד — הזיהוי נגזר ממשוואת המכ"ם
+      final ratchet = _horizonRatchet(dists, elevsOnly, hObs, hOffsets,
+          marginSlope: marginSlope, minAngleSlope: minAngleSlope, maxAngleSlope: maxAngleSlope);
+
+      // הנקודה הרחוקה ביותר שעדיין בטווח המכ"ם ולא חסומה שטח — נבדקות כל הנקודות, לא נעצר בכישלון הראשון
+      double radarDistM = 0.0;
+      LatLng radarPoint = observer;
+      for (int i = 0; i < ratchet.length; i++) {
+        if (!ratchet[i].visible) continue;
+        final d = dists[i];
+        double ceiling;
+        if (lobingEnabled) {
+          final elevAngleDeg = d > 0 ? atan2(elevsOnly[i] - hObs, d) * 180 / pi : 90.0;
+          ceiling = radarCeilingM * _lobingFactor(elevAngleDeg, hAntenna, wavelengthM, reflectivity);
+        } else {
+          ceiling = radarCeilingM;
+        }
+        ceiling *= rayScanLoss;
+        if (d <= ceiling) {
+          radarDistM = d;
+          radarPoint = rayPoints[survivingIdx[i]];
+        }
+      }
+
+      final blocked = radarDistM < dists.last - 1e-6;
+      if (dopplerOk) {
+        if (!blocked) clearCount++;
+      } else {
+        dopplerBlockedRays++;
+      }
+      rays.add(RadarDopplerRay(bearingDeg: bearing, radarDistKm: radarDistM / 1000, point: radarPoint,
+          dopplerOk: dopplerOk, blocked: blocked, ok: samplesOk == samplesPerRay, samplesOk: samplesOk));
+      if (samplesOk != samplesPerRay) failedRays++;
+    }
+
+    return RadarDopplerResult(
+      observer: observer, observerElev: observerElev, observerH: hObs,
+      hAntenna: hAntenna, ridgeMarginDeg: ridgeMarginDeg,
+      rangeKm: rangeKm, minRangeKm: minRangeKm, angleStepDeg: effectiveStepDeg,
+      verticalCenterDeg: verticalCenterDeg, verticalWidthDeg: verticalWidthDeg,
+      startBearingDeg: startBearingDeg, endBearingDeg: endBearingDeg, spanDeg: span,
+      nBearings: nBearings, samplesPerRay: samplesPerRay,
+      powerKw: powerKw, gainDbi: gainDbi, freqMhz: freqMhz, rcsM2: rcsM2, sensitivityDbm: sensitivityDbm,
+      radarCleanRangeKm: radarCleanRangeM / 1000, unambigRangeKm: unambigRangeM / 1000,
+      prfHz: prfHz, mdvKt: mdvKt, targetSpeedKt: targetSpeedKt, targetHeadingDeg: targetHeadingDeg,
+      lobingEnabled: lobingEnabled, reflectivityKey: reflectivityKey,
+      antennaType: antennaType, boresightDeg: boresightDeg, maxScanDeg: maxScanDeg,
+      clearCount: clearCount, dopplerBlockedRays: dopplerBlockedRays, failedRays: failedRays, rays: rays,
     );
   }
 

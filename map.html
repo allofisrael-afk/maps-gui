@@ -198,6 +198,11 @@
         // קבוצת שדות תפוצה — חדשים, אפקט "ריבוד" מהשתקפות קרקע/ים
         var _radarLobingCheck   = null; // toggle: האם להציג את אפקט הריבוד
         var _radarReflSelect    = null; // סוג משטח מחזיר — dropdown (יבשה/ים)
+        // קבוצת שדות סוג אנטנה — חדשים, בחירה בין מכ"ם גנרי למערך-מופעים (phased array)
+        var _radarAntennaSelect = null; // dropdown: גנרי / מערך-מופעים
+        var _radarBoresightInput = null; // כיוון-פנים של המערך (מעלות) — רלוונטי רק למערך-מופעים
+        var _radarMaxScanInput   = null; // זווית סריקה מקסימלית מכיוון-הפנים (מעלות) — רלוונטי רק למערך-מופעים
+        var _radarAntennaWrapEl  = null; // מיכל שני השדות הנ"ל — מוסתר/מוצג לפי הבחירה ב-_radarAntennaSelect
 
         // בניית אייקון עגול לסמן LOS ניתן לגרירה — עיגול מלא לתצפית, מקווקו ליעד
         function _losMarkerIcon(col, dashed) {
@@ -1510,27 +1515,11 @@
                 // מצב רדיוס-ראייה רדיאלי — לחיצה בודדת (לא זוג כמו LOS) ממקמת/מזיזה משקיף
                 // ומציגה תצוגה מקדימה בלבד; החישוב האמיתי מופעל רק בלחיצה מפורשת על "הפעל חישוב"
                 if (radialLosLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
-                clearRadialLosResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל לחיצה
-                radialLosObs = e.latlng;
-                radialLosObsMk = L.marker(e.latlng, {icon: _radialLosMarkerIcon(), draggable: true}).addTo(map);
-                radialLosObsMk.bindTooltip('תצפית רדיוס ראייה', {permanent:false, direction:'top'});
-                radialLosObsMk.on('dragend', function() {
-                    radialLosObs = radialLosObsMk.getLatLng();
-                    _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
-                });
-                _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+                _placeRadialLosObserver(e.latlng);
             } else if (radarActive) {
                 // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי (לחיצה=משקיף+תצוגה מקדימה בלבד)
                 if (radarLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
-                clearRadarDopplerResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל לחיצה
-                radarObs = e.latlng;
-                radarObsMk = L.marker(e.latlng, {icon: _radarMarkerIcon(), draggable: true}).addTo(map);
-                radarObsMk.bindTooltip('תצפית מכ"ם דופלר', {permanent:false, direction:'top'});
-                radarObsMk.on('dragend', function() {
-                    radarObs = radarObsMk.getLatLng();
-                    _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
-                });
-                _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+                _placeRadarObserver(e.latlng);
             } else if (losActive) {
                 // losActive בודק לפני elevationActive — מצב LOS גובר על כל שכבה פעילה אחרת
                 // מצב LOS פעיל — לחיצה 1 = תצפית, לחיצה 2 = יעד + חישוב + מיד מוכן לצמד הבא
@@ -1962,6 +1951,120 @@
             ctx.fillText(info, PAD.l + cW / 2, PAD.t - 3);  // מעל אזור הגרף
         }
 
+        // ── "עמדות שמורות" — UI משותף לשלושת כלי התצפית (LOS/רדיוס-ראייה/מכ"ם-דופלר) ──
+        // שמירה/טעינה/מחיקה של מיקום+פרמטרים תחת שם, דרך /stations/* ב-weather_server.py.
+        var _stationsCache = {};  // toolKey -> [{name, params}, ...] — מטמון הרשימה האחרונה שנשלפה, לצורך טעינה בלי fetch נוסף
+        function _buildStationUI(parentEl, toolKey, fieldMap, getObsFn, placeObsFn, redrawFn) {
+            // parentEl: לאן להוסיף את ה-UI. toolKey: 'los'/'radial_los'/'radar_doppler'.
+            // fieldMap: {paramName: inputElement} — כל שדות הכלי (חוץ ממיקום, המטופל בנפרד).
+            // getObsFn: ()=>L.LatLng|null — מיקום נוכחי (null אם אין, כמו ב-LOS). placeObsFn(latlng): ממקם משקיף.
+            // redrawFn: ()=>void — מצייר מחדש תצוגה מקדימה אחרי טעינת עמדה (אם רלוונטי לכלי).
+            var row1 = L.DomUtil.create('div', '', parentEl);
+            row1.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
+            var nameInput = L.DomUtil.create('input', '', row1);
+            nameInput.type = 'text'; nameInput.placeholder = 'שם עמדה';
+            nameInput.style.cssText = 'flex:1;font-size:10px;padding:2px 3px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-width:0;';
+            var saveBtn = L.DomUtil.create('a', '', row1);
+            saveBtn.href = '#'; saveBtn.title = 'שמור עמדה נוכחית תחת השם שהוזן';
+            saveBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+            saveBtn.innerHTML = '&#128190;';  // 💾
+
+            var row2 = L.DomUtil.create('div', '', parentEl);
+            row2.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
+            var stationSelect = L.DomUtil.create('select', '', row2);
+            stationSelect.style.cssText = 'flex:1;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-width:0;';
+            var loadBtn = L.DomUtil.create('a', '', row2);
+            loadBtn.href = '#'; loadBtn.title = 'טען עמדה נבחרת';
+            loadBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+            loadBtn.innerHTML = '&#128194;';  // 📂
+            var delBtn = L.DomUtil.create('a', '', row2);
+            delBtn.href = '#'; delBtn.title = 'מחק עמדה נבחרת';
+            delBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+            delBtn.innerHTML = '&#128465;';  // 🗑
+
+            function _refreshList() {
+                fetch('http://localhost:5002/stations/list?tool=' + toolKey)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var stations = data.stations || [];
+                    _stationsCache[toolKey] = stations;
+                    stationSelect.innerHTML = '';
+                    if (stations.length === 0) {
+                        var opt = L.DomUtil.create('option', '', stationSelect);
+                        opt.textContent = '(אין עמדות שמורות)'; opt.disabled = true; opt.selected = true;
+                        return;
+                    }
+                    stations.forEach(function(s) {
+                        var opt = L.DomUtil.create('option', '', stationSelect);
+                        opt.value = s.name; opt.textContent = s.name;
+                    });
+                })
+                .catch(function() { /* כשל רשת בטעינת הרשימה — לא קריטי, אפשר לנסות שוב */ });
+            }
+            _refreshList();  // טוען את הרשימה מיד עם בניית ה-Control
+
+            L.DomEvent.on(saveBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                var name = nameInput.value.trim();
+                if (!name) { alert('הזן שם לעמדה'); return; }
+                var params = {};
+                Object.keys(fieldMap).forEach(function(key) {
+                    var el = fieldMap[key];
+                    params[key] = (el.type === 'checkbox') ? el.checked : el.value;
+                });
+                var obs = getObsFn ? getObsFn() : null;
+                if (obs) { params.lat = obs.lat; params.lon = obs.lng; }
+                fetch('http://localhost:5002/stations/save', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tool: toolKey, name: name, params: params})
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) throw new Error(data.error);
+                    nameInput.value = '';
+                    _refreshList();
+                })
+                .catch(function(err) { alert('שגיאה בשמירת עמדה: ' + err.message); });
+            });
+
+            L.DomEvent.on(loadBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                var name = stationSelect.value;
+                var stations = _stationsCache[toolKey] || [];
+                var station = stations.filter(function(s) { return s.name === name; })[0];
+                if (!station) return;
+                var params = station.params;
+                Object.keys(fieldMap).forEach(function(key) {
+                    if (params[key] === undefined) return;
+                    var el = fieldMap[key];
+                    if (el.type === 'checkbox') { el.checked = (params[key] === true || params[key] === 'true'); }
+                    else { el.value = params[key]; }
+                    // עבור select/checkbox — מדמה אירוע 'change' כדי שמאזינים (כמו הצגת/הסתרת שדות מערך-מופעים) יופעלו,
+                    // כי הגדרת .value/.checked ישירות בקוד לא מפעילה 'change' באופן טבעי כמו לחיצת משתמש
+                    if (el.tagName === 'SELECT' || el.type === 'checkbox') { el.dispatchEvent(new Event('change')); }
+                });
+                if (params.lat !== undefined && params.lon !== undefined) {
+                    var latlng = L.latLng(parseFloat(params.lat), parseFloat(params.lon));
+                    if (placeObsFn) placeObsFn(latlng);  // ממקם משקיף — קורא גם לציור תצוגה מקדימה עם השדות המעודכנים
+                    map.panTo(latlng);
+                }
+                if (redrawFn) redrawFn();  // רענון נוסף (זול, ללא נזק) — מבטיח עקביות גם אם אין מיקום לכלי הזה
+            });
+
+            L.DomEvent.on(delBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                var name = stationSelect.value;
+                if (!name) return;
+                if (!confirm('למחוק את העמדה "' + name + '"?')) return;
+                fetch('http://localhost:5002/stations/delete', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tool: toolKey, name: name})
+                })
+                .then(function() { _refreshList(); })
+                .catch(function() { /* כשל רשת במחיקה — לא קריטי */ });
+            });
+        }
+
         // יצירת כפתור 👁 כ-Leaflet Control בפינה הימנית עליונה
         // L.Control.extend יוצר מחלקה חדשה שיורשת מ-L.Control (מנגנון הרחבה של Leaflet)
         var LosControl = L.Control.extend({
@@ -1985,18 +2088,22 @@
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e);
                     L.DomEvent.preventDefault(e);
-                    if (!_mapReady) return;  // הגנה נוספת מעבר ל-pointer-events — המפה עדיין לא מוכנה
+                    if (!_mapReady || !serversRunning) return;  // הגנה נוספת מעבר ל-pointer-events — המפה/שרתים לא מוכנים
                     toggleLos();
                 });
 
                 // שדות גובה הצופה/היעד — מוסתרים כברירת מחדל, נחשפים רק אחרי בחירת הכלי (toggleLos),
-                // כמו כלי רדיוס-הראייה הרדיאלי — אייקון בלבד קודם, פרמטרים רק אחרי בחירה מפורשת
+                // כמו כלי רדיוס-הראייה הרדיאלי — אייקון בלבד קודם, פרמטרים רק אחרי בחירה מפורשת.
+                // עמודה (לא שורה כמו קודם) כדי לפנות מקום ל"עמדות שמורות" מתחת לשדות הגובה עצמם
                 var losFieldsWrap = L.DomUtil.create('div', '', container);
-                losFieldsWrap.style.cssText = 'display:none;align-items:center;gap:5px;';
+                losFieldsWrap.style.cssText = 'display:none;flex-direction:column;gap:2px;';
                 _losFieldsWrapEl = losFieldsWrap;
 
+                var heightsRow = L.DomUtil.create('div', '', losFieldsWrap);
+                heightsRow.style.cssText = 'display:flex;align-items:center;gap:5px;';
+
                 function _mkHeightField(labelText, defaultVal, tip) {
-                    var wrap = L.DomUtil.create('label', '', losFieldsWrap);
+                    var wrap = L.DomUtil.create('label', '', heightsRow);
                     wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;font-size:9px;color:#666;line-height:1.2;';
                     wrap.title = tip;
                     var lbl = L.DomUtil.create('span', '', wrap);
@@ -2008,6 +2115,9 @@
                 }
                 _losObsInput = _mkHeightField('צופה (מ\')', 11, 'גובה הצופה מעל הקרקע, במטרים');
                 _losTgtInput = _mkHeightField('יעד (מ\')',  0,  'גובה היעד מעל הקרקע, במטרים');
+
+                // "עמדה" ל-LOS = רק גובהי צופה/יעד (אין מיקום קבוע לשמור — כל שימוש מתחיל בלחיצה חדשה)
+                _buildStationUI(losFieldsWrap, 'los', {obs_h: _losObsInput, tgt_h: _losTgtInput}, null, null, null);
 
                 L.DomEvent.disableClickPropagation(container);  // הגנה נוספת על כל ה-Control
                 L.DomEvent.disableScrollPropagation(container); // מניעת זום במפה בעת גלילה/שינוי ערך בשדה המספרי
@@ -2031,6 +2141,20 @@
                 html: '<div style="width:12px;height:12px;border-radius:50%;background:#f9e2af;border:2px solid #333;cursor:move;"></div>',
                 className: '', iconSize: [12,12], iconAnchor: [6,6]
             });
+        }
+
+        function _placeRadialLosObserver(latlng) {
+            // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
+            // (ר' _buildStationUI), כדי לא לשכפל את לוגיקת יצירת הסמן בשני מקומות
+            clearRadialLosResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
+            radialLosObs = latlng;
+            radialLosObsMk = L.marker(latlng, {icon: _radialLosMarkerIcon(), draggable: true}).addTo(map);
+            radialLosObsMk.bindTooltip('תצפית רדיוס ראייה', {permanent:false, direction:'top'});
+            radialLosObsMk.on('dragend', function() {
+                radialLosObs = radialLosObsMk.getLatLng();
+                _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+            });
+            _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
         }
 
         function _updateRadialLosPreview() {
@@ -2264,7 +2388,7 @@
                 _radialLosBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
-                    if (!_mapReady) return;  // הגנה נוספת מעבר ל-pointer-events — המפה עדיין לא מוכנה
+                    if (!_mapReady || !serversRunning) return;  // הגנה נוספת מעבר ל-pointer-events — המפה/שרתים לא מוכנים
                     toggleRadialLos();
                 });
 
@@ -2298,6 +2422,13 @@
                 _radialMarginInput   = _mkField('מרווח רכס (°)',        0,  0.5, 0,   10,  'שולי ביטחון מעל הרכס הגבוה ביותר שנצפה');
                 _radialVCenterInput  = _mkField('מרכז אלומה אנכי (°)',  0,  0.5, -45, 45,  'זווית עילוי/הטיה מרכזית (0=אופקי) — שדה-ראייה של "מכ"ם" רעיוני, לא כלי אמיתי');
                 _radialVWidthInput   = _mkField('רוחב אלומה אנכי (°)',  4,  0.5, 1,   90,  'רוחב שדה-הראייה האנכי הכולל סביב המרכז — מוגבל בכוונה, לא כל טווח הגובה נבדק');
+
+                _buildStationUI(panelBody, 'radial_los', {
+                    range_km: _radialRangeInput, min_range_km: _radialMinRangeInput, angle_step_deg: _radialStepInput,
+                    start_bearing_deg: _radialStartInput, end_bearing_deg: _radialEndInput,
+                    obs_h: _radialObsInput, tgt_h: _radialTgtInput, ridge_margin_deg: _radialMarginInput,
+                    vertical_center_deg: _radialVCenterInput, vertical_width_deg: _radialVWidthInput,
+                }, function() { return radialLosObs; }, _placeRadialLosObserver, _updateRadialLosPreview);
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
@@ -2339,6 +2470,19 @@
                 html: '<div style="width:12px;height:12px;border-radius:50%;background:#22d3ee;border:2px solid #333;cursor:move;"></div>',
                 className: '', iconSize: [12,12], iconAnchor: [6,6]
             });
+        }
+
+        function _placeRadarObserver(latlng) {
+            // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
+            clearRadarDopplerResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
+            radarObs = latlng;
+            radarObsMk = L.marker(latlng, {icon: _radarMarkerIcon(), draggable: true}).addTo(map);
+            radarObsMk.bindTooltip('תצפית מכ"ם דופלר', {permanent:false, direction:'top'});
+            radarObsMk.on('dragend', function() {
+                radarObs = radarObsMk.getLatLng();
+                _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+            });
+            _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
         }
 
         function _updateRadarDopplerPreview() {
@@ -2407,6 +2551,9 @@
             var headingDeg = num(_radarHeadingInput, 0);
             var lobingOn   = _radarLobingCheck ? _radarLobingCheck.checked : false;
             var reflKey    = _radarReflSelect ? _radarReflSelect.value : 'land';
+            var antennaType  = _radarAntennaSelect ? _radarAntennaSelect.value : 'generic';
+            var boresightDeg = num(_radarBoresightInput, 0);
+            var maxScanDeg   = num(_radarMaxScanInput, 60);
             radarLoading = true;
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
             if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
@@ -2420,7 +2567,8 @@
                       '&sensitivity_dbm=' + sensDbm + '&rcs_m2=' + rcsM2 +
                       '&prf_hz=' + prfHz + '&mdv_kt=' + mdvKt + '&target_speed_kt=' + speedKt +
                       '&target_heading_deg=' + headingDeg +
-                      '&lobing_enabled=' + (lobingOn ? 'true' : 'false') + '&reflectivity=' + reflKey;
+                      '&lobing_enabled=' + (lobingOn ? 'true' : 'false') + '&reflectivity=' + reflKey +
+                      '&antenna_type=' + antennaType + '&boresight_deg=' + boresightDeg + '&max_scan_deg=' + maxScanDeg;
             fetch(url)
             .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function(data) {
@@ -2575,7 +2723,7 @@
                 _radarBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
-                    if (!_mapReady) return;
+                    if (!_mapReady || !serversRunning) return;  // הגנה נוספת מעבר ל-pointer-events — המפה/שרתים לא מוכנים
                     toggleRadarDoppler();
                 });
 
@@ -2590,8 +2738,10 @@
                     h.style.cssText = 'font-size:9px;font-weight:bold;color:#888;margin-top:3px;border-top:1px solid #eee;padding-top:2px;';
                     return h;
                 }
-                function _mkField(labelText, defaultVal, step, minV, maxV, tip) {
-                    var wrap = L.DomUtil.create('label', '', panelBody);
+                function _mkField(labelText, defaultVal, step, minV, maxV, tip, parentEl) {
+                    // parentEl אופציונלי — ברירת המחדל panelBody עצמו; משמש לשים שדה בתוך מיכל
+                    // מקונן (כמו _radarAntennaWrapEl) במקום ישירות בפאנל הראשי
+                    var wrap = L.DomUtil.create('label', '', parentEl || panelBody);
                     wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
                     wrap.title = tip;
                     var span = L.DomUtil.create('span', '', wrap);
@@ -2643,6 +2793,21 @@
                     ['מטוס קל (2 מ"ר)', '2'], ['מטוס תובלה (50 מ"ר)', '50']
                 ], 2, 'שטח חתך רדארי משוער — מטרה גדולה יותר מתגלה מרחוק יותר');
 
+                _mkHeader('סוג אנטנה');
+                _radarAntennaSelect = _mkSelect('סוג אנטנה', [
+                    ['גנרי (רווח אחיד בכל כיוון)', 'generic'], ['מערך-מופעים (Phased Array)', 'phased_array']
+                ], 0, 'מערך-מופעים: הרווח יורד ככל שמסטים מכיוון-הפנים, ומעבר לזווית סריקה מקסימלית אין כיסוי כלל');
+                // מיכל שני השדות הנוספים — מוסתר כברירת מחדל, נחשף רק כש"מערך-מופעים" נבחר
+                _radarAntennaWrapEl = L.DomUtil.create('div', '', panelBody);
+                _radarAntennaWrapEl.style.cssText = 'display:none;flex-direction:column;gap:3px;';
+                _radarBoresightInput = _mkField('כיוון-פנים (°)', 0, 1, 0, 360,
+                    'הכיוון שהמערך "מסתכל" ישירות אליו (0=צפון)', _radarAntennaWrapEl);
+                _radarMaxScanInput = _mkField('זווית סריקה מקסימלית (°)', 60, 1, 5, 180,
+                    'עד כמה אפשר לסטות מכיוון-הפנים; טיפוסי כ-60°', _radarAntennaWrapEl);
+                L.DomEvent.on(_radarAntennaSelect, 'change', function() {
+                    _radarAntennaWrapEl.style.display = _radarAntennaSelect.value === 'phased_array' ? 'flex' : 'none';
+                });
+
                 _mkHeader('דופלר — האם התנועה מתגלה');
                 _radarPrfInput     = _mkField('תדר חזרת פולסים (Hz)', 1000, 10, 50, 20000, 'PRF — קובע גם מהירויות עיוורות וגם טווח לא-חד-משמעי');
                 _radarMdvInput     = _mkField('מהירות מינימלית לגילוי (קשר)', 20, 1, 0, 200, 'MDV — מטרה איטית מזה מסוננת כרקע נייח');
@@ -2660,6 +2825,16 @@
                 _radarReflSelect = _mkSelect('סוג משטח מחזיר', [
                     ['יבשה מחוספסת', 'land'], ['ים חלק', 'sea']
                 ], 0, 'רלוונטי רק כש"הצג השפעת ריבוד" מסומן — משטח חלק יותר מחזיר חזק יותר');
+
+                _buildStationUI(panelBody, 'radar_doppler', {
+                    range_km: _radarRangeInput, min_range_km: _radarMinRangeInput, angle_step_deg: _radarStepInput,
+                    start_bearing_deg: _radarStartInput, end_bearing_deg: _radarEndInput, h_antenna: _radarHAntInput,
+                    ridge_margin_deg: _radarMarginInput, vertical_center_deg: _radarVCenterInput, vertical_width_deg: _radarVWidthInput,
+                    power_kw: _radarPowerInput, gain_dbi: _radarGainInput, freq_mhz: _radarFreqSelect, sensitivity_dbm: _radarSensInput,
+                    rcs_m2: _radarRcsSelect, antenna_type: _radarAntennaSelect, boresight_deg: _radarBoresightInput, max_scan_deg: _radarMaxScanInput,
+                    prf_hz: _radarPrfInput, mdv_kt: _radarMdvInput, target_speed_kt: _radarSpeedInput, target_heading_deg: _radarHeadingInput,
+                    lobing_enabled: _radarLobingCheck, reflectivity: _radarReflSelect,
+                }, function() { return radarObs; }, _placeRadarObserver, _updateRadarDopplerPreview);
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
@@ -2683,13 +2858,31 @@
         });
         new RadarDopplerControl().addTo(map);  // הוספת ה-Control למפה
 
-        // שלושת כפתורי הכלים (👁/📡/🎯) מוצגים מיד אך מנוטרלים (עמומים, לא לחיצים) עד שהמפה עצמה
-        // מוכנה — map.whenReady מריץ את הקריאה מיד אם המפה כבר מוכנה, או ממתין אם לא.
+        // שלושת כפתורי הכלים (👁/📡/🎯) מוצגים מיד אך מנוטרלים (עמומים, לא לחיצים) עד ששני התנאים
+        // מתקיימים: המפה מוכנה (_mapReady) **וגם** שרתי ה-Flask פעלים בפועל (serversRunning) —
+        // בלי זה, לחיצה על הכלי לפני הפעלת השרתים "עובדת" (פותחת פאנל, מאפשרת להציב משקיף
+        // ולערוך פרמטרים) עד שלוחצים "הפעל חישוב" ואז נכשל בשקט/עם alert מבלבל, כי כל שלושת
+        // הכלים תלויים ב-weather_server.py (פורט 5002). מעדכן את מצב הכפתורים משני הכיוונים —
+        // גם כשהמפה נטענת, גם כש-Python מדווח על הפעלה/כיבוי שרתים (ר' _setServersRunning).
+        function _updateToolButtonsEnabled() {
+            var enabled = _mapReady && serversRunning;
+            [_losBtnEl, _radialLosBtnEl, _radarBtnEl].forEach(function(btn) {
+                if (!btn) return;
+                btn.style.opacity = enabled ? '1' : '0.4';
+                btn.style.pointerEvents = enabled ? 'auto' : 'none';
+            });
+        }
+
+        // נקרא מ-Python (main.py, start_servers/stop_servers) במקום קביעה ישירה של המשתנה —
+        // כדי שעדכון הכפתורים יקרה בכל שינוי מצב שרתים, לא רק פעם אחת ב-map.whenReady
+        function _setServersRunning(running) {
+            serversRunning = running;
+            _updateToolButtonsEnabled();
+        }
+
         map.whenReady(function() {
             _mapReady = true;
-            if (_losBtnEl) { _losBtnEl.style.opacity = '1'; _losBtnEl.style.pointerEvents = 'auto'; }
-            if (_radialLosBtnEl) { _radialLosBtnEl.style.opacity = '1'; _radialLosBtnEl.style.pointerEvents = 'auto'; }
-            if (_radarBtnEl) { _radarBtnEl.style.opacity = '1'; _radarBtnEl.style.pointerEvents = 'auto'; }
+            _updateToolButtonsEnabled();
         });
 
         // ── הודעת מידע — כלל טיסת VLOS ──

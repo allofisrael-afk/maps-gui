@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert'; // jsonEncode/jsonDecode ל"עמדות שמורות" (אחסון מקומי, ר' saveStation/loadStations)
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה
 import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
+import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../services/api_service.dart'; // גם geocodeCity() -> CityResult, בשימוש מוסק (inferred) ללא ייבוא ישיר
 import '../utils/heat_image.dart';
@@ -518,6 +520,159 @@ class MapState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד. מקביל ל-RadarDopplerControl בצד ──
+  // Desktop, כאן כולו on-device (בלי שרת), אותו מבנה בדיוק כמו רדיוס-הראייה למעלה.
+  bool radarMode = false;
+  LatLng? radarObs;
+  // גיאומטריה — ברירות מחדל זהות ל-Desktop (RadarDopplerControl)
+  double radarRangeKm = 50.0;             // שונה מרדיוס-הראייה (5) — מכ"ם טיפוסי סורק רחוק יותר
+  double radarMinRangeKm = 1.0;
+  double radarAngleStepDeg = 10.0;
+  double radarStartBearingDeg = 315.0;
+  double radarEndBearingDeg = 45.0;
+  double radarHAntenna = 15.0;
+  double radarRidgeMarginDeg = 0.0;
+  double radarVCenterDeg = 0.0;
+  double radarVWidthDeg = 10.0;           // רחב יותר מרדיוס-הראייה (4°) — טיפוסי יותר לאנטנת חיפוש
+  // משוואת מכ"ם
+  double radarPowerKw = 100.0;
+  double radarGainDbi = 30.0;
+  double radarFreqMhz = 3000.0;           // ברירת מחדל S-band
+  double radarSensitivityDbm = -100.0;
+  double radarRcsM2 = 2.0;                // ברירת מחדל "מטוס קל"
+  // דופלר
+  double radarPrfHz = 1000.0;
+  double radarMdvKt = 20.0;
+  double radarTargetSpeedKt = 250.0;
+  double radarTargetHeadingDeg = 0.0;
+  // תפוצה
+  bool radarLobingEnabled = false;
+  String radarReflectivity = 'land';
+  // סוג אנטנה
+  String radarAntennaType = 'generic';    // 'generic' | 'phased_array'
+  double radarBoresightDeg = 0.0;
+  double radarMaxScanDeg = 60.0;
+  // מצב ריצה/תוצאה
+  bool radarLoading = false;
+  int radarBatchesDone = 0;
+  int radarBatchesTotal = 0;
+  String? radarError;
+  RadarDopplerResult? radarResult;
+  RadialLosCancelToken? _radarCancelToken; // אותו טוקן גנרי כמו רדיוס-הראייה — אין בו שום דבר ספציפי לכלי מסוים
+
+  void toggleRadarMode() {
+    radarMode = !radarMode;
+    if (!radarMode) clearRadarDopplerResult();
+    notifyListeners();
+  }
+
+  void updateRadarParam(void Function() mutate) {
+    mutate();
+    notifyListeners();
+  }
+
+  void setRadarObserver(LatLng p) {
+    cancelRadarDoppler();
+    radarResult = null;
+    radarError = null;
+    radarObs = p;
+    notifyListeners();
+  }
+
+  void updateRadarStartFromDrag(LatLng draggedPoint) {
+    if (radarObs == null) return;
+    const distCalc = Distance();
+    radarStartBearingDeg = distCalc.bearing(radarObs!, draggedPoint);
+    radarRangeKm = distCalc.distance(radarObs!, draggedPoint) / 1000;
+    notifyListeners();
+  }
+
+  void updateRadarEndFromDrag(LatLng draggedPoint) {
+    if (radarObs == null) return;
+    const distCalc = Distance();
+    radarEndBearingDeg = distCalc.bearing(radarObs!, draggedPoint);
+    radarRangeKm = distCalc.distance(radarObs!, draggedPoint) / 1000;
+    notifyListeners();
+  }
+
+  Future<void> runRadarDoppler() async {
+    if (radarObs == null || radarLoading) return;
+    final token = RadialLosCancelToken();
+    _radarCancelToken = token;
+    radarLoading = true; radarError = null;
+    radarBatchesDone = 0; radarBatchesTotal = 0;
+    notifyListeners();
+    try {
+      final result = await ApiService.fetchRadarDoppler(
+        observer: radarObs!,
+        rangeKm: radarRangeKm, minRangeKm: radarMinRangeKm, angleStepDeg: radarAngleStepDeg,
+        startBearingDeg: radarStartBearingDeg, endBearingDeg: radarEndBearingDeg,
+        hAntenna: radarHAntenna, ridgeMarginDeg: radarRidgeMarginDeg,
+        verticalCenterDeg: radarVCenterDeg, verticalWidthDeg: radarVWidthDeg,
+        powerKw: radarPowerKw, gainDbi: radarGainDbi, freqMhz: radarFreqMhz,
+        rcsM2: radarRcsM2, sensitivityDbm: radarSensitivityDbm,
+        prfHz: radarPrfHz, mdvKt: radarMdvKt, targetSpeedKt: radarTargetSpeedKt,
+        targetHeadingDeg: radarTargetHeadingDeg,
+        lobingEnabled: radarLobingEnabled, reflectivityKey: radarReflectivity,
+        antennaType: radarAntennaType, boresightDeg: radarBoresightDeg, maxScanDeg: radarMaxScanDeg,
+        onProgress: (done, total) {
+          radarBatchesDone = done; radarBatchesTotal = total;
+          notifyListeners();
+        },
+        cancelToken: token,
+      );
+      if (token.isCancelled) return;
+      radarResult = result;
+    } catch (e) {
+      radarError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      radarLoading = false; notifyListeners();
+    }
+  }
+
+  void cancelRadarDoppler() {
+    _radarCancelToken?.cancel();
+    radarLoading = false;
+    notifyListeners();
+  }
+
+  void clearRadarDopplerResult() {
+    cancelRadarDoppler();
+    radarObs = null;
+    radarResult = null;
+    radarError = null;
+    notifyListeners();
+  }
+
+  // ── "עמדות שמורות" — מיקום+פרמטרים תחת שם, לרדיוס-הראייה ולמכ"ם-דופלר בלבד ──
+  // מקביל ל-/stations/* בצד Desktop, אך מאוחסן מקומית (SharedPreferences) — אין שרת ב-Android.
+  // LOS לא כלול: הזרימה שם מבוססת-קליק בלבד (בלי מיקום/פרמטרים קבועים לשמור, גבהים קבועים בקוד).
+  static const int _maxStationsPerTool = 20; // תואם לתקרה בצד Desktop
+
+  Future<List<Map<String, dynamic>>> loadStations(String toolKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList('${toolKey}_stations') ?? [];
+    return raw.map((s) => jsonDecode(s) as Map<String, dynamic>).toList();
+  }
+
+  Future<void> saveStation(String toolKey, String name, Map<String, dynamic> params) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${toolKey}_stations';
+    final list = (prefs.getStringList(key) ?? []).map((s) => jsonDecode(s) as Map<String, dynamic>).toList();
+    list.removeWhere((s) => s['name'] == name); // מחליף עמדה קודמת באותו שם, לא יוצר כפילות
+    list.add({'name': name, 'params': params});
+    if (list.length > _maxStationsPerTool) list.removeAt(0); // חרג מהתקרה — מוחק את הישנה ביותר
+    await prefs.setStringList(key, list.map((s) => jsonEncode(s)).toList());
+  }
+
+  Future<void> deleteStation(String toolKey, String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${toolKey}_stations';
+    final list = (prefs.getStringList(key) ?? []).map((s) => jsonDecode(s) as Map<String, dynamic>).toList();
+    list.removeWhere((s) => s['name'] == name);
+    await prefs.setStringList(key, list.map((s) => jsonEncode(s)).toList());
+  }
+
   // ── שכבת "אזורי פעילות טיסה (NOTAM)" — 7 קטגוריות, בהשראת מסך השכבות של DronesIL ──
   // חשוב: אזורים שבהם *מישהו אחר* קיבל אישור/פעילות מוכרזת — שכבת הימנעות/מודעות,
   // לא "מותר לך לטוס כאן". ר' ApiService.fetchUasNotamZones להסבר המקור ו-
@@ -609,6 +764,9 @@ class MapState extends ChangeNotifier {
     _radialLosCancelToken?.cancel(); // ביטול job רדיוס-ראייה רץ, אם יש — לפני איפוס שאר השדות
     radialLosMode = false; radialLosObs = null; radialLosResult = null; // איפוס מצב/משקיף/תוצאה רדיוס-ראייה
     radialLosLoading = false; radialLosError = null;
+    _radarCancelToken?.cancel(); // ביטול job מכ"ם דופלר רץ, אם יש
+    radarMode = false; radarObs = null; radarResult = null; // איפוס מצב/משקיף/תוצאה מכ"ם דופלר
+    radarLoading = false; radarError = null;
     flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
     pinnedPoints = []; lastPinnedPoint = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
     cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת

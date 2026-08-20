@@ -22,6 +22,7 @@ app_combined.log
 city_log.txt
 coordinates_log.txt
 weather_data.csv
+saved_stations.json
 
 # IDE
 .idea/

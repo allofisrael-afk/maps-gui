@@ -1639,7 +1639,12 @@ class MapApp(QMainWindow):
         except Exception as e:
             self.log_action(f"שגיאה בהפעלת FlightServer: {e}", is_success=False)
 
-        self.map_view.page().runJavaScript("window.serversRunning = true;")  # עדכון JS שהשרתים פעילים
+        # קורא לפונקציית JS ייעודית (לא קביעה ישירה של המשתנה) — היא גם מעדכנת את מצב serversRunning
+        # וגם מנטרלת/משחררת בפועל את כפתורי הכלים (👁/📡/🎯) שתלויים בשרתים, ר' _setServersRunning ב-MAP.py
+        self.map_view.page().runJavaScript(
+            "if (typeof _setServersRunning === 'function') { _setServersRunning(true); } "
+            "else { window.serversRunning = true; }"  # רשת ביטחון אם המפה עוד לא נטענה/נוצרה בפועל
+        )
         self.load_map_button.setEnabled(True)  # אפשור יצירת מפה לאחר הפעלת השרתים
         if self._map_created:  # אם המפה כבר נוצרה בעבר, יש לשחזר כפתורים שנעלו ע"י stop_servers
             self.Find_a_location.setEnabled(True)  # שחזור נעילת דקירת נ.צ
@@ -1698,7 +1703,11 @@ class MapApp(QMainWindow):
                 self.log_action("FlightServer נעצר בהצלחה.", is_success=True)
         except Exception as e:
             self.log_action(f"שגיאה בעצירת השרתים: {e}", is_success=False)
-        self.map_view.page().runJavaScript("window.serversRunning = false;")  # עדכון JS שהשרתים כבויים
+        # אותו דפוס כמו ב-start_servers — קורא לפונקציית JS שגם מעדכנת וגם מנטרלת בחזרה את כפתורי הכלים
+        self.map_view.page().runJavaScript(
+            "if (typeof _setServersRunning === 'function') { _setServersRunning(false); } "
+            "else { window.serversRunning = false; }"
+        )
         self.load_map_button.setEnabled(False)  # נעילת יצירת מפה
         self.Find_a_location.setEnabled(False)  # נעילת דקירת נ.צ
         self.heatmap_button.setEnabled(False)  # נעילת שכבת חום
