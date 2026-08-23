@@ -1128,6 +1128,60 @@ def _radar_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bear
             _radar_jobs[job_id]['error'] = str(e)
 
 
+def _parse_radar_common_params(args):
+    """קליטת/צמידת כל הפרמטרים המשותפים לחישוב מכ"ם-דופלר (משוואת מכ"ם/דופלר/תפוצה/
+    מערך-מופעים/גיאומטריה) — משותף בין /radar_doppler/start (סריקה מלאה) ו-
+    /radar_doppler/profile (קרן בודדת), כדי לא לשכפל ~19 בלוקי parsing כמעט-זהים.
+    לא כולל lat/lon/bearing (שונים במהות בין שני ה-endpoints, כל אחד קולט אותם בעצמו)."""
+    def _f(name, default):
+        try:
+            return float(args.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    range_km = min(max(_f('range_km', _RADAR_RANGE_KM_DEFAULT), _RADIAL_RANGE_KM_MIN), _RADIAL_RANGE_KM_MAX)
+    min_range_km = min(max(_f('min_range_km', _RADAR_MIN_RANGE_KM_DEFAULT), 0.0), range_km)  # לא שלילי, לא מעל range_km עצמו
+    ridge_margin_deg = min(max(_f('ridge_margin_deg', 0.0), _RADIAL_RIDGE_MARGIN_MIN), _RADIAL_RIDGE_MARGIN_MAX)
+    h_antenna = _f('h_antenna', _RADAR_H_ANTENNA_DEFAULT_M)
+    vertical_center_deg = min(max(_f('vertical_center_deg', _RADAR_VBEAM_CENTER_DEFAULT_DEG),
+                                   _RADIAL_VERTICAL_CENTER_MIN), _RADIAL_VERTICAL_CENTER_MAX)
+    vertical_width_deg = min(max(_f('vertical_width_deg', _RADAR_VBEAM_WIDTH_DEFAULT_DEG),
+                                  _RADIAL_VERTICAL_WIDTH_MIN), _RADIAL_VERTICAL_WIDTH_MAX)
+    power_kw = min(max(_f('power_kw', _RADAR_POWER_KW_DEFAULT), _RADAR_POWER_KW_MIN), _RADAR_POWER_KW_MAX)
+    gain_dbi = min(max(_f('gain_dbi', _RADAR_GAIN_DBI_DEFAULT), _RADAR_GAIN_DBI_MIN), _RADAR_GAIN_DBI_MAX)
+    freq_mhz = min(max(_f('freq_mhz', _RADAR_FREQ_MHZ_DEFAULT), _RADAR_FREQ_MHZ_MIN), _RADAR_FREQ_MHZ_MAX)
+    rcs_m2 = min(max(_f('rcs_m2', _RADAR_RCS_M2_DEFAULT), _RADAR_RCS_M2_MIN), _RADAR_RCS_M2_MAX)
+    sensitivity_dbm = min(max(_f('sensitivity_dbm', _RADAR_SENSITIVITY_DBM_DEFAULT),
+                              _RADAR_SENSITIVITY_DBM_MIN), _RADAR_SENSITIVITY_DBM_MAX)
+    prf_hz = min(max(_f('prf_hz', _RADAR_PRF_HZ_DEFAULT), _RADAR_PRF_HZ_MIN), _RADAR_PRF_HZ_MAX)
+    mdv_kt = min(max(_f('mdv_kt', _RADAR_MDV_KT_DEFAULT), _RADAR_MDV_KT_MIN), _RADAR_MDV_KT_MAX)
+    target_speed_kt = min(max(_f('target_speed_kt', _RADAR_TARGET_SPEED_KT_DEFAULT),
+                             _RADAR_TARGET_SPEED_KT_MIN), _RADAR_TARGET_SPEED_KT_MAX)
+    target_heading_deg = _f('target_heading_deg', _RADAR_TARGET_HEADING_DEG_DEFAULT) % 360  # מנרמל שלילי/מעל 360
+
+    lobing_enabled = str(args.get('lobing_enabled', 'false')).lower() == 'true'  # toggle — כבוי כברירת מחדל
+    reflectivity_key = args.get('reflectivity', _RADAR_REFLECTIVITY_DEFAULT)
+    if reflectivity_key not in _RADAR_REFLECTIVITY:
+        reflectivity_key = _RADAR_REFLECTIVITY_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
+
+    antenna_type = args.get('antenna_type', _RADAR_ANTENNA_TYPE_DEFAULT)
+    if antenna_type not in _RADAR_ANTENNA_TYPES:
+        antenna_type = _RADAR_ANTENNA_TYPE_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
+    boresight_deg = _f('boresight_deg', _RADAR_BORESIGHT_DEG_DEFAULT) % 360
+    max_scan_deg = min(max(_f('max_scan_deg', _RADAR_MAX_SCAN_DEG_DEFAULT),
+                           _RADAR_MAX_SCAN_DEG_MIN), _RADAR_MAX_SCAN_DEG_MAX)
+
+    return {
+        'range_km': range_km, 'min_range_km': min_range_km, 'ridge_margin_deg': ridge_margin_deg,
+        'h_antenna': h_antenna, 'vertical_center_deg': vertical_center_deg, 'vertical_width_deg': vertical_width_deg,
+        'power_kw': power_kw, 'gain_dbi': gain_dbi, 'freq_mhz': freq_mhz, 'rcs_m2': rcs_m2,
+        'sensitivity_dbm': sensitivity_dbm, 'prf_hz': prf_hz, 'mdv_kt': mdv_kt,
+        'target_speed_kt': target_speed_kt, 'target_heading_deg': target_heading_deg,
+        'lobing_enabled': lobing_enabled, 'reflectivity_key': reflectivity_key,
+        'antenna_type': antenna_type, 'boresight_deg': boresight_deg, 'max_scan_deg': max_scan_deg,
+    }
+
+
 @app.route("/radar_doppler/start", methods=["GET"])
 def start_radar_doppler():
     """מתחיל job חדש של תצפית מכ"ם דופלר ברקע, מחזיר job_id מיידית — אותו דפוס בדיוק
@@ -1138,29 +1192,7 @@ def start_radar_doppler():
     except (TypeError, ValueError):
         return jsonify({"error": "פרמטרים חסרים"}), 400
 
-    try:
-        range_km = float(request.args.get('range_km', _RADAR_RANGE_KM_DEFAULT))
-    except (TypeError, ValueError):
-        range_km = _RADAR_RANGE_KM_DEFAULT
-    range_km = min(max(range_km, _RADIAL_RANGE_KM_MIN), _RADIAL_RANGE_KM_MAX)  # גבולות גנריים משותפים עם רדיוס-הראייה
-
-    try:
-        min_range_km = float(request.args.get('min_range_km', _RADAR_MIN_RANGE_KM_DEFAULT))
-    except (TypeError, ValueError):
-        min_range_km = _RADAR_MIN_RANGE_KM_DEFAULT
-    min_range_km = min(max(min_range_km, 0.0), range_km)  # לא שלילי, ולא גדול מהטווח המקסימלי עצמו
-
-    try:
-        angle_step_deg = float(request.args.get('angle_step_deg', 10.0))
-    except (TypeError, ValueError):
-        angle_step_deg = 10.0
-    angle_step_deg = min(max(angle_step_deg, _RADIAL_ANGLE_STEP_MIN), _RADIAL_ANGLE_STEP_MAX)
-
-    try:
-        ridge_margin_deg = float(request.args.get('ridge_margin_deg', 0.0))
-    except (TypeError, ValueError):
-        ridge_margin_deg = 0.0
-    ridge_margin_deg = min(max(ridge_margin_deg, _RADIAL_RIDGE_MARGIN_MIN), _RADIAL_RIDGE_MARGIN_MAX)
+    p = _parse_radar_common_params(request.args)  # כל הפרמטרים המשותפים — ר' _parse_radar_common_params
 
     try:  # אזימוט התחלה — לא נצמד לטווח קבוע, % 360 בהמשך כבר מנרמל כל ערך
         start_bearing_deg = float(request.args.get('start_bearing_deg', 0.0))
@@ -1170,96 +1202,21 @@ def start_radar_doppler():
         end_bearing_deg = float(request.args.get('end_bearing_deg', 360.0))
     except (TypeError, ValueError):
         end_bearing_deg = 360.0
-
     try:
-        h_antenna = float(request.args.get('h_antenna', _RADAR_H_ANTENNA_DEFAULT_M))
+        angle_step_deg = float(request.args.get('angle_step_deg', 10.0))
     except (TypeError, ValueError):
-        h_antenna = _RADAR_H_ANTENNA_DEFAULT_M
+        angle_step_deg = 10.0
+    angle_step_deg = min(max(angle_step_deg, _RADIAL_ANGLE_STEP_MIN), _RADIAL_ANGLE_STEP_MAX)
 
-    try:
-        vertical_center_deg = float(request.args.get('vertical_center_deg', _RADAR_VBEAM_CENTER_DEFAULT_DEG))
-    except (TypeError, ValueError):
-        vertical_center_deg = _RADAR_VBEAM_CENTER_DEFAULT_DEG
-    vertical_center_deg = min(max(vertical_center_deg, _RADIAL_VERTICAL_CENTER_MIN), _RADIAL_VERTICAL_CENTER_MAX)
-
-    try:
-        vertical_width_deg = float(request.args.get('vertical_width_deg', _RADAR_VBEAM_WIDTH_DEFAULT_DEG))
-    except (TypeError, ValueError):
-        vertical_width_deg = _RADAR_VBEAM_WIDTH_DEFAULT_DEG
-    vertical_width_deg = min(max(vertical_width_deg, _RADIAL_VERTICAL_WIDTH_MIN), _RADIAL_VERTICAL_WIDTH_MAX)
-
-    try:
-        power_kw = float(request.args.get('power_kw', _RADAR_POWER_KW_DEFAULT))
-    except (TypeError, ValueError):
-        power_kw = _RADAR_POWER_KW_DEFAULT
-    power_kw = min(max(power_kw, _RADAR_POWER_KW_MIN), _RADAR_POWER_KW_MAX)
-
-    try:
-        gain_dbi = float(request.args.get('gain_dbi', _RADAR_GAIN_DBI_DEFAULT))
-    except (TypeError, ValueError):
-        gain_dbi = _RADAR_GAIN_DBI_DEFAULT
-    gain_dbi = min(max(gain_dbi, _RADAR_GAIN_DBI_MIN), _RADAR_GAIN_DBI_MAX)
-
-    try:
-        freq_mhz = float(request.args.get('freq_mhz', _RADAR_FREQ_MHZ_DEFAULT))
-    except (TypeError, ValueError):
-        freq_mhz = _RADAR_FREQ_MHZ_DEFAULT
-    freq_mhz = min(max(freq_mhz, _RADAR_FREQ_MHZ_MIN), _RADAR_FREQ_MHZ_MAX)
-
-    try:
-        rcs_m2 = float(request.args.get('rcs_m2', _RADAR_RCS_M2_DEFAULT))
-    except (TypeError, ValueError):
-        rcs_m2 = _RADAR_RCS_M2_DEFAULT
-    rcs_m2 = min(max(rcs_m2, _RADAR_RCS_M2_MIN), _RADAR_RCS_M2_MAX)
-
-    try:
-        sensitivity_dbm = float(request.args.get('sensitivity_dbm', _RADAR_SENSITIVITY_DBM_DEFAULT))
-    except (TypeError, ValueError):
-        sensitivity_dbm = _RADAR_SENSITIVITY_DBM_DEFAULT
-    sensitivity_dbm = min(max(sensitivity_dbm, _RADAR_SENSITIVITY_DBM_MIN), _RADAR_SENSITIVITY_DBM_MAX)
-
-    try:
-        prf_hz = float(request.args.get('prf_hz', _RADAR_PRF_HZ_DEFAULT))
-    except (TypeError, ValueError):
-        prf_hz = _RADAR_PRF_HZ_DEFAULT
-    prf_hz = min(max(prf_hz, _RADAR_PRF_HZ_MIN), _RADAR_PRF_HZ_MAX)
-
-    try:
-        mdv_kt = float(request.args.get('mdv_kt', _RADAR_MDV_KT_DEFAULT))
-    except (TypeError, ValueError):
-        mdv_kt = _RADAR_MDV_KT_DEFAULT
-    mdv_kt = min(max(mdv_kt, _RADAR_MDV_KT_MIN), _RADAR_MDV_KT_MAX)
-
-    try:
-        target_speed_kt = float(request.args.get('target_speed_kt', _RADAR_TARGET_SPEED_KT_DEFAULT))
-    except (TypeError, ValueError):
-        target_speed_kt = _RADAR_TARGET_SPEED_KT_DEFAULT
-    target_speed_kt = min(max(target_speed_kt, _RADAR_TARGET_SPEED_KT_MIN), _RADAR_TARGET_SPEED_KT_MAX)
-
-    try:
-        target_heading_deg = float(request.args.get('target_heading_deg', _RADAR_TARGET_HEADING_DEG_DEFAULT))
-    except (TypeError, ValueError):
-        target_heading_deg = _RADAR_TARGET_HEADING_DEG_DEFAULT
-    target_heading_deg = target_heading_deg % 360  # מנרמל כל ערך (כולל שלילי) לטווח 0-360
-
-    lobing_enabled = request.args.get('lobing_enabled', 'false').lower() == 'true'  # toggle — כבוי כברירת מחדל
-    reflectivity_key = request.args.get('reflectivity', _RADAR_REFLECTIVITY_DEFAULT)
-    if reflectivity_key not in _RADAR_REFLECTIVITY:
-        reflectivity_key = _RADAR_REFLECTIVITY_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
-
-    antenna_type = request.args.get('antenna_type', _RADAR_ANTENNA_TYPE_DEFAULT)
-    if antenna_type not in _RADAR_ANTENNA_TYPES:
-        antenna_type = _RADAR_ANTENNA_TYPE_DEFAULT  # ערך לא מוכר — נופל לברירת המחדל בשקט, לא שגיאה
-    try:
-        boresight_deg = float(request.args.get('boresight_deg', _RADAR_BORESIGHT_DEG_DEFAULT))
-    except (TypeError, ValueError):
-        boresight_deg = _RADAR_BORESIGHT_DEG_DEFAULT
-    boresight_deg = boresight_deg % 360  # מנרמל כל ערך (כולל שלילי) לטווח 0-360
-    try:
-        max_scan_deg = float(request.args.get('max_scan_deg', _RADAR_MAX_SCAN_DEG_DEFAULT))
-    except (TypeError, ValueError):
-        max_scan_deg = _RADAR_MAX_SCAN_DEG_DEFAULT
-    max_scan_deg = min(max(max_scan_deg, _RADAR_MAX_SCAN_DEG_MIN), _RADAR_MAX_SCAN_DEG_MAX)
+    # פירוק חזרה לשמות מקומיים — נשמר בכוונה (לא מעבירים את p כמילון ל-_radar_worker) כדי
+    # לא לשנות את חתימת ה-worker הקיימת/הבדוקה יותר מהנדרש
+    range_km, min_range_km, ridge_margin_deg = p['range_km'], p['min_range_km'], p['ridge_margin_deg']
+    h_antenna, vertical_center_deg, vertical_width_deg = p['h_antenna'], p['vertical_center_deg'], p['vertical_width_deg']
+    power_kw, gain_dbi, freq_mhz, rcs_m2 = p['power_kw'], p['gain_dbi'], p['freq_mhz'], p['rcs_m2']
+    sensitivity_dbm, prf_hz, mdv_kt = p['sensitivity_dbm'], p['prf_hz'], p['mdv_kt']
+    target_speed_kt, target_heading_deg = p['target_speed_kt'], p['target_heading_deg']
+    lobing_enabled, reflectivity_key = p['lobing_enabled'], p['reflectivity_key']
+    antenna_type, boresight_deg, max_scan_deg = p['antenna_type'], p['boresight_deg'], p['max_scan_deg']
 
     job_id = str(uuid.uuid4())  # מזהה ייחודי ל-job הזה
     with _radar_jobs_lock:
@@ -1304,6 +1261,101 @@ def cancel_radar_doppler():
         if job_id in _radar_jobs:  # מתעלם בשקט אם ה-job כבר לא קיים (למשל הסתיים/נוקה) — אין מה לבטל
             _radar_jobs[job_id]['cancelled'] = True
     return jsonify({'ok': True})
+
+
+@app.route("/radar_doppler/profile", methods=["GET"])
+def radar_doppler_profile():
+    """חתך-צד (פרופיל שטח) לקרן בודדת מתוך תוצאת מכ"ם-דופלר — נקרא בלחיצה על חישור ספציפי
+    בממשק. מחשב סינכרונית (לא job/polling — קרן אחת, מהיר כמו /los), ומחזיר את כל נקודות
+    הדגימה לאורך הקרן (לא רק את קודקוד הסיכום כמו /radar_doppler/start) — כדי לצייר אותן
+    ב-_drawProfileSingle הקיים (אותו פורמט בדיוק כמו /los: dist_km/elevation/los_h/visible).
+    מקבל את כל אותם פרמטרים כמו /radar_doppler/start (דרך _parse_radar_common_params המשותפת)
+    ועוד bearing_deg יחיד במקום מגזר שלם — לא מריץ job/thread, ולא נוגע ב-_radar_worker."""
+    try:
+        lat = float(request.args.get('lat'))
+        lon = float(request.args.get('lon'))
+        bearing_deg = float(request.args.get('bearing_deg'))
+    except (TypeError, ValueError):
+        return jsonify({"error": "פרמטרים חסרים"}), 400
+
+    p = _parse_radar_common_params(request.args)  # כל הפרמטרים המשותפים — זהה ל-/radar_doppler/start
+
+    # שלב 1: גובה המשקיף — בנפרד, נכשל-מהר (כמו _radar_worker)
+    obs_elevs, err = _fetch_elevations([{'lat': lat, 'lon': lon}])
+    if err or obs_elevs is None or obs_elevs[0] is None:
+        return jsonify({'error': (err or {}).get('error', 'לא ניתן לשלוף את גובה המשקיף')}), 502
+    observer_elev = obs_elevs[0]
+    h_obs = observer_elev + p['h_antenna']
+
+    # שלב 2: פיזיקה שלא תלויה בנקודת דגימה ספציפית — זהה בדיוק ל-_radar_worker
+    wavelength_m = 299792458.0 / (p['freq_mhz'] * 1e6)
+    radar_clean_range_m = _radar_max_range_m(p['power_kw'], p['gain_dbi'], p['freq_mhz'], p['rcs_m2'], p['sensitivity_dbm'])
+    unambig_range_m = _max_unambiguous_range_m(p['prf_hz'])
+    radar_ceiling_m = min(radar_clean_range_m, unambig_range_m)
+    mdv_ms = p['mdv_kt'] * _KT_TO_MS
+    target_speed_ms = p['target_speed_kt'] * _KT_TO_MS
+    reflectivity = _RADAR_REFLECTIVITY.get(p['reflectivity_key'], _RADAR_REFLECTIVITY[_RADAR_REFLECTIVITY_DEFAULT])
+    radial_speed_ms = abs(target_speed_ms * math.cos(math.radians(p['target_heading_deg'] - bearing_deg)))
+    doppler_ok = _doppler_detectable(radial_speed_ms, mdv_ms, wavelength_m, p['prf_hz'])
+    ray_scan_loss = (_scan_loss_factor(bearing_deg, p['boresight_deg'], p['max_scan_deg'])
+                      if p['antenna_type'] == 'phased_array' else 1.0)
+
+    # שלב 3: בניית נקודות הדגימה לאורך הקרן הזו בלבד — נצמד ל-100 (לא 150) כדי להישאר
+    # בבקשת Open-Meteo אחת פשוטה, בלי לוגיקת ה-batches של הסריקה המלאה (מיותרת לקרן בודדת)
+    range_m = p['range_km'] * 1000.0
+    min_range_m = p['min_range_km'] * 1000.0
+    spacing_based = round((p['range_km'] - p['min_range_km']) / _RADIAL_TARGET_SPACING_KM) + 1
+    samples = max(_RADIAL_SAMPLES_MIN, min(100, max(20, spacing_based)))
+    sample_points = []
+    for j in range(samples):
+        frac = j / (samples - 1) if samples > 1 else 0.0
+        dist = min_range_m + frac * (range_m - min_range_m)
+        plat, plon = _destination_point(lat, lon, bearing_deg, dist)
+        sample_points.append({'lat': round(plat, 6), 'lon': round(plon, 6), 'dist_m': dist})
+
+    elevs, err = _fetch_elevations(sample_points)
+    if err:
+        return jsonify({'error': err.get('error', 'שגיאה בשליפת נתוני גובה')}), 502
+
+    surviving = [(p_, e) for p_, e in zip(sample_points, elevs) if e is not None]
+    if len(surviving) < 2:
+        return jsonify({'error': 'נתוני גובה חסרים לאורך הקרן'}), 502
+    dists = [p_['dist_m'] for p_, _ in surviving]
+    elevs_only = [e for _, e in surviving]
+
+    # שלב 4: ratchet + טווח מכ"ם/ריבוד — זהה בדיוק ללולאת _radar_worker, לקרן אחת בלבד
+    margin_slope = math.tan(math.radians(p['ridge_margin_deg']))
+    v_half = p['vertical_width_deg'] / 2.0
+    min_angle_slope = math.tan(math.radians(p['vertical_center_deg'] - v_half))
+    max_angle_slope = math.tan(math.radians(p['vertical_center_deg'] + v_half))
+    h_offsets = [0.0] * len(surviving)
+    ratchet = _horizon_ratchet(dists, elevs_only, h_obs, h_offsets, margin_slope, min_angle_slope, max_angle_slope)
+
+    radar_dist_m = 0.0
+    for i, rr in enumerate(ratchet):
+        if not rr['visible']:
+            continue
+        d = dists[i]
+        if p['lobing_enabled']:
+            elev_angle_deg = math.degrees(math.atan2(elevs_only[i] - h_obs, d)) if d > 0 else 90.0
+            ceiling = radar_ceiling_m * _lobing_factor(elev_angle_deg, p['h_antenna'], wavelength_m, reflectivity)
+        else:
+            ceiling = radar_ceiling_m
+        ceiling *= ray_scan_loss
+        if d <= ceiling:
+            radar_dist_m = d
+    blocked = radar_dist_m < dists[-1] - 1e-6
+
+    points = [  # אותו פורמט בדיוק כמו /los — נצרך ישירות ע"י _drawProfileSingle הקיים, בלי שינוי
+        {'dist_km': round(rr['dist_m'] / 1000, 2), 'elevation': rr['elevation'], 'los_h': rr['los_h'], 'visible': rr['visible']}
+        for rr in ratchet
+    ]
+    first_block_m = next((rr['dist_m'] for rr in ratchet if not rr['visible']), None)  # כמו /los — נדרש כדי ש-_drawProfileSingle יציג שורת מידע זהה
+    return jsonify({
+        'points': points, 'total_km': round(dists[-1] / 1000, 2), 'bearing_deg': round(bearing_deg, 3),
+        'first_block_km': round(first_block_m / 1000, 2) if first_block_m is not None else None,
+        'radar_dist_km': round(radar_dist_m / 1000, 3), 'blocked': blocked, 'doppler_ok': doppler_ok,
+    })
 
 
 # ── "עמדות שמורות" — מיקום+פרמטרים ניתנים לשמירה תחת שם, לכל אחד משלושת כלי התצפית בנפרד ──

@@ -56,6 +56,30 @@
             border-color: #89b4fa;
         }
 
+        /* ── פקד Undo/Redo — פינה שמאלית-עליונה, מעל פקד הזום ── */
+        .undo-redo-ctrl {
+            display: flex;
+            flex-direction: row;
+            gap: 4px;
+            padding: 5px;
+            background: rgba(30,30,46,0.92);
+            border: 1px solid #45475a;
+            border-radius: 8px;
+            margin-top: 8px;   /* רווח מפקד הזום שמעליו */
+        }
+        .undo-redo-btn {
+            padding: 5px 10px;
+            background: #313244;
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Segoe UI', Arial;
+            font-size: 14px;
+            transition: background 0.15s, opacity 0.15s;
+        }
+        .undo-redo-btn:hover { background: #45475a; }
+
         /* עיצוב Popup — רקע כהה תואם נושא */
         .leaflet-popup-content-wrapper {
             background-color: #1e1e2e;
@@ -114,6 +138,201 @@
 
         var _mapReady = false;  // האם המפה סיימה להיטען — כפתורי LOS/רדיוס-ראייה מוצגים מיד אך מנוטרלים עד אז (map.whenReady, בהמשך)
 
+        // ── Undo/Redo גנרי — מחסנית פעולות משותפת לכל הכלים, לא ספציפית לכלי אחד ──
+        // כל "פעולה" (עריכת שדה, מיקום משקיף, הרצת חישוב, הצבת/איפוס שכבה) נרשמת כזוג
+        // get/set + הערך הקודם. undo/redo זהים למעשה — כל אחד רק מחליף כיוון על אותה מחסנית.
+        var _undoStack = [];  // [{label, restore}, ...] — restore() משחזר אחורה ומחזיר בתמורה פונקציית הפוך ל-redo
+        var _redoStack = [];
+        var _UNDO_MAX = 50;  // תקרה סבירה — מונע צריכת זיכרון בלתי מוגבלת בסשן ארוך
+        var _undoBtnEl = null, _redoBtnEl = null;  // הפניות לכפתורי הסרגל, לעדכון enabled/disabled
+        var _isRestoringUndo = false;  // true תוך כדי ביצוע undo/redo עצמו — מונע ממאזיני 'change'/'blur'
+        // (שמותקנים כדי *לרשום* פעולות חדשות) לתפוס את השינוי התכנותי-שלנו-עצמנו כפעולה חדשה,
+        // מה שהיה יוצר לולאה/מציף את המחסניות בכל undo יחיד
+
+        function _pushUndo(label, restoreFn) {
+            if (_isRestoringUndo) return;  // הגנה נוספת — לא אמור לקרות, אבל עדיף לא לרשום undo בתוך undo
+            _undoStack.push({label: label, restore: restoreFn});
+            if (_undoStack.length > _UNDO_MAX) _undoStack.shift();  // מוחק את הישן ביותר אם עברנו את התקרה
+            _redoStack = [];  // כל פעולה חדשה מבטלת redo קודם — התנהגות סטנדרטית בכל תוכנה
+            _updateUndoRedoButtons();
+        }
+
+        // הליבה הגנרית: setFn/getFn מתארים "איך לקרוא/לכתוב" את הערך (שדה DOM, מיקום משקיף,
+        // דגל שכבה וכו') — לא תלוי בסוג הפעולה. מחזיר פונקציה שכשנקראת: קוראת את הערך הנוכחי
+        // (לפני שהיא דורסת אותו — זה מה ש-redo/undo הבא יצטרך), כותבת את targetValue, ומחזירה
+        // עצמה-מחדש (closure רקורסיבי) עבור הכיוון ההפוך — כך undo ו-redo משתמשים באותה פונקציה.
+        function _makeValueRestore(setFn, getFn, targetValue, onApply) {
+            return function() {
+                var current = getFn();
+                setFn(targetValue);
+                if (onApply) onApply();
+                return _makeValueRestore(setFn, getFn, current, onApply);
+            };
+        }
+
+        // גרסה גנרית ל"הזזת" סמן קיים (למשל גרירת משקיף/יעד) — לא יוצרת/מוחקת דבר, רק מזיזה חזרה
+        function _makeMarkerMoveRestore(setPosFn, getPosFn, updateFn, targetLatLng) {
+            return function() {
+                var current = getPosFn();
+                setPosFn(targetLatLng);
+                if (updateFn) updateFn();
+                return _makeMarkerMoveRestore(setPosFn, getPosFn, updateFn, current);
+            };
+        }
+
+        // גרסה גנרית ל"הצבה" מלאה (למשל לחיצה על המפה שממקמת/מחליפה משקיף) —
+        // אם אין ערך קודם (null) קוראת ל-clearFn (מחזירה למצב "אין עדיין הצבה")
+        function _makePlacementRestore(placeFn, clearFn, getPosFn, targetLatLngOrNull) {
+            return function() {
+                var current = getPosFn();
+                if (targetLatLngOrNull) { placeFn(targetLatLngOrNull); } else { clearFn(); }
+                return _makePlacementRestore(placeFn, clearFn, getPosFn, current);
+            };
+        }
+
+        // ── עזרי Undo ייעודיים לכלי קו-הראייה (LOS) — מבנה שונה משאר הכלים: כל צמד לחיצות יוצר
+        // סשן חדש במערך losSessions (לא מצב יחיד שמוחלף), ולכן דרוש היפוך "קיים/לא-קיים" ולא "ערך קודם"
+        function _addLosSessionToMap(session) {
+            if (losSessions.indexOf(session) === -1) losSessions.push(session);
+            if (session.obsMk) session.obsMk.addTo(map);
+            if (session.tgtMk) session.tgtMk.addTo(map);
+            session.lineLayers.forEach(function(l) { l.addTo(map); });
+        }
+
+        function _removeLosSessionFromMap(session) {
+            var idx = losSessions.indexOf(session);
+            if (idx !== -1) losSessions.splice(idx, 1);
+            if (session.obsMk) map.removeLayer(session.obsMk);
+            if (session.tgtMk) map.removeLayer(session.tgtMk);
+            session.lineLayers.forEach(function(l) { map.removeLayer(l); });
+        }
+
+        function _makeLosSessionRestore(session, isPresent) {
+            return function() {
+                if (isPresent) { _removeLosSessionFromMap(session); } else { _addLosSessionToMap(session); }
+                return _makeLosSessionRestore(session, !isPresent);
+            };
+        }
+
+        // "הצבעה" זמנית — נקודת התצפית שנקבעה בלחיצה הראשונה, לפני שנבחר יעד (עדיין אין סשן)
+        function _makeLosPendingObsRestore(mk, latlng, isPresent) {
+            return function() {
+                if (isPresent) {
+                    map.removeLayer(mk); losCurObs = null; losCurObsMk = null;
+                } else {
+                    losCurObs = latlng; losCurObsMk = mk; mk.addTo(map);
+                }
+                return _makeLosPendingObsRestore(mk, latlng, !isPresent);
+            };
+        }
+
+        // גרסה גנרית ל"תיבת-סימון לוגית" (בוליאני שנקבע ע"י פונקציית toggle קיימת, לא ע"י setter ישיר) —
+        // בשימוש עבור שכבות NOTAM/אזורי-תיאום/CTR, שתיבות הסימון שלהן הן ווידג'טים של Qt (לא DOM),
+        // ולכן לא ניתן לחווט אותן ישירות עם _attachCheckboxUndo הרגיל — ה-toggle עצמו נקרא במקום.
+        function _makeSimpleToggleRestore(toggleFn, getFn, targetBool) {
+            return function() {
+                var current = getFn();
+                if (current !== targetBool) toggleFn();  // קורא ל-toggle המקורי רק אם המצב בפועל אכן שונה מהיעד
+                return _makeSimpleToggleRestore(toggleFn, getFn, current);
+            };
+        }
+
+        function _performUndo() {
+            if (!_undoStack.length || _isRestoringUndo) return;
+            var entry = _undoStack.pop();
+            _isRestoringUndo = true;
+            var forward;
+            try { forward = entry.restore(); } finally { _isRestoringUndo = false; }  // מבצע את השחזור בפועל, מקבל בתמורה פונקציית הפוך
+            _redoStack.push({label: entry.label, restore: forward});
+            _updateUndoRedoButtons();
+            // מאותת ל-Python (main.py, ר' _on_title_changed) ליישר תיבות/כפתורי שכבות NOTAM/תיאום/CTR —
+            // אלה ווידג'טים של Qt מחוץ לדף, ולכן לא מתעדכנים אוטומטית כשה-JS משנה מצב ישירות (בלי לחיצה על הכפתור עצמו)
+            document.title = '__sync_layer_checkboxes__';
+        }
+
+        function _performRedo() {
+            if (!_redoStack.length || _isRestoringUndo) return;
+            var entry = _redoStack.pop();
+            _isRestoringUndo = true;
+            var backward;
+            try { backward = entry.restore(); } finally { _isRestoringUndo = false; }
+            _undoStack.push({label: entry.label, restore: backward});
+            _updateUndoRedoButtons();
+            document.title = '__sync_layer_checkboxes__';  // ר' הערה מקבילה ב-_performUndo
+        }
+
+        function _updateUndoRedoButtons() {
+            if (_undoBtnEl) _undoBtnEl.style.opacity = _undoStack.length ? '1' : '0.35';
+            if (_redoBtnEl) _redoBtnEl.style.opacity = _redoStack.length ? '1' : '0.35';
+        }
+
+        // עוזר נפוץ: רושם undo לשינוי ערך שדה DOM בודד (input/select) — el.value לפני/אחרי.
+        // לא רושם אם הערך בפועל לא השתנה (מונע פקודות undo מיותרות, למשל focus+blur בלי עריכה).
+        function _recordFieldUndo(el, beforeValue, label, onApply) {
+            if (_isRestoringUndo || el.value === beforeValue) return;
+            _pushUndo(label, _makeValueRestore(
+                function(v) { el.value = v; },
+                function() { return el.value; },
+                beforeValue, onApply
+            ));
+        }
+
+        // מצרף לשדה DOM מעקב focus→blur לרישום undo אוטומטי — נקרא פעם אחת לכל שדה בזמן בנייתו
+        // (מתוך _mkField של כל כלי), כדי לא לשכפל את לוגיקת ה-focus/blur הזו בכל כלי בנפרד.
+        function _attachFieldUndo(el, label, onApply) {
+            var focusValue = null;
+            L.DomEvent.on(el, 'focus', function() { focusValue = el.value; });
+            L.DomEvent.on(el, 'blur', function() {
+                if (focusValue !== null) _recordFieldUndo(el, focusValue, label, onApply);
+                focusValue = null;
+            });
+        }
+
+        // מקביל ל-_attachFieldUndo, אבל ל-<select> (משתנה אטומית ב-'change', אין focus/blur
+        // הדרגתי כמו בטקסט) — בשחזור גם משגר אירוע 'change' אמיתי, כדי שכל מאזין חיצוני
+        // שתלוי בבחירה הזו (למשל חשיפת שדות מערך-מופעים) יתעדכן ממילא, בלי שנצטרך להכיר אותו.
+        function _attachSelectUndo(sel, label) {
+            var prevValue = sel.value;
+            L.DomEvent.on(sel, 'change', function() {
+                if (_isRestoringUndo) { prevValue = sel.value; return; }
+                var before = prevValue;
+                if (sel.value !== before) {
+                    _pushUndo(label, _makeValueRestore(
+                        function(v) { sel.value = v; sel.dispatchEvent(new Event('change')); },
+                        function() { return sel.value; },
+                        before, null
+                    ));
+                }
+                prevValue = sel.value;
+            });
+        }
+
+        // מקביל ל-_attachSelectUndo, אבל ל-checkbox (.checked בוליאני, לא .value מחרוזת)
+        function _attachCheckboxUndo(chk, label) {
+            var prevChecked = chk.checked;
+            L.DomEvent.on(chk, 'change', function() {
+                if (_isRestoringUndo) { prevChecked = chk.checked; return; }
+                var before = prevChecked;
+                if (chk.checked !== before) {
+                    _pushUndo(label, _makeValueRestore(
+                        function(v) { chk.checked = v; chk.dispatchEvent(new Event('change')); },
+                        function() { return chk.checked; },
+                        before, null
+                    ));
+                }
+                prevChecked = chk.checked;
+            });
+        }
+
+        // קיצורי מקלדת גלובליים — Ctrl+Z (undo), Ctrl+Y או Ctrl+Shift+Z (redo, שני המוסכמות
+        // הנפוצות). מוגדר ברמת document כדי לעבוד מכל מקום בעמוד, גם כששדה קלט ממוקד.
+        document.addEventListener('keydown', function(e) {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            var key = e.key ? e.key.toLowerCase() : '';
+            if (key === 'z' && !e.shiftKey) { e.preventDefault(); _performUndo(); }
+            else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); _performRedo(); }
+        });
+
         // ── מצב כלי קווי ראייה (LOS) ──
         var losActive   = false;  // האם מצב הוספת קו ראייה חדש פעיל (cursor crosshair)
         var losSessions = [];     // כל הסשנים שחושבו: [{obsMk, tgtMk, lineLayers, data, color, idx}]
@@ -171,6 +390,7 @@
         var radarJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
         var radarPollTimer = null;  // מזהה ה-setInterval של ה-polling
         var radarInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות/סיכום)
+        var _radarProfilePanelEl = null;  // פאנל חתך-הצד לקרן בודדת בלחיצה — נפרד מ-losPanelEl (לא שייך סמנטית ל-losSessions)
         var _radarBtnEl        = null; // הפניה לכפתור 🎯 לצורך שינוי צבעו
         var _radarPanelBodyEl  = null; // גוף הפאנל (שדות+כפתורים) — מוסתר עד שהכלי נבחר
         var _radarCancelBtnEl  = null; // הפניה לכפתור "בטל" לצורך הצגה/הסתרה
@@ -189,7 +409,7 @@
         var _radarGainInput     = null; // רווח אנטנה (dBi)
         var _radarFreqSelect    = null; // תדר עבודה — dropdown לפי פס (L/S/X-band)
         var _radarSensInput     = null; // רגישות מקלט (dBm)
-        var _radarRcsSelect     = null; // שטח חתך רדארי (RCS) — dropdown לפי סוג מטרה
+        var _radarRcsInput      = null; // שטח חתך רדארי (RCS, מ"ר) — שדה מספרי חופשי (לא dropdown קשיח) לדרגות חופש מלאות; dropdown ליד זה למילוי מהיר בלבד
         // קבוצת שדות דופלר — חדשים, קובעים אם תנועת המטרה מתגלה בכלל
         var _radarPrfInput      = null; // תדר חזרת פולסים (Hz)
         var _radarMdvInput      = null; // מהירות רדיאלית מינימלית לגילוי (קשר)
@@ -447,6 +667,36 @@
         });
 
         new LayerSwitcher().addTo(map);  // יצירת מופע הפקד והוספתו למפה
+
+        // ── פקד Undo/Redo — שני כפתורים קבועים למעלה-שמאל, מעל פקד הזום ──
+        var UndoRedoControl = L.Control.extend({
+            options: { position: 'topleft' },  // אותה פינה כמו פקד הזום — יופיע מתחתיו
+
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'undo-redo-ctrl');
+
+                _undoBtnEl = L.DomUtil.create('button', 'undo-redo-btn', container);
+                _undoBtnEl.innerHTML = '↶';           // חץ חזרה — Undo
+                _undoBtnEl.title = 'בטל פעולה (Ctrl+Z)';
+
+                _redoBtnEl = L.DomUtil.create('button', 'undo-redo-btn', container);
+                _redoBtnEl.innerHTML = '↷';           // חץ קדימה — Redo
+                _redoBtnEl.title = 'בצע שוב (Ctrl+Y)';
+
+                // מניעת הגלשת לחיצות/גלילה למפה מאחורי הפקד
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+
+                L.DomEvent.on(_undoBtnEl, 'click', _performUndo);
+                L.DomEvent.on(_redoBtnEl, 'click', _performRedo);
+
+                _updateUndoRedoButtons();  // קביעת מצב עמעום ראשוני (שני המחסניות ריקות)
+
+                return container;
+            }
+        });
+
+        new UndoRedoControl().addTo(map);  // יצירת מופע הפקד והוספתו למפה
 
         // אתחול שכבת מפת החום — לא מוצגת עד להפעלה מפורשת
         heatmap = L.heatLayer([], {
@@ -857,6 +1107,11 @@
                         activeNotamCategories.add(catId);  // הקטגוריה שסומנה ברגע שהפעילה את הטעינה
                         _redrawNotamLayer();
                         document.title = '__uas_notam_loaded__:' + uasNotamZones.length;  // מספר האזורים מוטמע בכותרת עצמה
+                        if (!_isRestoringUndo) {  // בטעינה ראשונה הקטגוריה תמיד עברה מ-false ל-true
+                            _pushUndo('קטגוריית NOTAM: ' + catId, _makeSimpleToggleRestore(
+                                function() { toggleNotamCategory(catId); },
+                                function() { return activeNotamCategories.has(catId); }, false));
+                        }
                     })
                     .catch(function(err) {
                         console.error('שגיאת שכבת NOTAM:', err);
@@ -865,9 +1120,15 @@
                 return;
             }
             // כבר נטען בעבר — toggle סינכרוני בלבד, בלי בקשת רשת נוספת
+            var _prevCatActive = activeNotamCategories.has(catId);  // מצב קודם — לפני ה-toggle, לצורך Undo
             if (activeNotamCategories.has(catId)) { activeNotamCategories.delete(catId); }
             else { activeNotamCategories.add(catId); }
             _redrawNotamLayer();
+            if (!_isRestoringUndo) {
+                _pushUndo('קטגוריית NOTAM: ' + catId, _makeSimpleToggleRestore(
+                    function() { toggleNotamCategory(catId); },
+                    function() { return activeNotamCategories.has(catId); }, _prevCatActive));
+            }
         }
 
         function _redrawNotamLayer() {
@@ -979,10 +1240,15 @@
 
         function toggleUasCoordZonesLayer() {
             // סינכרוני לגמרי — הנתונים כבר בעמוד (uasCoordZonesData), אין fetch/loading/error
+            var _prevCoordActive = uasCoordActive;  // מצב קודם — לפני ה-toggle, לצורך Undo
             if (uasCoordActive) {
                 clearUasCoordZonesLayer();
             } else {
                 _drawUasCoordZones(uasCoordZonesData);
+            }
+            if (!_isRestoringUndo) {
+                _pushUndo('שכבת אזורי-תיאום כטב"ם', _makeSimpleToggleRestore(
+                    toggleUasCoordZonesLayer, function() { return uasCoordActive; }, _prevCoordActive));
             }
         }
 
@@ -1053,10 +1319,15 @@
 
         function toggleAirportCtrLayer() {
             // סינכרוני לגמרי — הנתונים כבר בעמוד (airportCtrZonesData), אין fetch/loading/error
+            var _prevCtrActive = airportCtrActive;  // מצב קודם — לפני ה-toggle, לצורך Undo
             if (airportCtrActive) {
                 clearAirportCtrLayer();
             } else {
                 _drawAirportCtrZones(airportCtrZonesData);
+            }
+            if (!_isRestoringUndo) {
+                _pushUndo('שכבת גבולות CTR', _makeSimpleToggleRestore(
+                    toggleAirportCtrLayer, function() { return airportCtrActive; }, _prevCtrActive));
             }
         }
 
@@ -1532,6 +1803,9 @@
                     // ציור סמן עגול מוצק בצבע הסשן בנקודת התצפית — ניתן לגרירה
                     losCurObsMk = L.marker(e.latlng, {icon: _losMarkerIcon(col, false), draggable: true}).addTo(map);
                     losCurObsMk.bindTooltip('תצפית ' + (sIdx + 1), {permanent:false, direction:'top'});
+                    if (!_isRestoringUndo) {
+                        _pushUndo('קו ראייה: נקודת תצפית ראשונה', _makeLosPendingObsRestore(losCurObsMk, e.latlng, true));
+                    }
                 } else {
                     // לחיצה שנייה — שמירת היעד, יצירת הסשן ושיגור החישוב
                     var sIdx    = losSessions.length;
@@ -1552,9 +1826,31 @@
                     var obsPoint = losCurObs;                 // שמירת נקודת התצפית לפני האיפוס
                     losCurObs = null; losCurObsMk = null;    // איפוס — מוכן לצמד הבא מיד
                     // גרירת סמן תצפית או יעד — חישוב מחדש אוטומטי של קו הראייה, ללא צורך ביצירת קו חדש
-                    session.obsMk.on('dragend', function() { _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session); });
-                    session.tgtMk.on('dragend', function() { _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session); });
+                    var _obsDragFrom = null, _tgtDragFrom = null;  // מיקום לפני גרירה — נלכד ב-dragstart, נצרך ב-dragend
+                    session.obsMk.on('dragstart', function() { _obsDragFrom = session.obsMk.getLatLng(); });
+                    session.obsMk.on('dragend', function() {
+                        _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session);
+                        if (!_isRestoringUndo && _obsDragFrom) {
+                            _pushUndo('קו ראייה: הזזת תצפית ' + session.idx, _makeMarkerMoveRestore(
+                                function(v) { session.obsMk.setLatLng(v); _runLos(v, session.tgtMk.getLatLng(), session); },
+                                function() { return session.obsMk.getLatLng(); }, null, _obsDragFrom));
+                        }
+                    });
+                    session.tgtMk.on('dragstart', function() { _tgtDragFrom = session.tgtMk.getLatLng(); });
+                    session.tgtMk.on('dragend', function() {
+                        _runLos(session.obsMk.getLatLng(), session.tgtMk.getLatLng(), session);
+                        if (!_isRestoringUndo && _tgtDragFrom) {
+                            _pushUndo('קו ראייה: הזזת יעד ' + session.idx, _makeMarkerMoveRestore(
+                                function(v) { session.tgtMk.setLatLng(v); _runLos(session.obsMk.getLatLng(), v, session); },
+                                function() { return session.tgtMk.getLatLng(); }, null, _tgtDragFrom));
+                        }
+                    });
                     _runLos(obsPoint, e.latlng, session);    // הפעלת חישוב LOS עם הצמד שנבחר
+                    if (!_isRestoringUndo) {
+                        // ה-lineLayers עוד ריק כרגע (_runLos עדיין רץ ברקע) — אבל זה אותו מערך בהפניה, ולכן
+                        // בזמן שה-Undo בפועל יופעל (מאוחר יותר, ע"י המשתמש) הוא כבר יכיל את הקווים המחושבים
+                        _pushUndo('קו ראייה: צמד תצפית-יעד ' + (sIdx + 1), _makeLosSessionRestore(session, true));
+                    }
                 }
             } else if (elevationActive && elevationPoints.length > 0) {
                 // מציאת נקודת הגובה הקרובה ביותר לנקודת הלחיצה — מוצג רק כשLOS כבוי
@@ -1940,12 +2236,31 @@
                 ctx.lineWidth = 1.5; ctx.stroke();
             }
 
-            // שורת מידע עליונה: מרחק כולל + חסימה ראשונה (אם יש)
+            // קו אנכי מקווקו ציאן — רק כשמגיע מפרופיל מכ"ם-דופלר (typeof, לא !==, כי /los הרגיל
+            // לא שולח את השדה הזה בכלל): מסמן היכן המכ"ם/דופלר הפסיקו לזהות, גם אם זה *לפני*
+            // שהשטח עצמו חסם (קו הראייה הירוק ממשיך אחריו) — בדיוק ההבחנה שהמשתמש רצה לראות
+            if (typeof data.radar_dist_km !== 'undefined' && data.radar_dist_km < pts[pts.length - 1].dist_km) {
+                var idxAtRadar = pts.length - 1;
+                for (var ri = 0; ri < pts.length; ri++) {  // מוצא את אינדקס הנקודה הקרוב ביותר למרחק הזה, לצורך מיקום ה-X
+                    if (pts[ri].dist_km >= data.radar_dist_km) { idxAtRadar = ri; break; }
+                }
+                var xRadar = xOf(idxAtRadar);
+                ctx.beginPath();
+                ctx.setLineDash([4, 3]);
+                ctx.moveTo(xRadar, PAD.t); ctx.lineTo(xRadar, PAD.t + cH);
+                ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1.5; ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // שורת מידע עליונה: מרחק כולל + חסימה ראשונה (אם יש) + סטטוס דופלר (רק בפרופיל מכ"ם-דופלר)
             var info = data.total_km + ' ק"מ';
             if (data.first_block_km !== null) {
                 info += '  ⛔ ' + data.first_block_km + 'ק';  // מרחק חסימה ראשונה
             } else {
                 info += '  ✓';  // ✓ ראייה מלאה לאורך כל המסלול
+            }
+            if (typeof data.doppler_ok !== 'undefined' && !data.doppler_ok) {
+                info += '  〰️ חסום-דופלר';  // כל הכיוון הזה עיוור לדופלר, ללא קשר לשטח
             }
             ctx.fillStyle = '#aaa'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
             ctx.fillText(info, PAD.l + cW / 2, PAD.t - 3);  // מעל אזור הגרף
@@ -2146,15 +2461,28 @@
         function _placeRadialLosObserver(latlng) {
             // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
             // (ר' _buildStationUI), כדי לא לשכפל את לוגיקת יצירת הסמן בשני מקומות
+            var _prevRadialObs = radialLosObs;  // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
             clearRadialLosResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
             radialLosObs = latlng;
             radialLosObsMk = L.marker(latlng, {icon: _radialLosMarkerIcon(), draggable: true}).addTo(map);
             radialLosObsMk.bindTooltip('תצפית רדיוס ראייה', {permanent:false, direction:'top'});
             radialLosObsMk.on('dragend', function() {
+                var _prevDrag = radialLosObs;  // מיקום לפני הגרירה — לצורך Undo
                 radialLosObs = radialLosObsMk.getLatLng();
                 _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                if (!_isRestoringUndo) {
+                    _pushUndo('רדיוס ראייה: הזזת משקיף', _makeMarkerMoveRestore(
+                        function(v) { radialLosObs = v; if (radialLosObsMk) radialLosObsMk.setLatLng(v); },
+                        function() { return radialLosObs; },
+                        _updateRadialLosPreview, _prevDrag));
+                }
             });
             _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+            if (!_isRestoringUndo) {
+                _pushUndo('רדיוס ראייה: מיקום משקיף', _makePlacementRestore(
+                    _placeRadialLosObserver, clearRadialLosResult,
+                    function() { return radialLosObs; }, _prevRadialObs));
+            }
         }
 
         function _updateRadialLosPreview() {
@@ -2289,11 +2617,23 @@
             });
         }
 
+        var _radialLosLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
+
+        function _clearRadialLosResultOnly() {
+            // מנקה רק את ציור התוצאה (פוליגון+חישורים) בלי לגעת במשקיף עצמו — בשימוש ע"י Undo של "הפעל חישוב"
+            if (radialLosPolygon) { map.removeLayer(radialLosPolygon); radialLosPolygon = null; }
+            radialLosSpokes.forEach(function(s) { map.removeLayer(s); });
+            radialLosSpokes = [];
+            _radialLosLastResult = null;
+            _updateRadialLosPreview();  // מחזיר את הידיות למיקומן לפי השדות הנוכחיים, לא לפי קצוות הקרניים האחרונות
+        }
+
         function _drawRadialLosPolygon(result) {
             // מצייר את הפוליגון הסופי (מחושב, לא תצוגה מקדימה) + קו "חישור" צבעוני לכל כיוון —
             // ירוק = הגיע פנוי עד הטווח המלא (blocked=false), אדום = נחסם לפני כן (blocked=true).
             // אותם צבעים בדיוק כמו קו-הראייה הרגיל (_drawLosOnMap) — עקביות חזותית בין שני הכלים.
             // מזיז גם את ידיות הגרירה לקצוות הקשת האמיתיים, כדי שאפשר להמשיך לכוון ולהריץ שוב.
+            var _prevRadialLosResult = _radialLosLastResult;  // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
             if (radialLosPolygon) { map.removeLayer(radialLosPolygon); radialLosPolygon = null; }
             radialLosSpokes.forEach(function(s) { map.removeLayer(s); });  // ניקוי חישורים מחישוב קודם
             radialLosSpokes = [];
@@ -2325,6 +2665,12 @@
                 if (radialLosStartMk) radialLosStartMk.setLatLng([firstRay.lat, firstRay.lon]);
                 if (radialLosEndMk)   radialLosEndMk.setLatLng([lastRay.lat, lastRay.lon]);
             }
+            _radialLosLastResult = result;  // שמירת התוצאה הנוכחית — משמשת גם ל-Redo וגם כ"ערך קודם" בהרצה הבאה
+            if (!_isRestoringUndo) {
+                _pushUndo('רדיוס ראייה: הפעלת חישוב', _makePlacementRestore(
+                    _drawRadialLosPolygon, _clearRadialLosResultOnly,
+                    function() { return _radialLosLastResult; }, _prevRadialLosResult));
+            }
         }
 
         function _cancelRadialLos() {
@@ -2351,6 +2697,7 @@
             radialLosSpokes.forEach(function(s) { map.removeLayer(s); });  // ניקוי כל קווי החישור הצבעוניים
             radialLosSpokes = [];
             radialLosObs = null;
+            _radialLosLastResult = null;  // אין יותר תוצאה מצוירת — מונע היסטוריית Undo "רפאים" מתוצאה שכבר לא קיימת
         }
 
         function toggleRadialLos() {
@@ -2410,6 +2757,7 @@
                     inp.min = minV; inp.max = maxV;
                     inp.style.cssText = 'width:55px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
                     L.DomEvent.on(inp, 'input', function() { _updateRadialLosPreview(); });
+                    _attachFieldUndo(inp, 'רדיוס ראייה: ' + labelText, _updateRadialLosPreview);  // רישום Undo בעת יציאה מהשדה (blur) — לא בכל הקשה
                     return inp;
                 }
                 _radialRangeInput    = _mkField('טווח (ק"מ, עד 300)',  5,   0.5, 0.5, 300, 'מרחק מרבי לבדיקת ראייה');
@@ -2474,15 +2822,28 @@
 
         function _placeRadarObserver(latlng) {
             // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
+            var _prevRadarObs = radarObs;  // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
             clearRadarDopplerResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
             radarObs = latlng;
             radarObsMk = L.marker(latlng, {icon: _radarMarkerIcon(), draggable: true}).addTo(map);
             radarObsMk.bindTooltip('תצפית מכ"ם דופלר', {permanent:false, direction:'top'});
             radarObsMk.on('dragend', function() {
+                var _prevDrag = radarObs;  // מיקום לפני הגרירה — לצורך Undo
                 radarObs = radarObsMk.getLatLng();
                 _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                if (!_isRestoringUndo) {
+                    _pushUndo('מכ"ם דופלר: הזזת משקיף', _makeMarkerMoveRestore(
+                        function(v) { radarObs = v; if (radarObsMk) radarObsMk.setLatLng(v); },
+                        function() { return radarObs; },
+                        _updateRadarDopplerPreview, _prevDrag));
+                }
             });
             _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+            if (!_isRestoringUndo) {
+                _pushUndo('מכ"ם דופלר: מיקום משקיף', _makePlacementRestore(
+                    _placeRadarObserver, clearRadarDopplerResult,
+                    function() { return radarObs; }, _prevRadarObs));
+            }
         }
 
         function _updateRadarDopplerPreview() {
@@ -2544,7 +2905,7 @@
             var gainDbi    = num(_radarGainInput, 30);
             var freqMhz    = _radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000;
             var sensDbm    = num(_radarSensInput, -100);
-            var rcsM2      = _radarRcsSelect ? parseFloat(_radarRcsSelect.value) : 2;
+            var rcsM2      = num(_radarRcsInput, 2);
             var prfHz      = num(_radarPrfInput, 1000);
             var mdvKt      = num(_radarMdvInput, 20);
             var speedKt    = num(_radarSpeedInput, 250);
@@ -2625,11 +2986,23 @@
             });
         }
 
+        var _radarLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
+
+        function _clearRadarResultOnly() {
+            // מנקה רק את ציור התוצאה (פוליגון+חישורים) בלי לגעת במשקיף עצמו — בשימוש ע"י Undo של "הפעל חישוב"
+            if (radarPolygon) { map.removeLayer(radarPolygon); radarPolygon = null; }
+            radarSpokes.forEach(function(s) { map.removeLayer(s); });
+            radarSpokes = [];
+            _radarLastResult = null;
+            _updateRadarDopplerPreview();  // מחזיר את הידיות למיקומן לפי השדות הנוכחיים, לא לפי קצוות הקרניים האחרונות
+        }
+
         function _drawRadarDopplerResult(result) {
             // מצייר את הפוליגון הסופי + קטע/שני קטעים צבעוניים לכל כיוון — 3 מצבים אפשריים:
             // ירוק בלבד עד סוף הטווח = מזוהה לגמרי. ירוק+אדום = מזוהה חלקית (נחסם שטח/טווח מכ"ם בהמשך).
             // כתום (במקום ירוק) = הכיוון הזה כולו "עיוור" לדופלר (מהירות המטרה המשוערת לא מתגלה בזווית
             // הזו כלל) — גם אם השטח/טווח המכ"ם היו מאפשרים גילוי, ואז ממשיך אדום עד סוף הטווח אם נחסם.
+            var _prevRadarResult = _radarLastResult;  // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
             if (radarPolygon) { map.removeLayer(radarPolygon); radarPolygon = null; }
             radarSpokes.forEach(function(s) { map.removeLayer(s); });  // ניקוי חישורים מחישוב קודם
             radarSpokes = [];
@@ -2649,11 +3022,20 @@
                 var nearPt   = _destPointJs(obsLatLng, r.bearing_deg, minRangeM);  // תחילת הדגימה בפועל — גבול אזור העיוור
                 var radarPt  = L.latLng(r.radar_lat, r.radar_lon);  // הנקודה הרחוקה ביותר בטווח המכ"ם (בלי קשר לדופלר)
                 var nearColor = r.doppler_ok ? '#00cc44' : '#ff9500';  // ירוק אם הכיוון "נראה" לדופלר, כתום אם כל הכיוון עיוור לו
-                radarSpokes.push(L.polyline([nearPt, radarPt], {color: nearColor, weight: 3}).addTo(map));
+                var seg1 = L.polyline([nearPt, radarPt], {color: nearColor, weight: 3}).addTo(map);
+                seg1.bindTooltip('לחץ לחתך-צד', {sticky:true});
+                // L.DomEvent.stopPropagation(e) חיוני כאן — בלעדיו הלחיצה "מבעבעת" גם ל-map.on('click', ...)
+                // הרגיל, שרואה radarActive===true ומפרש את זה כהצבת משקיף חדש (מוחק את כל החישורים!) —
+                // בדיוק התקלה שדווחה: לחיצה על דגימה אחת מחקה את כל הדגימות מהמסך.
+                seg1.on('click', (function(ray) { return function(e) { L.DomEvent.stopPropagation(e); _showRadarRayProfile(ray); }; })(r));
+                radarSpokes.push(seg1);
                 if (r.blocked) {
                     // אדום — ממשיך מהנקודה הרחוקה ביותר בטווח המכ"ם עד סוף הטווח המבוקש (שטח/טווח מכ"ם לא הספיקו)
                     var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);
-                    radarSpokes.push(L.polyline([radarPt, farPt], {color: '#ff3300', weight: 3}).addTo(map));
+                    var seg2 = L.polyline([radarPt, farPt], {color: '#ff3300', weight: 3}).addTo(map);
+                    seg2.bindTooltip('לחץ לחתך-צד', {sticky:true});
+                    seg2.on('click', (function(ray) { return function(e) { L.DomEvent.stopPropagation(e); _showRadarRayProfile(ray); }; })(r));
+                    radarSpokes.push(seg2);
                 }
             });
             if (result.rays.length > 0) {  // הזזת הידיות לקצוות הקשת האמיתיים
@@ -2661,6 +3043,67 @@
                 if (radarStartMk) radarStartMk.setLatLng([firstRay.radar_lat, firstRay.radar_lon]);
                 if (radarEndMk)   radarEndMk.setLatLng([lastRay.radar_lat, lastRay.radar_lon]);
             }
+            _radarLastResult = result;  // שמירת התוצאה הנוכחית — משמשת גם ל-Redo וגם כ"ערך קודם" בהרצה הבאה
+            if (!_isRestoringUndo) {
+                _pushUndo('מכ"ם דופלר: הפעלת חישוב', _makePlacementRestore(
+                    _drawRadarDopplerResult, _clearRadarResultOnly,
+                    function() { return _radarLastResult; }, _prevRadarResult));
+            }
+        }
+
+        function _showRadarRayProfile(ray) {
+            // נקרא בלחיצה על חישור בתוצאת מכ"ם-דופלר — שולף מחדש את כל 19 הפרמטרים הנוכחיים
+            // מהשדות בפאנל (בדיוק כמו _runRadarDoppler) ועוד bearing_deg הספציפי של הקרן הזו,
+            // ומבקש מ-/radar_doppler/profile את כל נקודות הדגימה לאורך הקרן (לא רק את הסיכום)
+            if (!radarObs) return;
+            function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }
+            var url = 'http://localhost:5002/radar_doppler/profile?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+                      '&bearing_deg=' + ray.bearing_deg +
+                      '&range_km=' + num(_radarRangeInput, 50) + '&min_range_km=' + num(_radarMinRangeInput, 1) +
+                      '&h_antenna=' + num(_radarHAntInput, 15) + '&ridge_margin_deg=' + num(_radarMarginInput, 0) +
+                      '&vertical_center_deg=' + num(_radarVCenterInput, 0) + '&vertical_width_deg=' + num(_radarVWidthInput, 10) +
+                      '&power_kw=' + num(_radarPowerInput, 100) + '&gain_dbi=' + num(_radarGainInput, 30) +
+                      '&freq_mhz=' + (_radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000) +
+                      '&sensitivity_dbm=' + num(_radarSensInput, -100) +
+                      '&rcs_m2=' + num(_radarRcsInput, 2) +
+                      '&prf_hz=' + num(_radarPrfInput, 1000) + '&mdv_kt=' + num(_radarMdvInput, 20) +
+                      '&target_speed_kt=' + num(_radarSpeedInput, 250) + '&target_heading_deg=' + num(_radarHeadingInput, 0) +
+                      '&lobing_enabled=' + (_radarLobingCheck && _radarLobingCheck.checked ? 'true' : 'false') +
+                      '&reflectivity=' + (_radarReflSelect ? _radarReflSelect.value : 'land') +
+                      '&antenna_type=' + (_radarAntennaSelect ? _radarAntennaSelect.value : 'generic') +
+                      '&boresight_deg=' + num(_radarBoresightInput, 0) + '&max_scan_deg=' + num(_radarMaxScanInput, 60);
+            fetch(url)
+            .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function(data) {
+                if (data.error) throw new Error(data.error);
+                _drawRadarProfilePanel(data);
+            })
+            .catch(function(err) { alert('שגיאה בטעינת חתך-צד: ' + err.message); });
+        }
+
+        function _drawRadarProfilePanel(data) {
+            // פאנל נפרד מ-losPanelEl בכוונה — לא שייך סמנטית ל-losSessions (אין כאן "סשן LOS"
+            // אמיתי עם סמנים על המפה), רק שימוש חוזר בפונקציית הציור הגנרית _drawProfileSingle
+            if (_radarProfilePanelEl) { _radarProfilePanelEl.remove(); _radarProfilePanelEl = null; }
+            _radarProfilePanelEl = document.createElement('div');
+            _radarProfilePanelEl.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:230px;background:#1e1e2e;' +
+                'border-top:2px solid #22d3ee;z-index:9000;display:flex;flex-direction:column;';
+            var header = document.createElement('div');
+            header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;' +
+                'padding:3px 10px;background:#181825;color:#cdd6f4;font-family:Arial;font-size:13px;direction:rtl;flex-shrink:0;';
+            header.innerHTML = '<span>מכ"ם דופלר — חתך-צד לאזימוט ' + data.bearing_deg.toFixed(0) + '°</span>';
+            var closeBtn = document.createElement('button');
+            closeBtn.textContent = '✕ סגור';
+            closeBtn.style.cssText = 'background:none;border:none;color:#f38ba8;font-size:12px;cursor:pointer;font-family:Arial;';
+            closeBtn.onclick = function() { _radarProfilePanelEl.remove(); _radarProfilePanelEl = null; };
+            header.appendChild(closeBtn);
+            _radarProfilePanelEl.appendChild(header);
+            var canvas = document.createElement('canvas');
+            canvas.style.cssText = 'flex:1;width:100%;display:block;';
+            _radarProfilePanelEl.appendChild(canvas);
+            document.body.appendChild(_radarProfilePanelEl);
+            // setTimeout(0) — מבטיח שה-canvas כבר ב-DOM עם גודל בפועל לפני הציור, כמו ב-_redrawPanel הקיים
+            setTimeout(function() { _drawProfileSingle(canvas, {color: '#22d3ee', data: data}); }, 0);
         }
 
         function _cancelRadarDoppler() {
@@ -2687,6 +3130,8 @@
             radarSpokes.forEach(function(s) { map.removeLayer(s); });
             radarSpokes = [];
             radarObs = null;
+            _radarLastResult = null;  // אין יותר תוצאה מצוירת — מונע היסטוריית Undo "רפאים" מתוצאה שכבר לא קיימת
+            if (_radarProfilePanelEl) { _radarProfilePanelEl.remove(); _radarProfilePanelEl = null; }  // סוגר גם חתך-צד פתוח, אם יש — לא רלוונטי לתוצאה שנמחקת
         }
 
         function toggleRadarDoppler() {
@@ -2751,6 +3196,7 @@
                     inp.min = minV; inp.max = maxV;
                     inp.style.cssText = 'width:55px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
                     L.DomEvent.on(inp, 'input', function() { _updateRadarDopplerPreview(); });
+                    _attachFieldUndo(inp, 'מכ"ם דופלר: ' + labelText, _updateRadarDopplerPreview);  // רישום undo אוטומטי (focus→blur) לכל שדה בכלי
                     return inp;
                 }
                 function _mkSelect(labelText, options, defaultIdx, tip) {
@@ -2767,6 +3213,7 @@
                         o.value = opt[1]; o.textContent = opt[0];
                         if (i === defaultIdx) o.selected = true;
                     });
+                    _attachSelectUndo(sel, 'מכ"ם דופלר: ' + labelText);  // רישום undo אוטומטי לכל dropdown בכלי
                     return sel;
                 }
 
@@ -2785,13 +3232,18 @@
                 _radarPowerInput = _mkField('הספק שידור (קילוואט)', 100, 1, 0.1, 5000, 'הספק שידור שיא — יותר הספק = טווח גילוי גדול יותר');
                 _radarGainInput  = _mkField('רווח אנטנה (dBi)',      30,  1, 0,   50,   'רווח האנטנה — יותר רווח = טווח גילוי גדול יותר');
                 _radarFreqSelect = _mkSelect('תדר עבודה', [
-                    ['L-band (1.3 GHz)', '1300'], ['S-band (3 GHz)', '3000'], ['X-band (10 GHz)', '10000']
+                    ['L-band (1.3 GHz)', '1300'], ['S-band (3 GHz)', '3000'], ['C-band (5 GHz)', '5000'], ['X-band (10 GHz)', '10000']
                 ], 1, 'תדר גבוה יותר = אורך גל קצר יותר, בד"כ טווח קטן יותר');
                 _radarSensInput  = _mkField('רגישות מקלט (dBm)', -100, 1, -140, -60, 'רגישות טובה יותר (מספר שלילי יותר) = טווח גילוי גדול יותר');
-                _radarRcsSelect  = _mkSelect('סוג מטרה (RCS)', [
+                _radarRcsInput = _mkField('שטח חתך רדארי (RCS, מ"ר)', 2, 0.01, 0.001, 1000,
+                    'שטח חתך רדארי בפועל — ניתן להזין כל ערך; הרשימה מתחת ממלאת ערך טיפוסי במקום להקליד');
+                var _radarRcsPreset = _mkSelect('סוג מטרה (מילוי מהיר)', [
                     ['רחפן קטן (0.01 מ"ר)', '0.01'], ['מל"ט בינוני (0.1 מ"ר)', '0.1'],
                     ['מטוס קל (2 מ"ר)', '2'], ['מטוס תובלה (50 מ"ר)', '50']
-                ], 2, 'שטח חתך רדארי משוער — מטרה גדולה יותר מתגלה מרחוק יותר');
+                ], 2, 'בחירה כאן רק ממלאת את השדה למעלה — אפשר גם להקליד ישירות כל ערך אחר');
+                L.DomEvent.on(_radarRcsPreset, 'change', function() {
+                    _radarRcsInput.value = _radarRcsPreset.value;  // מילוי מהיר בלבד — לא מקור-האמת; ריצה/פרופיל תמיד קוראים מהשדה עצמו
+                });
 
                 _mkHeader('סוג אנטנה');
                 _radarAntennaSelect = _mkSelect('סוג אנטנה', [
@@ -2822,6 +3274,7 @@
                 lobingSpan.textContent = 'הצג השפעת ריבוד (lobing)';
                 _radarLobingCheck = L.DomUtil.create('input', '', lobingWrap);
                 _radarLobingCheck.type = 'checkbox';
+                _attachCheckboxUndo(_radarLobingCheck, 'מכ"ם דופלר: הצג השפעת ריבוד');
                 _radarReflSelect = _mkSelect('סוג משטח מחזיר', [
                     ['יבשה מחוספסת', 'land'], ['ים חלק', 'sea']
                 ], 0, 'רלוונטי רק כש"הצג השפעת ריבוד" מסומן — משטח חלק יותר מחזיר חזק יותר');
@@ -2831,7 +3284,7 @@
                     start_bearing_deg: _radarStartInput, end_bearing_deg: _radarEndInput, h_antenna: _radarHAntInput,
                     ridge_margin_deg: _radarMarginInput, vertical_center_deg: _radarVCenterInput, vertical_width_deg: _radarVWidthInput,
                     power_kw: _radarPowerInput, gain_dbi: _radarGainInput, freq_mhz: _radarFreqSelect, sensitivity_dbm: _radarSensInput,
-                    rcs_m2: _radarRcsSelect, antenna_type: _radarAntennaSelect, boresight_deg: _radarBoresightInput, max_scan_deg: _radarMaxScanInput,
+                    rcs_m2: _radarRcsInput, antenna_type: _radarAntennaSelect, boresight_deg: _radarBoresightInput, max_scan_deg: _radarMaxScanInput,
                     prf_hz: _radarPrfInput, mdv_kt: _radarMdvInput, target_speed_kt: _radarSpeedInput, target_heading_deg: _radarHeadingInput,
                     lobing_enabled: _radarLobingCheck, reflectivity: _radarReflSelect,
                 }, function() { return radarObs; }, _placeRadarObserver, _updateRadarDopplerPreview);

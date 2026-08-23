@@ -28,8 +28,90 @@ class FlightData {
 enum DisplayMode { heat, grid, dots }
 enum LayerType { none, elevation, temperature }
 
+// ערך יחיד במחסנית ה-Undo/Redo — ר' MapState.pushUndo/performUndo/performRedo
+class _UndoEntry {
+  final String label;
+  final Function() restore; // מבצע את השחזור, ומחזיר Function() הפוך (לכיוון הנגדי)
+  _UndoEntry(this.label, this.restore);
+}
+
 class MapState extends ChangeNotifier {
   MapState() { _loadHistory(); }
+
+  // ── מנוע Undo/Redo גנרי — פורט של אותו מנגנון בדיוק מ-MAP.py (Desktop), ר' MAPS-GUI_SRS.md §3.20 ──
+  // כל ערך במחסנית הוא label+restore; restore() מבצע את השחזור בפועל ומחזיר closure הפוך
+  // (אותו רעיון סימטרי בדיוק כמו _makeValueRestore ב-JS) — לכן אין הבחנה בין "פונקציית undo"
+  // ל"פונקציית redo", אותו מנגנון משרת את שניהם.
+  final List<_UndoEntry> _undoStack = [];
+  final List<_UndoEntry> _redoStack = [];
+  static const int _undoMax = 50;
+  bool _isRestoringUndo = false; // מונע משחזור פעולה עצמה להירשם כפעולה חדשה (היה גורם ללולאה אינסופית)
+
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+  bool get isRestoringUndo => _isRestoringUndo; // נצרך ע"י ווידג'טים (למשל FocusNode בפאנלים) שצריכים למנוע רישום כפול
+  String? get undoLabel => _undoStack.isEmpty ? null : _undoStack.last.label;
+  String? get redoLabel => _redoStack.isEmpty ? null : _redoStack.last.label;
+
+  void pushUndo(String label, Function() restoreFn) {
+    if (_isRestoringUndo) return; // שחזור בעיצומו — לא נרשם כפעולה חדשה
+    _undoStack.add(_UndoEntry(label, restoreFn));
+    if (_undoStack.length > _undoMax) _undoStack.removeAt(0);
+    _redoStack.clear(); // פעולה חדשה מבטלת את כל היסטוריית ה-Redo הישנה — תואם התנהגות סטנדרטית
+    notifyListeners();
+  }
+
+  void performUndo() {
+    if (_undoStack.isEmpty || _isRestoringUndo) return;
+    final entry = _undoStack.removeLast();
+    _isRestoringUndo = true;
+    Function() forward;
+    try {
+      forward = entry.restore() as Function();
+    } finally {
+      _isRestoringUndo = false;
+    }
+    _redoStack.add(_UndoEntry(entry.label, forward));
+    notifyListeners();
+  }
+
+  void performRedo() {
+    if (_redoStack.isEmpty || _isRestoringUndo) return;
+    final entry = _redoStack.removeLast();
+    _isRestoringUndo = true;
+    Function() backward;
+    try {
+      backward = entry.restore() as Function();
+    } finally {
+      _isRestoringUndo = false;
+    }
+    _undoStack.add(_UndoEntry(entry.label, backward));
+    notifyListeners();
+  }
+
+  // גרסה גנרית ל"הצבה" מלאה (למשל לחיצה על המפה שממקמת/מחליפה משקיף) —
+  // אם אין ערך קודם (null) קוראת ל-clearFn (מחזירה למצב "אין עדיין הצבה")
+  Function() makePlacementRestore<T>(
+      void Function(T) placeFn, void Function() clearFn, T? Function() getFn, T? targetOrNull) {
+    return () {
+      final current = getFn();
+      if (targetOrNull != null) {
+        placeFn(targetOrNull);
+      } else {
+        clearFn();
+      }
+      return makePlacementRestore<T>(placeFn, clearFn, getFn, current);
+    };
+  }
+
+  // גרסה גנרית ל"תיבת-סימון לוגית" — בוליאני שנקבע ע"י פונקציית toggle קיימת, לא setter ישיר
+  Function() makeSimpleToggleRestore(void Function() toggleFn, bool Function() getFn, bool targetBool) {
+    return () {
+      final current = getFn();
+      if (current != targetBool) toggleFn();
+      return makeSimpleToggleRestore(toggleFn, getFn, current);
+    };
+  }
 
   static const int _maxHistoryItems = 10; // תואם למגבלת ההיסטוריה בגרסת הדסקטופ
 
@@ -449,11 +531,16 @@ class MapState extends ChangeNotifier {
 
   // הצבת/הזזת נקודת המשקיף (לחיצה על המפה) — לא מפעילה חישוב, רק תצוגה מקדימה (מטופלת ב-UI לפי השדות)
   void setRadialLosObserver(LatLng p) {
+    final prevObs = radialLosObs; // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
     cancelRadialLos();          // ביטול חישוב קודם שעדיין רץ, אם יש
     radialLosResult = null;     // תוצאה קודמת לא רלוונטית למשקיף חדש
     radialLosError = null;
     radialLosObs = p;
     notifyListeners();
+    if (!_isRestoringUndo) {
+      pushUndo('רדיוס ראייה: מיקום משקיף', makePlacementRestore<LatLng>(
+          setRadialLosObserver, clearRadialLosResult, () => radialLosObs, prevObs));
+    }
   }
 
   // גרירת ידית אזימוט-התחלה על המפה — קובעת גם זווית (רק לידית הזו) וגם טווח (משותף לשתי הידיות)
@@ -477,6 +564,7 @@ class MapState extends ChangeNotifier {
   // מפעיל את החישוב האמיתי — נקרא רק בלחיצה מפורשת על "הפעל חישוב", לא אוטומטית בהצבת משקיף/גרירה
   Future<void> runRadialLos() async {
     if (radialLosObs == null || radialLosLoading) return;
+    final prevResult = radialLosResult; // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
     final token = RadialLosCancelToken();
     _radialLosCancelToken = token;
     radialLosLoading = true; radialLosError = null;
@@ -497,6 +585,13 @@ class MapState extends ChangeNotifier {
       );
       if (token.isCancelled) return; // בוטל תוך כדי ריצה — לא מציג תוצאה (עשויה להיות חלקית/לא רלוונטית)
       radialLosResult = result;
+      if (!_isRestoringUndo) {
+        // Redo משתמש בתוצאה השמורה כאן — בלי לשלוח שוב בקשת רשת (מקביל ל-_radialLosLastResult ב-JS)
+        pushUndo('רדיוס ראייה: הפעלת חישוב', makePlacementRestore<RadialLosResult>(
+            (r) { radialLosResult = r; notifyListeners(); },
+            () { radialLosResult = null; notifyListeners(); },
+            () => radialLosResult, prevResult));
+      }
     } catch (e) {
       radialLosError = e.toString().replaceFirst('Exception: ', ''); // כשל (429/גובה משקיף לא זמין) — הצג למשתמש
     } finally {
@@ -572,11 +667,16 @@ class MapState extends ChangeNotifier {
   }
 
   void setRadarObserver(LatLng p) {
+    final prevObs = radarObs; // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
     cancelRadarDoppler();
     radarResult = null;
     radarError = null;
     radarObs = p;
     notifyListeners();
+    if (!_isRestoringUndo) {
+      pushUndo('מכ"ם דופלר: מיקום משקיף', makePlacementRestore<LatLng>(
+          setRadarObserver, clearRadarDopplerResult, () => radarObs, prevObs));
+    }
   }
 
   void updateRadarStartFromDrag(LatLng draggedPoint) {
@@ -597,6 +697,7 @@ class MapState extends ChangeNotifier {
 
   Future<void> runRadarDoppler() async {
     if (radarObs == null || radarLoading) return;
+    final prevResult = radarResult; // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
     final token = RadialLosCancelToken();
     _radarCancelToken = token;
     radarLoading = true; radarError = null;
@@ -623,6 +724,12 @@ class MapState extends ChangeNotifier {
       );
       if (token.isCancelled) return;
       radarResult = result;
+      if (!_isRestoringUndo) {
+        pushUndo('מכ"ם דופלר: הפעלת חישוב', makePlacementRestore<RadarDopplerResult>(
+            (r) { radarResult = r; notifyListeners(); },
+            () { radarResult = null; notifyListeners(); },
+            () => radarResult, prevResult));
+      }
     } catch (e) {
       radarError = e.toString().replaceFirst('Exception: ', '');
     } finally {
@@ -641,13 +748,59 @@ class MapState extends ChangeNotifier {
     radarObs = null;
     radarResult = null;
     radarError = null;
+    clearRadarProfile(); // תוצאה שלמה חדשה/נמחקת מייתרת גם חתך-צד פתוח לקרן ישנה
     notifyListeners();
+  }
+
+  // ── חתך-צד לקרן בודדת — נשלף על-פי דרישה בלחיצה על חישור, לא נשמר מראש לכל הקרניים ──
+  bool radarProfileLoading = false;
+  String? radarProfileError;
+  RadarRayProfile? radarProfileResult;
+
+  Future<void> showRadarRayProfile(RadarDopplerRay ray) async {
+    if (radarObs == null) return;
+    radarProfileLoading = true; radarProfileError = null;
+    notifyListeners();
+    try {
+      // שולף מחדש את כל הפרמטרים הנוכחיים (לא את אלה שהניבו את התוצאה המוצגת, אם המשתמש
+      // שינה שדה בינתיים) — אותה הנחה סמויה כמו ב-runRadarDoppler, ר' MAP.py הצד המקביל
+      radarProfileResult = await ApiService.fetchRadarRayProfile(
+        observer: radarObs!, bearingDeg: ray.bearingDeg,
+        rangeKm: radarRangeKm, minRangeKm: radarMinRangeKm,
+        hAntenna: radarHAntenna, ridgeMarginDeg: radarRidgeMarginDeg,
+        verticalCenterDeg: radarVCenterDeg, verticalWidthDeg: radarVWidthDeg,
+        powerKw: radarPowerKw, gainDbi: radarGainDbi, freqMhz: radarFreqMhz,
+        rcsM2: radarRcsM2, sensitivityDbm: radarSensitivityDbm,
+        prfHz: radarPrfHz, mdvKt: radarMdvKt, targetSpeedKt: radarTargetSpeedKt,
+        targetHeadingDeg: radarTargetHeadingDeg,
+        lobingEnabled: radarLobingEnabled, reflectivityKey: radarReflectivity,
+        antennaType: radarAntennaType, boresightDeg: radarBoresightDeg, maxScanDeg: radarMaxScanDeg,
+      );
+    } catch (e) {
+      radarProfileError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      radarProfileLoading = false; notifyListeners();
+    }
+  }
+
+  void clearRadarProfile() {
+    radarProfileResult = null;
+    radarProfileError = null;
+    radarProfileLoading = false;
   }
 
   // ── "עמדות שמורות" — מיקום+פרמטרים תחת שם, לרדיוס-הראייה ולמכ"ם-דופלר בלבד ──
   // מקביל ל-/stations/* בצד Desktop, אך מאוחסן מקומית (SharedPreferences) — אין שרת ב-Android.
   // LOS לא כלול: הזרימה שם מבוססת-קליק בלבד (בלי מיקום/פרמטרים קבועים לשמור, גבהים קבועים בקוד).
   static const int _maxStationsPerTool = 20; // תואם לתקרה בצד Desktop
+
+  // טריגר חד-פעמי לקפיצת מצלמה בטעינת עמדה שמורה — בלי זה, המצלמה נשארת במיקום הנוכחי
+  // וסמן המשקיף החדש (שיכול להיות במיקום גיאוגרפי רחוק לגמרי) נשאר בלתי-נראה מחוץ למסך,
+  // בדיוק כמו cityFocusPoint/flightFocusPoint הקיימים למעלה (אותו דפוס "consume" בדיוק).
+  LatLng? radarFocusPoint;
+  LatLng? radialLosFocusPoint;
+  void consumeRadarFocus() { radarFocusPoint = null; }
+  void consumeRadialLosFocus() { radialLosFocusPoint = null; }
 
   Future<List<Map<String, dynamic>>> loadStations(String toolKey) async {
     final prefs = await SharedPreferences.getInstance();
@@ -693,6 +846,10 @@ class MapState extends ChangeNotifier {
         uasNotamLoaded = true;
         activeNotamCategories.add(catId); // הקטגוריה שסומנה ברגע שהפעילה את הטעינה
         notamFitPending = true; // אזורים חדשים על המפה — יש להתאים את התצוגה אליהם
+        if (!_isRestoringUndo) {  // בטעינה ראשונה הקטגוריה תמיד עברה מ-false ל-true
+          pushUndo('קטגוריית NOTAM: $catId', makeSimpleToggleRestore(
+              () => toggleNotamCategory(catId), () => activeNotamCategories.contains(catId), false));
+        }
       } catch (e) {
         uasNotamError = e.toString().replaceFirst('Exception: ', '');
       }
@@ -700,6 +857,7 @@ class MapState extends ChangeNotifier {
       return;
     }
     // כבר נטען בעבר — toggle סינכרוני בלבד, בלי בקשת רשת נוספת
+    final prevCatActive = activeNotamCategories.contains(catId); // מצב קודם — לפני ה-toggle, לצורך Undo
     if (activeNotamCategories.contains(catId)) {
       activeNotamCategories.remove(catId); // כיבוי — לא מתאים תצוגה מחדש, כדי לא "לקפוץ" עם המצלמה בלי צורך
     } else {
@@ -707,6 +865,10 @@ class MapState extends ChangeNotifier {
       notamFitPending = true; // הופעלה קטגוריה חדשה — אזורים קטנים (מאות מטרים) לא ייראו כפוליגון בזום ארצי בלי התאמה
     }
     notifyListeners();
+    if (!_isRestoringUndo) {
+      pushUndo('קטגוריית NOTAM: $catId', makeSimpleToggleRestore(
+          () => toggleNotamCategory(catId), () => activeNotamCategories.contains(catId), prevCatActive));
+    }
   }
 
   void consumeNotamFit() { notamFitPending = false; }
@@ -726,8 +888,13 @@ class MapState extends ChangeNotifier {
   bool uasCoordActive = false;
 
   void toggleUasCoordZonesLayer() {
+    final prevActive = uasCoordActive; // מצב קודם — לפני ה-toggle, לצורך Undo
     uasCoordActive = !uasCoordActive;
     notifyListeners();
+    if (!_isRestoringUndo) {
+      pushUndo('שכבת אזורי-תיאום כטב"ם', makeSimpleToggleRestore(
+          toggleUasCoordZonesLayer, () => uasCoordActive, prevActive));
+    }
   }
 
   // ── שכבת "גבולות CTR שדות תעופה" ──
@@ -736,8 +903,13 @@ class MapState extends ChangeNotifier {
   bool airportCtrActive = false;
 
   void toggleAirportCtrLayer() {
+    final prevActive = airportCtrActive; // מצב קודם — לפני ה-toggle, לצורך Undo
     airportCtrActive = !airportCtrActive;
     notifyListeners();
+    if (!_isRestoringUndo) {
+      pushUndo('שכבת גבולות CTR', makeSimpleToggleRestore(
+          toggleAirportCtrLayer, () => airportCtrActive, prevActive));
+    }
   }
 
   // ── איפוס מפה מלא ─────────────────────────────────────────────────────────

@@ -1591,7 +1591,15 @@ class MapApp(QMainWindow):
             def _sync_servers(ok):
                 self.map_view.loadFinished.disconnect(_sync_servers)
                 if self.servers_running:
-                    self.map_view.page().runJavaScript("window.serversRunning = true;")
+                    # קורא ל-_setServersRunning (לא לקביעה ישירה של המשתנה) — היא גם מעדכנת
+                    # וגם משחררת בפועל את כפתורי הכלים (👁/📡/🎯), ר' _setServersRunning ב-MAP.py.
+                    # בלעדיה: אחרי טעינת/איפוס מפה כשהשרתים כבר רצים, serversRunning חוזר ל-true
+                    # אבל הכפתורים נשארים תקועים במצב מנוטרל (עמומים) שנקבע ב-map.whenReady עוד
+                    # לפני שהאיתות הזה הגיע — נמצא בבדיקה חיה של המשתמש.
+                    self.map_view.page().runJavaScript(
+                        "if (typeof _setServersRunning === 'function') { _setServersRunning(true); } "
+                        "else { window.serversRunning = true; }"
+                    )
             self.map_view.loadFinished.connect(_sync_servers)
         else:
             self.log_action("שגיאה: קובץ המפה לא נמצא.", is_success=False)
@@ -1851,6 +1859,7 @@ class MapApp(QMainWindow):
             '__radar_doppler_error__':     (self._on_radar_doppler_error,     True),
             '__radar_doppler_cancelled__': (self._on_radar_doppler_cancelled, True),
             '__uas_notam_loading__':  (self._on_uas_notam_loading,  True),
+            '__sync_layer_checkboxes__': (self._sync_layer_checkboxes, True),  # Ctrl+Z/Y ב-JS שינה שכבת NOTAM/תיאום/CTR — מיישר את תיבות/כפתורי הפאנל
         }
 
     def _on_title_changed(self, title):
@@ -2093,6 +2102,40 @@ class MapApp(QMainWindow):
                 'שכבת גבולות CTR שדות תעופה הופעלה — מקור: AIP רשמי', is_success=True),
             off_extra=lambda: self.log_action('שכבת גבולות CTR שדות תעופה כובתה'),
         )
+
+    def _sync_layer_checkboxes(self):
+        """ קורא מה-JS את המצב האמיתי של שכבות NOTAM/אזורי-תיאום/CTR ומיישר את תיבות/כפתורי
+        הפאנל בהתאם. נדרש כי Ctrl+Z/Ctrl+Y (ר' MAP.py, _performUndo/_performRedo) יכולים לשנות
+        את המצב ישירות ב-JS בלי לעבור דרך לחיצה על הכפתור/תיבת הסימון עצמה בצד Qt. """
+        self.map_view.page().runJavaScript(
+            "JSON.stringify({notam: Array.from(activeNotamCategories), coord: uasCoordActive, ctr: airportCtrActive});",
+            self._apply_layer_checkbox_sync,
+        )
+
+    def _apply_layer_checkbox_sync(self, result):
+        try:
+            state = json.loads(result) if result else {}
+        except (TypeError, ValueError):
+            return  # תשובת JS לא תקינה — לא מעדכן כלום, עדיף מצב ישן על קריסה
+        notam_active = set(state.get('notam', []))
+        for cat_id, checkbox in self.notam_checkboxes.items():
+            should_check = cat_id in notam_active
+            if checkbox.isChecked() != should_check:
+                checkbox.blockSignals(True)  # מונע הפעלה חוזרת של toggle_notam_category (היה גורם ל-loop/כפילות)
+                checkbox.setChecked(should_check)
+                checkbox.blockSignals(False)
+        coord_active = bool(state.get('coord', False))
+        if self.uas_coord_button.isChecked() != coord_active:
+            self.uas_coord_button.blockSignals(True)
+            self.uas_coord_button.setChecked(coord_active)
+            self.uas_coord_button.setText('🛡️ הסתר אזורי תיאום' if coord_active else '🛡️ אזורי תיאום כטב"ם')
+            self.uas_coord_button.blockSignals(False)
+        ctr_active = bool(state.get('ctr', False))
+        if self.airport_ctr_button.isChecked() != ctr_active:
+            self.airport_ctr_button.blockSignals(True)
+            self.airport_ctr_button.setChecked(ctr_active)
+            self.airport_ctr_button.setText("✈️ הסתר גבולות CTR" if ctr_active else "✈️ גבולות CTR שדות תעופה")
+            self.airport_ctr_button.blockSignals(False)
 
     def save_logs_to_file(self):
         """ שמירה של הלוגים לקובץ טקסט במערכת הקבצים. """

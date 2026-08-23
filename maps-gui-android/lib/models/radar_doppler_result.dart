@@ -1,4 +1,5 @@
 import 'package:latlong2/latlong.dart';
+import 'los_session.dart'; // LosPoint — נקודות הפרופיל משתמשות באותו מבנה בדיוק כמו קו-הראייה (dist_km/elevation/los_h/visible)
 
 /// תוצאת קרן בודדת (אזימוט אחד) בחישוב תצפית מכ"ם דופלר — מקביל בדיוק לרשומת "ray"
 /// שמחזיר /radar_doppler/status בצד Desktop (weather_server.py).
@@ -77,4 +78,27 @@ class RadarDopplerResult {
   final double boresightDeg, maxScanDeg;
   final int clearCount, dopplerBlockedRays, failedRays;
   final List<RadarDopplerRay> rays;
+}
+
+/// חתך-צד (פרופיל שטח) לקרן בודדת מתוך תוצאת מכ"ם-דופלר — נשלף בנפרד על-פי דרישה (לחיצה
+/// על חישור), לא נשמר מראש עבור כל הקרניים (בזבוז — רוב הקרניים לעולם לא ייבדקו ע"י המשתמש).
+/// מקביל בדיוק לתשובת GET /radar_doppler/profile בצד Desktop (weather_server.py).
+class RadarRayProfile {
+  const RadarRayProfile({
+    required this.bearingDeg,
+    required this.points,
+    required this.totalKm,
+    required this.firstBlockKm,
+    required this.radarDistKm,
+    required this.blocked,
+    required this.dopplerOk,
+  });
+
+  final double bearingDeg;
+  final List<LosPoint> points; // אותו מבנה בדיוק כמו קו-הראייה — מאפשר שימוש חוזר מלא ב-_LosProfilePainter
+  final double totalKm;
+  final double? firstBlockKm; // מרחק חסימת השטח הראשונה; null אם השטח לא חוסם בכלל
+  final double radarDistKm;   // הנקודה הרחוקה ביותר שעדיין בטווח המכ"ם (בלי קשר לדופלר) — יכול להיות לפני firstBlockKm
+  final bool blocked;         // לא הגיע לסוף הטווח המבוקש (שטח או טווח מכ"ם/סריקה)
+  final bool dopplerOk;       // false = כל הכיוון הזה "עיוור" לדופלר, ללא קשר לשטח/טווח מכ"ם
 }

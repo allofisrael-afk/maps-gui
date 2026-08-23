@@ -27,6 +27,9 @@ class _MapScreenState extends State<MapScreen> {
   bool _selectMode = false;
   bool _isDragging = false;
   int? _draggingHandleIdx;
+  // מזהה לחיצה על חישור בתוצאת מכ"ם-דופלר — hitValue הוא אינדקס הקרן ב-radarResult.rays,
+  // הדרך המובנית של flutter_map לזהות לחיצה על Polyline ספציפי (PolylineLayer.hitNotifier)
+  final _radarHitNotifier = ValueNotifier<LayerHitResult<int>?>(null);
 
   @override
   void initState() {
@@ -36,6 +39,24 @@ class _MapScreenState extends State<MapScreen> {
         if (mounted) setState(() {});
       });
     });
+    _radarHitNotifier.addListener(_onRadarRayHit);
+  }
+
+  @override
+  void dispose() {
+    _radarHitNotifier.removeListener(_onRadarRayHit);
+    _radarHitNotifier.dispose();
+    super.dispose();
+  }
+
+  void _onRadarRayHit() {
+    final hit = _radarHitNotifier.value;
+    if (hit == null || hit.hitValues.isEmpty || !mounted) return;
+    final state = context.read<MapState>();
+    final rays = state.radarResult?.rays;
+    final idx = hit.hitValues.first;
+    if (rays == null || idx < 0 || idx >= rays.length) return;
+    state.showRadarRayProfile(rays[idx]);
   }
 
   LatLng? _screenToLatLng(Offset local) {
@@ -259,6 +280,21 @@ class _MapScreenState extends State<MapScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _mapController.move(state.cityFocusPoint!, 12);
         state.consumeCityFocus();
+      });
+    }
+
+    if (state.radarFocusPoint != null) {
+      // קפיצת מצלמה לעמדה שמורה שנטענה — בלי זה הסמן החדש עלול להישאר מחוץ לתצוגה הנוכחית
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(state.radarFocusPoint!, _mapController.camera.zoom);
+        state.consumeRadarFocus();
+      });
+    }
+
+    if (state.radialLosFocusPoint != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(state.radialLosFocusPoint!, _mapController.camera.zoom);
+        state.consumeRadialLosFocus();
       });
     }
 
@@ -590,6 +626,40 @@ class _MapScreenState extends State<MapScreen> {
               child: Center(child: _LoadingChip()),
             ),
 
+          // ── כפתורי Undo/Redo — פינה ימנית-עליונה, מתחת ל-AppBar הצף (ר' MapState.performUndo/performRedo) ──
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 56,
+            right: 12,
+            child: Material(
+              color: cs.surfaceContainerHigh.withAlpha(235),
+              borderRadius: BorderRadius.circular(10),
+              elevation: 3,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(),
+                    iconSize: 19,
+                    padding: const EdgeInsets.all(6),
+                    tooltip: state.canUndo ? 'בטל: ${state.undoLabel}' : 'בטל פעולה',
+                    icon: Icon(Icons.undo, color: state.canUndo ? cs.onSurface : cs.onSurfaceVariant.withAlpha(90)),
+                    onPressed: state.canUndo ? state.performUndo : null,
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(),
+                    iconSize: 19,
+                    padding: const EdgeInsets.all(6),
+                    tooltip: state.canRedo ? 'בצע שוב: ${state.redoLabel}' : 'בצע שוב',
+                    icon: Icon(Icons.redo, color: state.canRedo ? cs.onSurface : cs.onSurfaceVariant.withAlpha(90)),
+                    onPressed: state.canRedo ? state.performRedo : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           // ── שכבת גרירה לבחירת אזור ──
           if (_selectMode)
             Positioned.fill(
@@ -684,6 +754,12 @@ class _MapScreenState extends State<MapScreen> {
           if (state.losSessions.any((s) => s.points.isNotEmpty)) // הצג רק אם יש סשן מחושב
             _LosProfilePanel(state: state, cs: cs),
 
+          // ── פאנל חתך-צד לקרן ממכ"ם-דופלר (תחתית) — אותו מיקום כמו פאנל קו-הראייה בכוונה;
+          // אם שניהם רלוונטיים בו-זמנית (נדיר), זה שנוסף מאוחר יותר ב-Stack מכסה את השני,
+          // לא מתנגש/נשבר חזותית — המשתמש יכול לסגור אותו ולחשוף את שמתחתיו ──
+          if (state.radarProfileLoading || state.radarProfileError != null || state.radarProfileResult != null)
+            _RadarProfilePanel(state: state, cs: cs),
+
           // ── הנחיה: הוראות לחיצה במצב LOS ──
           if (state.losMode && !_selectMode)
             Positioned(
@@ -773,8 +849,15 @@ class _MapScreenState extends State<MapScreen> {
             top: 150,
             right: 12,
             child: ConstrainedBox(
+              // viewInsets.bottom = גובה המקלדת כשפתוחה (0 כשסגורה) — בלעדיו, גובה הפאנל המותר
+              // לא מצטמצם כשהמקלדת נפתחת, והשדה שבו המשתמש הקליד נשאר מוסתר מתחתיה (נמצא בבדיקה
+              // חיה: "התפריטים מוסתרים ע"י המקלדת, בעיקר הכלים החדשים"). עם ההפחתה כאן, ה-
+              // SingleChildScrollView שמסביב מגלגל את השדה הפעיל לתוך השטח הנותר מעל המקלדת
+              // (מנגנון סטנדרטי של Flutter — TextField מבקש scroll-into-view מה-Scrollable שמעליו).
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height - 150 - MediaQuery.of(context).padding.bottom - 70,
+                maxHeight: MediaQuery.of(context).size.height - 150
+                    - MediaQuery.of(context).padding.bottom - 70
+                    - MediaQuery.of(context).viewInsets.bottom,
               ),
               child: SingleChildScrollView(
                 child: Column(
@@ -798,47 +881,57 @@ class _MapScreenState extends State<MapScreen> {
           Positioned(
             bottom: 14 + MediaQuery.of(context).viewPadding.bottom,
             left: 12,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (state.rulerPoints.length >= 2) ...[
-                  _RulerCard(state: state, cs: cs),
-                  const SizedBox(height: 6),
-                ],
-                if (state.tappedElevPoint != null) ...[
-                  _ElevationCard(state: state, cs: cs),
-                  const SizedBox(height: 6),
-                ],
-                if (state.uasCoordActive) ...[
-                  const _UasCoordLegend(),
-                  const SizedBox(height: 6),
-                ],
-                if (state.activeNotamCategories.isNotEmpty) ...[
-                  _UasNotamLegend(activeCategories: state.activeNotamCategories),
-                  const SizedBox(height: 6),
-                ],
-                const _VlosInfoButton(),
-              ],
+            child: ConstrainedBox(
+              // חסימת גובה + גלילה הפוכה (reverse) — כשכל הכרטיסים/מקראות פעילים בו-זמנית (סרגל
+              // מדידה+גובה+שתי מקראות+VLOS+קנה-מידה), העמודה יכולה לחרוג מעל קצה המסך העליון
+              // ולדחוק את הפריטים העליונים (המקראות) מחוץ לתצוגה — נמצא בבדיקה חיה של המשתמש
+              // אחרי שסרגל קנה-המידה הועבר לכאן. reverse:true משאיר את הפריטים התחתונים (VLOS
+              // וסרגל קנה-המידה, החשובים תמיד) גלויים כברירת מחדל; הכרטיסים הזמניים (מדידה/גובה)
+              // ניתנים לגלילה אם אין מספיק מקום, במקום להיעלם בלי שום דרך לראות אותם.
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height
+                    - MediaQuery.of(context).padding.top - 14 - MediaQuery.of(context).viewPadding.bottom - 90,
+              ),
+              child: SingleChildScrollView(
+                reverse: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (state.rulerPoints.length >= 2) ...[
+                      _RulerCard(state: state, cs: cs),
+                      const SizedBox(height: 6),
+                    ],
+                    if (state.tappedElevPoint != null) ...[
+                      _ElevationCard(state: state, cs: cs),
+                      const SizedBox(height: 6),
+                    ],
+                    if (state.uasCoordActive) ...[
+                      const _UasCoordLegend(),
+                      const SizedBox(height: 6),
+                    ],
+                    if (state.activeNotamCategories.isNotEmpty) ...[
+                      _UasNotamLegend(activeCategories: state.activeNotamCategories),
+                      const SizedBox(height: 6),
+                    ],
+                    const _VlosInfoButton(),
+                    // סרגל קנה-המידה הועבר לצד שמאל (מ-bottom-right) — בקצה ימין הוא היה עלול להיחסם
+                    // ע"י פאנל רדיוס-הראייה/מכ"ם-דופלר כשהוא ארוך (הרבה שדות, כולל "עמדות שמורות")
+                    const SizedBox(height: 6),
+                    _ScaleBar(mapController: _mapController),
+                  ],
+                ),
+              ),
             ),
           ),
 
-          // ── עמודת bottom-right: כרטיס מזג אוויר + סרגל קנה-מידה ──
-          Positioned(
-            bottom: 14 + MediaQuery.of(context).viewPadding.bottom,
-            right: 12,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (state.weatherPoint != null) ...[
-                  _WeatherCard(state: state, cs: cs),
-                  const SizedBox(height: 6),
-                ],
-                _ScaleBar(mapController: _mapController),
-              ],
+          // ── עמודת bottom-right: כרטיס מזג אוויר בלבד (סרגל קנה-המידה עבר לעמודת bottom-left) ──
+          if (state.weatherPoint != null)
+            Positioned(
+              bottom: 14 + MediaQuery.of(context).viewPadding.bottom,
+              right: 12,
+              child: _WeatherCard(state: state, cs: cs),
             ),
-          ),
         ],
       ),
     );
@@ -985,19 +1078,21 @@ class _MapScreenState extends State<MapScreen> {
       }
       final minRangeM = result.minRangeKm * 1000;
       final rangeM = result.rangeKm * 1000;
-      final spokes = <Polyline>[];
-      for (final ray in result.rays) {
+      final spokes = <Polyline<int>>[];
+      for (int i = 0; i < result.rays.length; i++) {
+        final ray = result.rays[i];
         final nearPt = distCalc.offset(result.observer, minRangeM, ray.bearingDeg);
         // ירוק אם הכיוון "נראה" לדופלר, כתום אם כל הכיוון עיוור לו (ר' doppler_ok)
         final nearColor = ray.dopplerOk ? const Color(0xFF44CC44) : const Color(0xFFFF9500);
-        spokes.add(Polyline(points: [nearPt, ray.point], color: nearColor, strokeWidth: 3));
+        // hitValue: i — אינדקס הקרן, נצרך ע"י _radarHitNotifier בלחיצה (ר' _onRadarRayHit)
+        spokes.add(Polyline(points: [nearPt, ray.point], color: nearColor, strokeWidth: 3, hitValue: i));
         if (ray.blocked) {
           // אדום — ממשיך מהנקודה הרחוקה ביותר בטווח המכ"ם עד סוף הטווח המבוקש
           final farPt = distCalc.offset(result.observer, rangeM, ray.bearingDeg);
-          spokes.add(Polyline(points: [ray.point, farPt], color: const Color(0xFFFF4444), strokeWidth: 3));
+          spokes.add(Polyline(points: [ray.point, farPt], color: const Color(0xFFFF4444), strokeWidth: 3, hitValue: i));
         }
       }
-      layers.add(PolylineLayer(polylines: spokes));
+      layers.add(PolylineLayer<int>(polylines: spokes, hitNotifier: _radarHitNotifier));
     }
 
     layers.add(CircleLayer(circles: [
@@ -1940,9 +2035,13 @@ class _LosProfileCard extends StatelessWidget {
 
 // ציירן גרף פרופיל LOS — שטח (ירוק-זית) + קו ראייה (ירוק/אדום)
 class _LosProfilePainter extends CustomPainter {
-  const _LosProfilePainter({required this.session, required this.cs});
+  const _LosProfilePainter({required this.session, required this.cs, this.radarDistKm});
   final LosSession session;
   final ColorScheme cs;
+  // אופציונלי — רק כשמצייר חתך-צד של קרן ממכ"ם-דופלר (null בשימוש הרגיל של קו-הראייה):
+  // מסמן קו אנכי ציאן במרחק שבו המכ"ם/דופלר הפסיקו לזהות, גם אם זה *לפני* שהשטח עצמו חסם
+  // (הקו הירוק בגרף ממשיך אחריו) — ר' _drawProfileSingle המקביל ב-Desktop (MAP.py).
+  final double? radarDistKm;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2022,11 +2121,116 @@ class _LosProfilePainter extends CustomPainter {
       }
     }
     canvas.drawPath(segPath, segVis ? visPaint : blkPaint); // קטע אחרון — תמיד קיים
+
+    // קו אנכי מקווקו ציאן — רק בחתך-צד של מכ"ם-דופלר, וגם רק אם הוא *לפני* סוף הגרף
+    // (אחרת אין מה להבחין — השטח כבר "סיפר את כל הסיפור" עד שם)
+    if (radarDistKm != null && radarDistKm! < maxDist) {
+      final x = toX(radarDistKm!);
+      final dashPaint = Paint()
+        ..color       = const Color(0xFF22D3EE)
+        ..strokeWidth = 1.5
+        ..style       = PaintingStyle.stroke;
+      const dashLen = 4.0, gapLen = 3.0;
+      var y = 0.0;
+      while (y < size.height) {
+        canvas.drawLine(Offset(x, y), Offset(x, min(y + dashLen, size.height)), dashPaint);
+        y += dashLen + gapLen;
+      }
+    }
   }
 
   @override
   bool shouldRepaint(_LosProfilePainter old) =>
-      old.session != session; // צייר מחדש רק בשינוי נתונים
+      old.session != session || old.radarDistKm != radarDistKm; // צייר מחדש גם אם רק הסימון האנכי השתנה
+}
+
+// ── פאנל חתך-צד לקרן בודדת ממכ"ם-דופלר — נפתח בלחיצה על חישור, אותו מיקום/מבנה כמו
+// _LosProfilePanel אך כרטיס יחיד (לא רשימה גוללת) כי יש תמיד רק פרופיל אחד פתוח בכל רגע.
+// משתמש חוזר מלא ב-_LosProfilePainter (session מלאכותי, לא מ-state.losSessions האמיתי).
+class _RadarProfilePanel extends StatelessWidget {
+  const _RadarProfilePanel({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    final navBarH = MediaQuery.of(context).viewPadding.bottom;
+    return Positioned(
+      bottom: 0, left: 0, right: 0,
+      child: Material(
+        color: cs.surface.withAlpha(245),
+        elevation: 6,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              child: Row(children: [
+                Icon(Icons.track_changes, size: 13, color: const Color(0xFF22D3EE)), // אייקון מכ"ם-דופלר
+                const SizedBox(width: 5),
+                Text(
+                  state.radarProfileResult != null
+                      ? 'מכ"ם דופלר — חתך-צד לאזימוט ${state.radarProfileResult!.bearingDeg.round()}°'
+                      : 'מכ"ם דופלר — חתך-צד',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF22D3EE)),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: state.clearRadarProfile, // סגירה בלבד — לא נוגע בתוצאת הסריקה המלאה
+                  child: Icon(Icons.close, size: 16, color: cs.outline),
+                ),
+              ]),
+            ),
+            const Divider(height: 1, thickness: 1),
+            SizedBox(
+              height: 155,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: _radarProfileBody(),
+              ),
+            ),
+            if (navBarH > 0) SizedBox(height: navBarH),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _radarProfileBody() {
+    if (state.radarProfileLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.radarProfileError != null) {
+      return Center(
+        child: Text(state.radarProfileError!, style: TextStyle(fontSize: 11, color: cs.error), textAlign: TextAlign.center),
+      );
+    }
+    final profile = state.radarProfileResult;
+    if (profile == null) return const SizedBox.shrink();
+    // session מלאכותי — obs/tgt לא נצרכים ע"י _LosProfilePainter, רק points/color
+    final session = LosSession(
+      obs: LatLng(0, 0), tgt: LatLng(0, 0), points: profile.points, color: const Color(0xFF22D3EE),
+      idx: 1, totalKm: profile.totalKm, firstBlockKm: profile.firstBlockKm, allVisible: profile.firstBlockKm == null,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          (profile.firstBlockKm == null ? '✓ שטח פנוי לגמרי' : '✗ שטח חוסם ב-${profile.firstBlockKm!.toStringAsFixed(1)} ק"מ') +
+              (profile.dopplerOk ? '' : '   〰️ חסום-דופלר') +
+              (profile.blocked && profile.dopplerOk ? '   ⛔ מכ"ם עד ${profile.radarDistKm.toStringAsFixed(1)} ק"מ' : ''),
+          style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: 3),
+        Expanded(
+          child: CustomPaint(
+            painter: _LosProfilePainter(session: session, cs: cs, radarDistKm: profile.radarDistKm),
+            size: Size.infinite,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ── מעטפת מקרא הניתנת לצמצום — משותפת לכל מקראות המפה (NOTAM/אזורי תיאום) ──
@@ -2128,6 +2332,14 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   late final TextEditingController _marginCtrl;
   late final TextEditingController _vCenterCtrl;
   late final TextEditingController _vWidthCtrl;
+  final _stationNameCtrl = TextEditingController(); // "עמדות שמורות" — היה חסר לגמרי בכלי הזה (נמצא בבדיקה חיה: "טעינת מיקום שמור לא מתפקדת")
+  List<Map<String, dynamic>> _stations = [];
+  String? _selectedStation;
+
+  // Undo/Redo לשדות מספריים — FocusNode אחד לכל שדה (נוצר עצלנית, לא בכל build), נלכד ערך
+  // בכניסה לשדה (focus) ונרשם ל-Undo רק ביציאה ממנו (blur) עם ערך שונה — לא בכל הקשה
+  final Map<TextEditingController, FocusNode> _fieldFocusNodes = {};
+  final Map<TextEditingController, String> _fieldFocusValue = {};
 
   @override
   void initState() {
@@ -2144,6 +2356,143 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     _marginCtrl = TextEditingController(text: _fmt(s.radialRidgeMarginDeg));
     _vCenterCtrl = TextEditingController(text: _fmt(s.radialVCenterDeg));
     _vWidthCtrl = TextEditingController(text: _fmt(s.radialVWidthDeg));
+    _refreshStations();
+  }
+
+  Future<void> _refreshStations() async {
+    final list = await widget.state.loadStations('radial_los');
+    if (!mounted) return;
+    setState(() { _stations = list; _selectedStation = null; });
+  }
+
+  // 10 הפרמטרים + מיקום — אותם שמות שדה בדיוק כמו ב-Desktop (weather_server.py), לעקביות
+  Map<String, dynamic> _paramsFromState() {
+    final s = widget.state;
+    return {
+      'lat': s.radialLosObs?.latitude, 'lon': s.radialLosObs?.longitude,
+      'range_km': s.radialRangeKm, 'min_range_km': s.radialMinRangeKm, 'angle_step_deg': s.radialAngleStepDeg,
+      'start_bearing_deg': s.radialStartBearingDeg, 'end_bearing_deg': s.radialEndBearingDeg,
+      'obs_h': s.radialObsH, 'tgt_h': s.radialTgtH, 'ridge_margin_deg': s.radialRidgeMarginDeg,
+      'vertical_center_deg': s.radialVCenterDeg, 'vertical_width_deg': s.radialVWidthDeg,
+    };
+  }
+
+  Future<void> _saveStation() async {
+    final name = _stationNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    await widget.state.saveStation('radial_los', name, _paramsFromState());
+    _stationNameCtrl.clear();
+    await _refreshStations();
+  }
+
+  void _loadStation(Map<String, dynamic> station) {
+    final params = (station['params'] as Map).cast<String, dynamic>();
+    final s = widget.state;
+    double d(String key, double fallback) => params[key] != null ? (params[key] as num).toDouble() : fallback;
+    s.updateRadialLosParam(() {
+      s.radialRangeKm = d('range_km', s.radialRangeKm);
+      s.radialMinRangeKm = d('min_range_km', s.radialMinRangeKm);
+      s.radialAngleStepDeg = d('angle_step_deg', s.radialAngleStepDeg);
+      s.radialStartBearingDeg = d('start_bearing_deg', s.radialStartBearingDeg);
+      s.radialEndBearingDeg = d('end_bearing_deg', s.radialEndBearingDeg);
+      s.radialObsH = d('obs_h', s.radialObsH);
+      s.radialTgtH = d('tgt_h', s.radialTgtH);
+      s.radialRidgeMarginDeg = d('ridge_margin_deg', s.radialRidgeMarginDeg);
+      s.radialVCenterDeg = d('vertical_center_deg', s.radialVCenterDeg);
+      s.radialVWidthDeg = d('vertical_width_deg', s.radialVWidthDeg);
+    });
+    if (params['lat'] != null && params['lon'] != null) {
+      final loadedPoint = LatLng((params['lat'] as num).toDouble(), (params['lon'] as num).toDouble());
+      s.setRadialLosObserver(loadedPoint);
+      s.radialLosFocusPoint = loadedPoint; // מפעיל קפיצת מצלמה ב-build() של _MapScreenState — ר' map_state.dart
+    }
+    _rangeCtrl.text = _fmt(s.radialRangeKm);
+    _minRangeCtrl.text = _fmt(s.radialMinRangeKm);
+    _stepCtrl.text = _fmt(s.radialAngleStepDeg);
+    _startCtrl.text = _fmt(s.radialStartBearingDeg);
+    _endCtrl.text = _fmt(s.radialEndBearingDeg);
+    _obsHCtrl.text = _fmt(s.radialObsH);
+    _tgtHCtrl.text = _fmt(s.radialTgtH);
+    _marginCtrl.text = _fmt(s.radialRidgeMarginDeg);
+    _vCenterCtrl.text = _fmt(s.radialVCenterDeg);
+    _vWidthCtrl.text = _fmt(s.radialVWidthDeg);
+  }
+
+  Future<void> _deleteStation(String name) async {
+    await widget.state.deleteStation('radial_los', name);
+    await _refreshStations();
+  }
+
+  Widget _header(String text) {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 3, bottom: 1),
+      child: Container(
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: cs.outlineVariant, width: 0.5))),
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(text, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant)),
+      ),
+    );
+  }
+
+  // שורת "עמדות שמורות" — שם+שמירה, ואז dropdown+טעינה/מחיקה, אותו רעיון בדיוק כמו ב-_RadarDopplerPanel
+  Widget _stationUI() {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 26,
+              child: TextField(
+                controller: _stationNameCtrl,
+                style: const TextStyle(fontSize: 10),
+                decoration: const InputDecoration(
+                  isDense: true, hintText: 'שם עמדה',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _saveStation, icon: const Icon(Icons.save, size: 16),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            tooltip: 'שמור עמדה נוכחית',
+          ),
+        ]),
+        if (_stations.isNotEmpty)
+          Row(children: [
+            Expanded(
+              child: DropdownButton<String>(
+                value: _selectedStation,
+                isDense: true, isExpanded: true,
+                hint: Text('בחר עמדה שמורה', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                style: TextStyle(fontSize: 9, color: cs.onSurface),
+                underline: const SizedBox.shrink(),
+                items: [for (final st in _stations) DropdownMenuItem(value: st['name'] as String, child: Text(st['name'] as String))],
+                onChanged: (v) => setState(() => _selectedStation = v),
+              ),
+            ),
+            IconButton(
+              onPressed: _selectedStation == null ? null : () {
+                final st = _stations.firstWhere((s) => s['name'] == _selectedStation);
+                _loadStation(st);
+              },
+              icon: const Icon(Icons.folder_open, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'טען עמדה נבחרת',
+            ),
+            IconButton(
+              onPressed: _selectedStation == null ? null : () => _deleteStation(_selectedStation!),
+              icon: const Icon(Icons.delete_outline, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'מחק עמדה נבחרת',
+            ),
+          ]),
+      ]),
+    );
   }
 
   // עיגול תצוגה ל-1 ספרה אחרי הנקודה — מונע "5.0000000001" מחישובי גרירה
@@ -2167,15 +2516,45 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   @override
   void dispose() {
     // שחרור כל הבקרים — מונע memory leak כשהפאנל מוסר מהעץ (למשל באיפוס מפה)
-    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _obsHCtrl, _tgtHCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl]) {
+    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _obsHCtrl, _tgtHCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl, _stationNameCtrl]) {
       c.dispose();
     }
+    for (final fn in _fieldFocusNodes.values) { fn.dispose(); }
     super.dispose();
+  }
+
+  // בונה closure שחזור עבור עריכת שדה בודד — מעדכן גם את טקסט הבקר וגם את הערך ב-state,
+  // ומחזיר את הכיוון ההפוך (אותו רעיון סימטרי כמו _makeValueRestore ב-JS/MAP.py)
+  Function() _makeFieldRestore(TextEditingController ctrl, void Function(double) onChanged, String targetText) {
+    return () {
+      final current = ctrl.text;
+      final v = double.tryParse(targetText);
+      if (v != null) {
+        ctrl.text = targetText;
+        widget.state.updateRadialLosParam(() => onChanged(v));
+      }
+      return _makeFieldRestore(ctrl, onChanged, current);
+    };
   }
 
   // שורת שדה בודד: תווית מימין (RTL) + תיבת קלט קטנה — תבנית אחידה לכל 10 הפרמטרים
   Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
     final cs = widget.cs;
+    // FocusNode נוצר פעם אחת בלבד לכל בקר (putIfAbsent) — לא בכל build, אחרת הפוקוס היה מתאפס בכל רינדור
+    final focusNode = _fieldFocusNodes.putIfAbsent(ctrl, () {
+      final fn = FocusNode();
+      fn.addListener(() {
+        if (fn.hasFocus) {
+          _fieldFocusValue[ctrl] = ctrl.text; // ערך בכניסה לשדה — נלכד לצורך Undo ביציאה ממנו
+        } else {
+          final before = _fieldFocusValue.remove(ctrl);
+          if (before != null && before != ctrl.text && !widget.state.isRestoringUndo) {
+            widget.state.pushUndo('רדיוס ראייה: $label', _makeFieldRestore(ctrl, onChanged, before));
+          }
+        }
+      });
+      return fn;
+    });
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1.5),
       child: Row(
@@ -2187,6 +2566,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
             height: 26,
             child: TextField(
               controller: ctrl,
+              focusNode: focusNode,
               keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11),
@@ -2274,6 +2654,10 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
               _field('מרווח רכס (°)', _marginCtrl, (v) => s.radialRidgeMarginDeg = v),
               _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radialVCenterDeg = v),
               _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radialVWidthDeg = v),
+
+              _header('עמדות שמורות'),
+              _stationUI(),
+
               const SizedBox(height: 4),
               if (s.radialLosLoading) ...[
                 // ריצה פעילה — שורת התקדמות (מספר batches שהושלמו) + כפתור ביטול בלבד
@@ -2343,17 +2727,21 @@ class _RadarDopplerPanel extends StatefulWidget {
 class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   late final TextEditingController _rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl;
   late final TextEditingController _hAntCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl;
-  late final TextEditingController _powerCtrl, _gainCtrl, _sensCtrl;
+  late final TextEditingController _powerCtrl, _gainCtrl, _sensCtrl, _rcsCtrl;
   late final TextEditingController _prfCtrl, _mdvCtrl, _speedCtrl, _headingCtrl;
   late final TextEditingController _boresightCtrl, _maxScanCtrl;
   final _stationNameCtrl = TextEditingController();
   List<Map<String, dynamic>> _stations = [];
   String? _selectedStation;
 
+  // Undo/Redo לשדות מספריים — אותו דפוס בדיוק כמו _RadialLosPanelState._fieldFocusNodes
+  final Map<TextEditingController, FocusNode> _fieldFocusNodes = {};
+  final Map<TextEditingController, String> _fieldFocusValue = {};
+
   static const List<double> _rcsOptions = [0.01, 0.1, 2, 50];
   static const List<String> _rcsLabels = ['רחפן קטן (0.01 מ"ר)', 'מל"ט בינוני (0.1 מ"ר)', 'מטוס קל (2 מ"ר)', 'מטוס תובלה (50 מ"ר)'];
-  static const List<double> _freqOptions = [1300, 3000, 10000];
-  static const List<String> _freqLabels = ['L-band (1.3 GHz)', 'S-band (3 GHz)', 'X-band (10 GHz)'];
+  static const List<double> _freqOptions = [1300, 3000, 5000, 10000];
+  static const List<String> _freqLabels = ['L-band (1.3 GHz)', 'S-band (3 GHz)', 'C-band (5 GHz)', 'X-band (10 GHz)'];
 
   @override
   void initState() {
@@ -2371,6 +2759,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     _powerCtrl = TextEditingController(text: _fmt(s.radarPowerKw));
     _gainCtrl = TextEditingController(text: _fmt(s.radarGainDbi));
     _sensCtrl = TextEditingController(text: _fmt(s.radarSensitivityDbm));
+    _rcsCtrl = TextEditingController(text: _fmt(s.radarRcsM2));
     _prfCtrl = TextEditingController(text: _fmt(s.radarPrfHz));
     _mdvCtrl = TextEditingController(text: _fmt(s.radarMdvKt));
     _speedCtrl = TextEditingController(text: _fmt(s.radarTargetSpeedKt));
@@ -2411,6 +2800,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     _powerCtrl.text = _fmt(s.radarPowerKw);
     _gainCtrl.text = _fmt(s.radarGainDbi);
     _sensCtrl.text = _fmt(s.radarSensitivityDbm);
+    _rcsCtrl.text = _fmt(s.radarRcsM2);
     _prfCtrl.text = _fmt(s.radarPrfHz);
     _mdvCtrl.text = _fmt(s.radarMdvKt);
     _speedCtrl.text = _fmt(s.radarTargetSpeedKt);
@@ -2422,15 +2812,52 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   @override
   void dispose() {
     for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _hAntCtrl, _marginCtrl,
-        _vCenterCtrl, _vWidthCtrl, _powerCtrl, _gainCtrl, _sensCtrl, _prfCtrl, _mdvCtrl, _speedCtrl,
+        _vCenterCtrl, _vWidthCtrl, _powerCtrl, _gainCtrl, _sensCtrl, _rcsCtrl, _prfCtrl, _mdvCtrl, _speedCtrl,
         _headingCtrl, _boresightCtrl, _maxScanCtrl, _stationNameCtrl]) {
       c.dispose();
     }
+    for (final fn in _fieldFocusNodes.values) { fn.dispose(); }
     super.dispose();
+  }
+
+  // בונה closure שחזור עבור עריכת שדה בודד — אותו דפוס בדיוק כמו _RadialLosPanelState._makeFieldRestore
+  Function() _makeFieldRestore(TextEditingController ctrl, void Function(double) onChanged, String targetText) {
+    return () {
+      final current = ctrl.text;
+      final v = double.tryParse(targetText);
+      if (v != null) {
+        ctrl.text = targetText;
+        widget.state.updateRadarParam(() => onChanged(v));
+      }
+      return _makeFieldRestore(ctrl, onChanged, current);
+    };
+  }
+
+  // גרסה גנרית ל"ערך יחיד" שאינו טקסט חופשי (dropdown/switch) — current/target מוחלפים ידנית
+  // בין קריאות במקום getFn חי, כי הערך תמיד זורם דרך נתיב יחיד (onChanged), אין דריפט אפשרי
+  Function() _makeSimpleValueRestore<T>(void Function(T) setFn, T current, T target) {
+    return () {
+      setFn(target);
+      return _makeSimpleValueRestore<T>(setFn, target, current);
+    };
   }
 
   Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
     final cs = widget.cs;
+    final focusNode = _fieldFocusNodes.putIfAbsent(ctrl, () {
+      final fn = FocusNode();
+      fn.addListener(() {
+        if (fn.hasFocus) {
+          _fieldFocusValue[ctrl] = ctrl.text; // ערך בכניסה לשדה — נלכד לצורך Undo ביציאה ממנו
+        } else {
+          final before = _fieldFocusValue.remove(ctrl);
+          if (before != null && before != ctrl.text && !widget.state.isRestoringUndo) {
+            widget.state.pushUndo('מכ"ם דופלר: $label', _makeFieldRestore(ctrl, onChanged, before));
+          }
+        }
+      });
+      return fn;
+    });
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1.5),
       child: Row(
@@ -2442,6 +2869,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
             height: 26,
             child: TextField(
               controller: ctrl,
+              focusNode: focusNode,
               keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11),
@@ -2489,7 +2917,50 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
             style: TextStyle(fontSize: 9, color: cs.onSurface),
             underline: const SizedBox.shrink(),
             items: [for (int i = 0; i < options.length; i++) DropdownMenuItem(value: options[i], child: Text(labels[i]))],
-            onChanged: (v) { if (v != null) widget.state.updateRadarParam(() => onChanged(v)); },
+            onChanged: (v) {
+              if (v == null || v == value) return;
+              final prev = value;
+              widget.state.updateRadarParam(() => onChanged(v));
+              if (!widget.state.isRestoringUndo) {
+                widget.state.pushUndo('מכ"ם דופלר: $label', _makeSimpleValueRestore<T>(
+                    (nv) => widget.state.updateRadarParam(() => onChanged(nv)), v, prev));
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // dropdown "מילוי מהיר" ל-RCS — לא כמו _dropdownRow הרגיל: value נשאר null תמיד (לא נקשר
+  // ל-s.radarRcsM2), כי אחרי שהמשתמש מקליד ערך מותאם אישית (לא אחד מ-4 הפריסטים) הערך הזה
+  // כבר לא תואם אף item ברשימה — DropdownButton עם value לא-תואם זורק אסרשן ב-Flutter.
+  // הבחירה כאן רק ממלאת את _rcsCtrl/s.radarRcsM2 — לא מקור-האמת, בדיוק כמו ב-Desktop.
+  Widget _rcsPresetRow() {
+    final cs = widget.cs;
+    final s = widget.state;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.5),
+      child: Row(
+        children: [
+          Expanded(child: Text('סוג מטרה (מילוי מהיר)', style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
+          const SizedBox(width: 4),
+          DropdownButton<double>(
+            value: null,
+            hint: Text('בחר…', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+            isDense: true,
+            style: TextStyle(fontSize: 9, color: cs.onSurface),
+            underline: const SizedBox.shrink(),
+            items: [for (int i = 0; i < _rcsOptions.length; i++) DropdownMenuItem(value: _rcsOptions[i], child: Text(_rcsLabels[i]))],
+            onChanged: (v) {
+              if (v == null) return;
+              final prev = s.radarRcsM2;
+              _rcsCtrl.text = _fmt(v);
+              s.updateRadarParam(() => s.radarRcsM2 = v);
+              if (!s.isRestoringUndo && v != prev) {
+                s.pushUndo('מכ"ם דופלר: סוג מטרה (RCS)', _makeFieldRestore(_rcsCtrl, (nv) => s.radarRcsM2 = nv, _fmt(prev)));
+              }
+            },
           ),
         ],
       ),
@@ -2558,7 +3029,9 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
       s.radarMaxScanDeg = d('max_scan_deg', s.radarMaxScanDeg);
     });
     if (params['lat'] != null && params['lon'] != null) {
-      s.setRadarObserver(LatLng((params['lat'] as num).toDouble(), (params['lon'] as num).toDouble()));
+      final loadedPoint = LatLng((params['lat'] as num).toDouble(), (params['lon'] as num).toDouble());
+      s.setRadarObserver(loadedPoint);
+      s.radarFocusPoint = loadedPoint; // מפעיל קפיצת מצלמה ב-build() של _MapScreenState — ר' map_state.dart
     }
     _syncAllControllers();
   }
@@ -2702,7 +3175,8 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                 _field('רווח אנטנה (dBi)', _gainCtrl, (v) => s.radarGainDbi = v),
                 _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, _freqOptions, _freqLabels, (v) => s.radarFreqMhz = v),
                 _field('רגישות מקלט (dBm)', _sensCtrl, (v) => s.radarSensitivityDbm = v),
-                _dropdownRow<double>('סוג מטרה (RCS)', s.radarRcsM2, _rcsOptions, _rcsLabels, (v) => s.radarRcsM2 = v),
+                _field('שטח חתך רדארי (RCS, מ"ר)', _rcsCtrl, (v) => s.radarRcsM2 = v),
+                _rcsPresetRow(),
 
                 _header('סוג אנטנה'),
                 _dropdownRow<String>('סוג אנטנה', s.radarAntennaType, const ['generic', 'phased_array'],
@@ -2725,7 +3199,14 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                     Expanded(child: Text('הצג השפעת ריבוד (lobing)', style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant))),
                     Switch(
                       value: s.radarLobingEnabled,
-                      onChanged: (v) => s.updateRadarParam(() => s.radarLobingEnabled = v),
+                      onChanged: (v) {
+                        final prev = s.radarLobingEnabled;
+                        s.updateRadarParam(() => s.radarLobingEnabled = v);
+                        if (!s.isRestoringUndo) {
+                          s.pushUndo('מכ"ם דופלר: הצג השפעת ריבוד', _makeSimpleValueRestore<bool>(
+                              (nv) => s.updateRadarParam(() => s.radarLobingEnabled = nv), v, prev));
+                        }
+                      },
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ]),

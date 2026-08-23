@@ -889,6 +889,120 @@ class ApiService {
     );
   }
 
+  /// חתך-צד (פרופיל שטח) לקרן בודדת מתוך תוצאת מכ"ם-דופלר — נקרא בלחיצה על חישור בממשק.
+  /// מקביל בדיוק ל-GET /radar_doppler/profile בצד Desktop: מקבל את כל אותם פרמטרים כמו
+  /// fetchRadarDoppler ועוד bearingDeg יחיד במקום מגזר שלם, ומחזיר את כל נקודות הדגימה
+  /// (לא רק את קודקוד הסיכום) — כדי לצייר אותן ב-_LosProfilePainter הקיים, בלי שינוי.
+  /// לא רץ כ-job/batches — קרן בודדת, מהיר כמו fetchLos; נצמד ל-100 דגימות (לא 150) כדי
+  /// להישאר בבקשת Open-Meteo אחת פשוטה, בדיוק כמו הפישוט המקביל בצד Desktop.
+  static Future<RadarRayProfile> fetchRadarRayProfile({
+    required LatLng observer,
+    required double bearingDeg,
+    required double rangeKm,
+    required double minRangeKm,
+    required double hAntenna,
+    required double ridgeMarginDeg,
+    required double verticalCenterDeg,
+    required double verticalWidthDeg,
+    required double powerKw,
+    required double gainDbi,
+    required double freqMhz,
+    required double rcsM2,
+    required double sensitivityDbm,
+    required double prfHz,
+    required double mdvKt,
+    required double targetSpeedKt,
+    required double targetHeadingDeg,
+    required bool lobingEnabled,
+    required String reflectivityKey,
+    required String antennaType,
+    required double boresightDeg,
+    required double maxScanDeg,
+  }) async {
+    rangeKm = _clampD(rangeKm, _radialRangeKmMin, _radialRangeKmMax);
+    minRangeKm = _clampD(minRangeKm, 0.0, rangeKm);
+    const distCalc = Distance();
+    final rangeM = rangeKm * 1000.0;
+    final minRangeM = minRangeKm * 1000.0;
+
+    // שלב 1: גובה המשקיף — בנפרד, נכשל-מהר (כמו fetchRadarDoppler)
+    final obsElevs = await _fetchRadialElevChunk([observer]);
+    if (obsElevs.isEmpty || obsElevs[0] == null) {
+      throw Exception('לא ניתן לשלוף את גובה המשקיף');
+    }
+    final hObs = obsElevs[0]! + hAntenna;
+
+    // שלב 2: פיזיקה שלא תלויה בנקודת דגימה ספציפית — זהה בדיוק ל-fetchRadarDoppler
+    final wavelengthM = _speedOfLight / (freqMhz * 1e6);
+    final radarCleanRangeM = _radarMaxRangeM(powerKw, gainDbi, freqMhz, rcsM2, sensitivityDbm);
+    final unambigRangeM = _maxUnambiguousRangeM(prfHz);
+    final radarCeilingM = min(radarCleanRangeM, unambigRangeM);
+    final mdvMs = mdvKt * _ktToMs;
+    final targetSpeedMs = targetSpeedKt * _ktToMs;
+    final reflectivity = _radarReflectivity[reflectivityKey] ?? _radarReflectivity[_radarReflectivityDefault]!;
+    final radialSpeedMs = (targetSpeedMs * cos((targetHeadingDeg - bearingDeg) * pi / 180)).abs();
+    final dopplerOk = _dopplerDetectable(radialSpeedMs, mdvMs, wavelengthM, prfHz);
+    final rayScanLoss = antennaType == 'phased_array' ? _scanLossFactor(bearingDeg, boresightDeg, maxScanDeg) : 1.0;
+
+    // שלב 3: נקודות הדגימה לאורך הקרן הזו בלבד — נצמד ל-100 (לא 150), בקשה אחת פשוטה
+    final spacingBased = ((rangeKm - minRangeKm) / _radialTargetSpacingKm).round() + 1;
+    final samples = max(_radialSamplesMin, min(100, max(20, spacingBased)));
+    final rayPoints = <LatLng>[];
+    final rayDists = <double>[];
+    for (int j = 0; j < samples; j++) {
+      final frac = samples > 1 ? j / (samples - 1) : 0.0;
+      final dist = minRangeM + frac * (rangeM - minRangeM);
+      rayPoints.add(dist <= 0 ? observer : distCalc.offset(observer, dist, bearingDeg));
+      rayDists.add(dist);
+    }
+    final elevations = await _fetchRadialElevChunk(rayPoints);
+
+    final survivingIdx = <int>[for (int i = 0; i < elevations.length; i++) if (elevations[i] != null) i];
+    if (survivingIdx.length < 2) throw Exception('נתוני גובה חסרים לאורך הקרן');
+    final dists = survivingIdx.map((i) => rayDists[i]).toList();
+    final elevsOnly = survivingIdx.map((i) => elevations[i]!).toList();
+
+    // שלב 4: ratchet + טווח מכ"ם/ריבוד — זהה בדיוק ללולאת fetchRadarDoppler, לקרן אחת בלבד
+    final marginSlope = tan(ridgeMarginDeg * pi / 180);
+    final vHalf = verticalWidthDeg / 2.0;
+    final minAngleSlope = tan((verticalCenterDeg - vHalf) * pi / 180);
+    final maxAngleSlope = tan((verticalCenterDeg + vHalf) * pi / 180);
+    final hOffsets = List<double>.filled(survivingIdx.length, 0.0);
+    final ratchet = _horizonRatchet(dists, elevsOnly, hObs, hOffsets,
+        marginSlope: marginSlope, minAngleSlope: minAngleSlope, maxAngleSlope: maxAngleSlope);
+
+    double radarDistM = 0.0;
+    for (int i = 0; i < ratchet.length; i++) {
+      if (!ratchet[i].visible) continue;
+      final d = dists[i];
+      double ceiling;
+      if (lobingEnabled) {
+        final elevAngleDeg = d > 0 ? atan2(elevsOnly[i] - hObs, d) * 180 / pi : 90.0;
+        ceiling = radarCeilingM * _lobingFactor(elevAngleDeg, hAntenna, wavelengthM, reflectivity);
+      } else {
+        ceiling = radarCeilingM;
+      }
+      ceiling *= rayScanLoss;
+      if (d <= ceiling) radarDistM = d;
+    }
+    final blocked = radarDistM < dists.last - 1e-6;
+
+    final points = <LosPoint>[
+      for (int i = 0; i < ratchet.length; i++)
+        LosPoint(
+          lat: rayPoints[survivingIdx[i]].latitude, lon: rayPoints[survivingIdx[i]].longitude,
+          distKm: ratchet[i].distM / 1000, elevation: ratchet[i].elevation,
+          losH: ratchet[i].losH, visible: ratchet[i].visible,
+        ),
+    ];
+    final firstBlockIdx = ratchet.indexWhere((r) => !r.visible);
+    return RadarRayProfile(
+      bearingDeg: bearingDeg, points: points, totalKm: dists.last / 1000,
+      firstBlockKm: firstBlockIdx == -1 ? null : ratchet[firstBlockIdx].distM / 1000,
+      radarDistKm: radarDistM / 1000, blocked: blocked, dopplerOk: dopplerOk,
+    );
+  }
+
   // מרחק Haversine בין שתי נקודות גיאוגרפיות במטרים
   static double _haversineM(double lat1, double lon1, double lat2, double lon2) {
     const R   = 6371000.0;
