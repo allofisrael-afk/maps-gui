@@ -403,6 +403,18 @@ def _destination_point(lat, lon, bearing_deg, distance_m):
     return phi2 / r, lon2
 
 
+def _bearing_deg(lat1, lon1, lat2, lon2):
+    """אזימוט (0=צפון, בכיוון השעון, מעלות) מנקודה 1 לנקודה 2 — נוסחת "initial bearing" כדורית
+    סטנדרטית. חסרה עד כה ב-weather_server.py (יש רק את הכיוון ההפוך, _destination_point) — נדרשת
+    כאן כדי לחשב את האזימוט ממשקיף לנקודת-מסלול קונקרטית (הערכת מסלול טיסה מול הרדאר)."""
+    r = math.pi / 180  # מקדם המרה ממעלות לרדיאנים
+    phi1, phi2 = lat1 * r, lat2 * r
+    dlam = (lon2 - lon1) * r
+    x = math.sin(dlam) * math.cos(phi2)
+    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
+    return math.degrees(math.atan2(x, y)) % 360  # נרמול לטווח [0,360)
+
+
 def _horizon_ratchet(dists_m, elevs, h_obs, h_offsets, margin_slope=0.0, min_angle_slope=None, max_angle_slope=None):
     """ליבת אלגוריתם "מנוע האופק" (horizon ratchet) — משותפת בין /los ורדיוס-הראייה
     הרדיאלי, כך ששינוי עתידי בנוסחה (עקמומיות/רפרקציה) יתבצע במקום אחד בלבד.
@@ -934,6 +946,15 @@ def _scan_loss_factor(bearing_deg, boresight_deg, max_scan_deg):
     return math.sqrt(math.cos(math.radians(scan_angle)))
 
 
+# ── הערכת מסלול טיסה (FR24) מול תצורת מכ"ם-דופלר — קבועי דגימה, עקביים עם _RADIAL_* למעלה ──
+_ROUTE_EVAL_TARGET_SPACING_KM = 2.0  # מרווח יעד בין נקודות-הערכה עוקבות לאורך המסלול (בטווח המכ"ם בלבד)
+_ROUTE_EVAL_MAX_POINTS = 100  # תקרת מספר נקודות-הערכה, גם אם המסלול צפוף יותר
+_ROUTE_EVAL_MAX_TOTAL_POINTS = 4000  # תקרת נקודות-גובה כוללת (כל הקרניים ביחד) — כמו _RADIAL_MAX_TOTAL_POINTS
+_ROUTE_EVAL_OUT_OF_RANGE_MARGIN = 1.1  # נקודה מעבר לזה * range_km מהמשקיף מסומנת out_of_range בלי שום בדיקת גובה/רדאר
+_ROUTE_EVAL_STEP_M = 5000.0  # מרווח דגימת-גובה קבוע לאורך כל קרן משקיף->נקודה, עקבי עם /los (לא budget/spacing כמו הסריקה)
+_FT_TO_M = 0.3048  # המרת רגל למטר — גובה FR24 מגיע ב-ft (_KT_TO_MS הקיים כבר משמש להמרת מהירות)
+
+
 # job ברקע + polling + ביטול — אותו דפוס בדיוק כמו רדיוס-ראייה רדיאלי (_radial_jobs למעלה),
 # אבל ב-dict נפרד לגמרי, כדי ששני סוגי החישובים יוכלו לרוץ בו-זמנית בלי להתנגש
 _radar_jobs = {}  # job_id -> dict מצב (status/batches_done/batches_total/result/error/cancelled/created)
@@ -1356,6 +1377,239 @@ def radar_doppler_profile():
         'first_block_km': round(first_block_m / 1000, 2) if first_block_m is not None else None,
         'radar_dist_km': round(radar_dist_m / 1000, 3), 'blocked': blocked, 'doppler_ok': doppler_ok,
     })
+
+
+# ── הערכת מסלול טיסה אמיתי (FR24) מול תצורת מכ"ם-דופלר נתונה ──
+# בשונה מ-_radar_worker (סורק מגזר תיאורטי עם מטרה סינתטית אחידה — מהירות/כיוון גלובליים,
+# בלי גובה אמיתי), כאן לכל נקודת-מסלול יש קרן נפרדת מהמשקיף (בסגנון /los — יעד יחיד בקצה
+# הרחוק, לא בסגנון סריקת-אזימוט-קבוע), עם המהירות/כיוון/גובה **האמיתיים** שלה. job נפרד
+# משתמש חוזר ב-_radar_jobs/_radar_jobs_lock הקיימים (job_id הוא UUID ייחודי, אין קונפליקט
+# עם _radar_worker) — כך ש-/radar_doppler/status ו-/radar_doppler/cancel הקיימים ממשיכים
+# לעבוד בלי שום שינוי, בלי צורך ב-endpoints נוספים.
+def _radar_route_eval_worker(job_id, obs_lat, obs_lon, p, trail):
+    """רץ ב-thread נפרד (daemon). p: dict מ-_parse_radar_common_params (מתעלם מ-target_speed_kt/
+    target_heading_deg — לא רלוונטיים כאן, לכל נקודת-מסלול יש מהירות/כיוון משלה). trail: רשימת
+    dict מקורית מה-JS, כל אחד {'lat','lng','alt' (רגל), 'spd' (קשר), 'hd' (מעלות, אופציונלי)}."""
+    try:
+        # שלב 1: גובה המשקיף/אנטנה — זהה ל-_radar_worker
+        obs_elevs, err = _fetch_elevations([{'lat': obs_lat, 'lon': obs_lon}])
+        if err or obs_elevs is None or obs_elevs[0] is None:
+            with _radar_jobs_lock:
+                _radar_jobs[job_id]['status'] = 'error'
+                _radar_jobs[job_id]['error'] = (err or {}).get('error', 'לא ניתן לשלוף את גובה המשקיף')
+            return
+        observer_elev = obs_elevs[0]
+        h_obs = observer_elev + p['h_antenna']
+
+        # שלב 2: פיזיקה שלא תלויה בנקודה ספציפית — זהה ל-_radar_worker/radar_doppler_profile
+        wavelength_m = 299792458.0 / (p['freq_mhz'] * 1e6)
+        radar_clean_range_m = _radar_max_range_m(p['power_kw'], p['gain_dbi'], p['freq_mhz'], p['rcs_m2'], p['sensitivity_dbm'])
+        unambig_range_m = _max_unambiguous_range_m(p['prf_hz'])
+        radar_ceiling_m = min(radar_clean_range_m, unambig_range_m)
+        mdv_ms = p['mdv_kt'] * _KT_TO_MS
+        reflectivity = _RADAR_REFLECTIVITY.get(p['reflectivity_key'], _RADAR_REFLECTIVITY[_RADAR_REFLECTIVITY_DEFAULT])
+        margin_slope = math.tan(math.radians(p['ridge_margin_deg']))
+        # הערה: vertical_center/width_deg לא נאכפים כאן בכוונה — הם מגדירים "אלומת סריקה" תלוית-זווית
+        # מהמשקיף לצורך סריקת-מגזר, אבל כאן כל נקודת-מסלול כבר נבדקת כ"יעד יחיד" בסגנון /los, לפי
+        # מיקומה/גובהה האמיתיים — לא לפי זווית עילוי גורפת. הגבלת גובה אמיתית תישאר להרחבה עתידית.
+
+        # שלב 3: סינון-מוקדם (out_of_range) + resample לפי מרחק לאורך המסלול (בטווח בלבד)
+        range_m = p['range_km'] * 1000.0
+        out_margin_m = range_m * _ROUTE_EVAL_OUT_OF_RANGE_MARGIN
+        annotated = []  # {'tp','dist_m','orig_idx'} לכל נקודות המסלול הגולמיות, לפי סדר כרונולוגי
+        for idx, tp in enumerate(trail):
+            d = _haversine_m(obs_lat, obs_lon, tp['lat'], tp['lng'])
+            annotated.append({'tp': tp, 'dist_m': d, 'orig_idx': idx})
+
+        out_of_range = [a for a in annotated if a['dist_m'] > out_margin_m]  # לא נבדקים כלל — המרחק בלבד כבר פוסל
+        in_range = [a for a in annotated if a['dist_m'] <= out_margin_m]
+
+        # אורך המקטע-בטווח (סכום מרחקים בין נקודות עוקבות — קירוב טוב מספיק, לא קו ישר)
+        total_track_m = sum(
+            _haversine_m(in_range[i]['tp']['lat'], in_range[i]['tp']['lng'],
+                         in_range[i + 1]['tp']['lat'], in_range[i + 1]['tp']['lng'])
+            for i in range(len(in_range) - 1)
+        ) if len(in_range) > 1 else 0.0
+        # מרווח בפועל — לא פחות מהיעד, אך גדל אוטומטית אם המסלול ארוך מדי לתקרת _ROUTE_EVAL_MAX_POINTS
+        spacing_m = max(_ROUTE_EVAL_TARGET_SPACING_KM * 1000.0,
+                         total_track_m / max(1, _ROUTE_EVAL_MAX_POINTS - 1))
+
+        eval_points = []  # resample חמדני: בוחר נקודה כל אימת שהתרחקנו spacing_m מהנקודה שנבחרה קודם
+        last = None
+        for a in in_range:
+            if last is None or _haversine_m(last['tp']['lat'], last['tp']['lng'],
+                                             a['tp']['lat'], a['tp']['lng']) >= spacing_m:
+                eval_points.append(a)
+                last = a
+        if in_range and (not eval_points or eval_points[-1] is not in_range[-1]):
+            eval_points.append(in_range[-1])  # תמיד כולל את הנקודה האחרונה בטווח, גם אם קרובה לקודמתה
+
+        # שלב 4: בניית קרן דגימת-גובה לכל נקודת-הערכה (משקיף->נקודה, בסגנון /los — _interpolate_gc)
+        rays_meta = []  # {'a','n_samples','ray_points'} — ray_points כוללים dist_m יחסי (frac*dist)
+        for a in eval_points:
+            tp, dist_m = a['tp'], a['dist_m']
+            n_samples = max(2, min(100, int(dist_m / _ROUTE_EVAL_STEP_M) + 1))  # עקבי עם /los (step_m=5000)
+            ray_points = []
+            for j in range(n_samples):
+                frac = j / (n_samples - 1) if n_samples > 1 else 0.0
+                plat, plon = _interpolate_gc(obs_lat, obs_lon, tp['lat'], tp['lng'], frac)
+                ray_points.append({'lat': round(plat, 6), 'lon': round(plon, 6), 'dist_m': frac * dist_m})
+            rays_meta.append({'a': a, 'n_samples': n_samples, 'ray_points': ray_points})
+
+        # דילול אחיד אם החישוב הכולל חורג מהתקציב — מצמצם מספר נקודות-הערכה, לא צפיפות-קרן בודדת
+        total_needed = sum(r['n_samples'] for r in rays_meta)
+        if total_needed > _ROUTE_EVAL_MAX_TOTAL_POINTS and len(rays_meta) > 2:
+            keep_n = max(2, int(len(rays_meta) * _ROUTE_EVAL_MAX_TOTAL_POINTS / total_needed))
+            idxs = sorted(set(round(i * (len(rays_meta) - 1) / max(1, keep_n - 1)) for i in range(keep_n)))
+            rays_meta = [rays_meta[i] for i in idxs]
+
+        # שלב 5: ריכוז כל נקודות-הדגימה מכל הקרניים לרשימה שטוחה אחת, batching/pause/cancel — כמו _radar_worker
+        all_points = []
+        ray_offsets = []  # (start_idx, n_samples) לכל קרן, כדי לפרוס בחזרה אחרי השליפה
+        for r in rays_meta:
+            ray_offsets.append((len(all_points), r['n_samples']))
+            all_points.extend(r['ray_points'])
+        total_batches = (len(all_points) + _RADIAL_BATCH_SIZE - 1) // _RADIAL_BATCH_SIZE if all_points else 0
+        with _radar_jobs_lock:
+            _radar_jobs[job_id]['batches_total'] = total_batches
+        elevations = [None] * len(all_points)
+        for batch_idx in range(total_batches):
+            with _radar_jobs_lock:
+                if _radar_jobs[job_id]['cancelled']:
+                    _radar_jobs[job_id]['status'] = 'cancelled'
+                    return
+            if batch_idx > 0:
+                time.sleep(_RADIAL_BATCH_PAUSE_SEC)
+            batch = all_points[batch_idx * _RADIAL_BATCH_SIZE:(batch_idx + 1) * _RADIAL_BATCH_SIZE]
+            batch_elevs, err = _fetch_elevations(batch)
+            if err and err.get('rate_limited'):
+                with _radar_jobs_lock:
+                    _radar_jobs[job_id]['status'] = 'error'
+                    _radar_jobs[job_id]['error'] = err.get('error')
+                return
+            if batch_elevs is not None:
+                for k, elev in enumerate(batch_elevs):
+                    elevations[batch_idx * _RADIAL_BATCH_SIZE + k] = elev
+            with _radar_jobs_lock:
+                _radar_jobs[job_id]['batches_done'] = batch_idx + 1
+
+        # שלב 6: הערכה פר-נקודה — ratchet במצב יעד-יחיד (h_offset רק בנקודה האחרונה, כמו /los) +
+        # טווח מכ"ם/ריבוד לפי הגובה האמיתי + דופלר לפי המהירות/כיוון האמיתיים
+        prev_tp = None  # הנקודה הקודמת במסלול-ההערכה (resampled) — לשימוש כ-fallback לכיוון חסר
+        counts = {'detected': 0, 'doppler_blind': 0, 'blocked': 0, 'out_of_range': 0}
+        eval_results = []
+        for (start_idx, n), r in zip(ray_offsets, rays_meta):
+            a = r['a']
+            tp, dist_m = a['tp'], a['dist_m']
+            ray_elevs = elevations[start_idx:start_idx + n]
+            if ray_elevs[-1] is None:  # אין גובה בנקודת המטוס עצמה — אי אפשר לחשב h_offset נכון, לא ממשיכים
+                eval_results.append({'lat': tp['lat'], 'lng': tp['lng'], 'orig_idx': a['orig_idx'],
+                                      'dist_km': round(dist_m / 1000, 2), 'status': 'blocked', 'reason': 'no_elevation_data'})
+                counts['blocked'] += 1
+                prev_tp = tp
+                continue
+            surviving = [(pt, e) for pt, e in zip(r['ray_points'], ray_elevs) if e is not None]  # מסנן נקודות-ביניים חסרות-גובה בלבד
+            dists = [pt['dist_m'] for pt, _ in surviving]
+            elevs_only = [e for _, e in surviving]
+            alt_m = (tp.get('alt') or 0) * _FT_TO_M  # גובה MSL אמיתי של המטוס — רגל -> מטר
+            target_terrain_elev = elevs_only[-1]  # גובה קרקע בנקודת המטוס עצמה (אושר לא-None למעלה)
+            h_offsets = [0.0] * (len(surviving) - 1) + [alt_m - target_terrain_elev]  # יעד יחיד בקצה — בדיוק כמו /los
+            ratchet = _horizon_ratchet(dists, elevs_only, h_obs, h_offsets, margin_slope)
+            visible = ratchet[-1]['visible']  # רק נקודת המטוס עצמה קובעת — לא מנרטש כל ביניים בנפרד כמו בסריקה
+
+            bearing_to_point = _bearing_deg(obs_lat, obs_lon, tp['lat'], tp['lng'])
+            heading_deg = tp.get('hd')
+            if heading_deg is None:  # FR24 לא סיפק כיוון לנקודה הזו — fallback: כיוון-תנועה מהנקודה הקודמת (resampled)
+                heading_deg = _bearing_deg(prev_tp['lat'], prev_tp['lng'], tp['lat'], tp['lng']) if prev_tp else None
+            if heading_deg is None:
+                doppler_ok = True  # אין שום מידע לחשב ממנו כיוון — לא "מענישים" את הנקודה על חוסר-נתון
+            else:
+                speed_ms = (tp.get('spd') or 0) * _KT_TO_MS
+                radial_speed_ms = abs(speed_ms * math.cos(math.radians(heading_deg - bearing_to_point)))
+                doppler_ok = _doppler_detectable(radial_speed_ms, mdv_ms, wavelength_m, p['prf_hz'])
+            ray_scan_loss = (_scan_loss_factor(bearing_to_point, p['boresight_deg'], p['max_scan_deg'])
+                              if p['antenna_type'] == 'phased_array' else 1.0)
+
+            if p['lobing_enabled']:
+                elev_angle_deg = math.degrees(math.atan2(alt_m - h_obs, dist_m)) if dist_m > 0 else 90.0  # זווית עילוי לגובה האמיתי, לא לגובה-קרקע
+                ceiling = radar_ceiling_m * _lobing_factor(elev_angle_deg, p['h_antenna'], wavelength_m, reflectivity)
+            else:
+                ceiling = radar_ceiling_m
+            ceiling *= ray_scan_loss
+
+            if not visible:
+                status, reason = 'blocked', 'terrain'
+            elif dist_m > ceiling:
+                status, reason = 'blocked', 'radar_range'
+            elif not doppler_ok:
+                status, reason = 'doppler_blind', 'doppler'
+            else:
+                status, reason = 'detected', 'ok'
+            counts[status] += 1
+            eval_results.append({
+                'lat': tp['lat'], 'lng': tp['lng'], 'orig_idx': a['orig_idx'],
+                'alt_ft': tp.get('alt'), 'spd_kt': tp.get('spd'),
+                'dist_km': round(dist_m / 1000, 2), 'status': status, 'reason': reason,
+            })
+            prev_tp = tp
+
+        for a in out_of_range:  # נוספים בסוף — ימוינו יחד עם eval_results לפי orig_idx מיד אחר-כך
+            tp = a['tp']
+            eval_results.append({'lat': tp['lat'], 'lng': tp['lng'], 'orig_idx': a['orig_idx'],
+                                  'alt_ft': tp.get('alt'), 'spd_kt': tp.get('spd'),
+                                  'dist_km': round(a['dist_m'] / 1000, 2), 'status': 'out_of_range', 'reason': 'out_of_range'})
+            counts['out_of_range'] += 1
+
+        eval_results.sort(key=lambda x: x['orig_idx'])  # משחזר סדר כרונולוגי מקורי — out_of_range ו-eval_points היו במיון נפרד עד כה
+
+        result = {
+            'observer_lat': obs_lat, 'observer_lon': obs_lon, 'observer_elev': observer_elev,
+            'observer_h': round(h_obs, 1), 'range_km': p['range_km'],
+            'points': eval_results, 'counts': counts, 'points_evaluated': len(eval_points),
+            'points_total': len(trail),
+        }
+        with _radar_jobs_lock:
+            _radar_jobs[job_id]['status'] = 'done'
+            _radar_jobs[job_id]['result'] = result
+    except Exception as e:  # רשת ביטחון — כשל בלתי-צפוי לא ישאיר את ה-job תקוע ב-'running' לנצח
+        logging.error(f"שגיאה בהערכת מסלול טיסה מול מכ\"ם דופלר (job {job_id}): {e}")
+        with _radar_jobs_lock:
+            _radar_jobs[job_id]['status'] = 'error'
+            _radar_jobs[job_id]['error'] = str(e)
+
+
+@app.route("/radar_doppler/evaluate_route/start", methods=["POST"])
+def start_radar_route_eval():
+    """מתחיל job חדש של הערכת מסלול טיסה מול תצורת מכ"ם-דופלר — אותו דפוס job+polling
+    בדיוק כמו /radar_doppler/start, אבל עם JSON body (לא query string) כי ה-payload כולל
+    מסלול שלם (עד 400 נקודות) — לא מתאים ל-URL. משתמש חוזר ב-/radar_doppler/status ו-
+    /radar_doppler/cancel הקיימים (אותו _radar_jobs, לפי job_id) — אין endpoints חדשים לזה."""
+    body = request.get_json(silent=True) or {}
+    try:
+        lat = float(body.get('lat'))
+        lon = float(body.get('lon'))
+    except (TypeError, ValueError):
+        return jsonify({"error": "פרמטרים חסרים"}), 400
+    trail = body.get('trail')
+    if not isinstance(trail, list) or not trail:
+        return jsonify({"error": "מסלול טיסה חסר או ריק"}), 400
+
+    p = _parse_radar_common_params(body)  # כל 19 הפרמטרים המשותפים — target_speed_kt/heading לא ייקראו כאן בכלל
+
+    job_id = str(uuid.uuid4())
+    with _radar_jobs_lock:
+        _cleanup_old_radar_jobs()  # ניקוי jobs ישנים — אותו dict/lock משותף עם _radar_worker
+        _radar_jobs[job_id] = {
+            'status': 'running', 'batches_done': 0, 'batches_total': None,
+            'result': None, 'error': None, 'cancelled': False, 'created': time.time(),
+        }
+    thread = threading.Thread(
+        target=_radar_route_eval_worker,
+        args=(job_id, lat, lon, p, trail),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify({'job_id': job_id})
 
 
 # ── "עמדות שמורות" — מיקום+פרמטרים ניתנים לשמירה תחת שם, לכל אחד משלושת כלי התצפית בנפרד ──

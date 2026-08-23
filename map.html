@@ -115,6 +115,8 @@
         var allMarkers = [];          // מערך כל הסמנים — מאפשר ניקוי מרוכז מ-Python
         var flightPolyline = null;    // קו מסלול הטיסה — null כשאין טיסה מוצגת
         var flightMarker   = null;    // סמן מטוס במיקום הנוכחי
+        var _lastFlightRouteData = null;  // routeData המלא (כולל trail עם alt/spd/hd) של הטיסה האחרונה שנטענה — לשימוש בהערכת מסלול מול מכ"ם-דופלר
+        var _routeEvalLayers = [];    // קטעי הפוליליין הצבעוניים של הערכת המסלול האחרונה (לא flightPolyline הרגיל)
         var elevationLayer  = null;    // שכבת גבהים — null כשכבויה
         var elevationActive = false;  // האם שכבת הגבהים פעילה
         var elevationPoints = [];     // נקודות גובה {lat, lng, elevation} לפופאפ בלחיצה
@@ -389,6 +391,7 @@
         var radarSpokes    = [];    // קווי "חישור" תלת-צבעוניים (ירוק/כתום/אדום) — אחד-שניים לכל כיוון
         var radarJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
         var radarPollTimer = null;  // מזהה ה-setInterval של ה-polling
+        var _radarJobKind  = null;  // 'sweep' (ברירת מחדל, /radar_doppler/start) או 'route_eval' — קובע מה _pollRadarDopplerStatus מצייר בסיום
         var radarInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות/סיכום)
         var _radarProfilePanelEl = null;  // פאנל חתך-הצד לקרן בודדת בלחיצה — נפרד מ-losPanelEl (לא שייך סמנטית ל-losSessions)
         var _radarBtnEl        = null; // הפניה לכפתור 🎯 לצורך שינוי צבעו
@@ -857,6 +860,7 @@
 
         function drawFlightRoute(routeData) {
             clearFlightRoute();
+            _lastFlightRouteData = routeData;  // נשמר לשימוש מאוחר יותר בהערכת מסלול מול מכ"ם-דופלר (כולל alt/spd/hd לכל נקודה)
 
             var trail = routeData.trail;
 
@@ -950,6 +954,8 @@
             // ניקוי מסלול טיסה קיים — polyline וסמן
             if (flightPolyline) { flightPolyline.remove(); flightPolyline = null; }
             if (flightMarker)   { flightMarker.remove();   flightMarker   = null; }
+            _lastFlightRouteData = null;  // אין יותר מסלול לטעון — מונע הערכה מול מסלול שכבר לא מוצג
+            _clearRouteEvaluation();  // מנקה גם קטעי-הערכה צבעוניים, אם היו
         }
 
         // ── שכבת "אזורי פעילות טיסה (NOTAM)" — 7 קטגוריות, בהשראת מסך השכבות של DronesIL ──
@@ -2965,16 +2971,28 @@
                 radarPollTimer = null;
                 radarLoading = false;
                 if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+                var jobKind = _radarJobKind;  // נשמר לפני האיפוס — קובע איזו תוצאה זו ואיך לצייר אותה
+                _radarJobKind = null;
                 if (data.status === 'done') {
                     document.title = '__radar_doppler_loaded__';
-                    _drawRadarDopplerResult(data.result);
-                    if (radarInfoEl) radarInfoEl.textContent =
-                        data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
-                        data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר';
+                    if (jobKind === 'route_eval') {
+                        _drawRouteEvaluation(data.result);
+                        if (radarInfoEl) {
+                            var c = data.result.counts;
+                            radarInfoEl.textContent = c.detected + ' מזוהות, ' + c.doppler_blind + ' עיוורות-דופלר, ' +
+                                c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ')';
+                        }
+                    } else {
+                        _drawRadarDopplerResult(data.result);
+                        if (radarInfoEl) radarInfoEl.textContent =
+                            data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                            data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר';
+                    }
                 } else if (data.status === 'error') {
                     document.title = '__radar_doppler_error__';
                     if (radarInfoEl) radarInfoEl.textContent = '';
-                    alert('שגיאה בחישוב תצפית מכ"ם דופלר: ' + (data.error || 'לא ידועה'));
+                    alert('שגיאה ב' + (jobKind === 'route_eval' ? 'הערכת מסלול טיסה' : 'חישוב תצפית מכ"ם דופלר') +
+                          ': ' + (data.error || 'לא ידועה'));
                 } else if (data.status === 'cancelled') {
                     document.title = '__radar_doppler_cancelled__';
                     if (radarInfoEl) radarInfoEl.textContent = '';
@@ -2984,6 +3002,107 @@
             .catch(function() {
                 // כשל רשת בבדיקת סטטוס בודדת — לא עוצר את ה-polling, ה-tick הבא ינסה שוב
             });
+        }
+
+        function _runRouteEvaluation() {
+            // מפעיל הערכת מסלול טיסה מלא (FR24) מול תצורת המכ"ם הנוכחית — דורש גם משקיף מוצב
+            // וגם מסלול טיסה טעון; משתמש באותם radarLoading/radarJobId/radarPollTimer של הסריקה
+            // הרגילה (שני סוגי החישוב לא יכולים לרוץ בו-זמנית) — _radarJobKind מבדיל ביניהם בסיום.
+            if (!radarObs) { alert('יש להציב תחילה משקיף מכ"ם על המפה'); return; }
+            if (!_lastFlightRouteData || !_lastFlightRouteData.trail || !_lastFlightRouteData.trail.length) {
+                alert('יש לחפש תחילה מסלול טיסה (FR24)'); return;
+            }
+            if (radarLoading) return;  // חישוב אחר (סריקה או הערכת מסלול) כבר רץ
+            function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }
+            var body = {
+                lat: radarObs.lat, lon: radarObs.lng,
+                range_km: num(_radarRangeInput, 50), min_range_km: num(_radarMinRangeInput, 1),
+                h_antenna: num(_radarHAntInput, 15), ridge_margin_deg: num(_radarMarginInput, 0),
+                vertical_center_deg: num(_radarVCenterInput, 0), vertical_width_deg: num(_radarVWidthInput, 10),
+                power_kw: num(_radarPowerInput, 100), gain_dbi: num(_radarGainInput, 30),
+                freq_mhz: (_radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000),
+                sensitivity_dbm: num(_radarSensInput, -100), rcs_m2: num(_radarRcsInput, 2),
+                prf_hz: num(_radarPrfInput, 1000), mdv_kt: num(_radarMdvInput, 20),
+                lobing_enabled: !!(_radarLobingCheck && _radarLobingCheck.checked),
+                reflectivity: (_radarReflSelect ? _radarReflSelect.value : 'land'),
+                antenna_type: (_radarAntennaSelect ? _radarAntennaSelect.value : 'generic'),
+                boresight_deg: num(_radarBoresightInput, 0), max_scan_deg: num(_radarMaxScanInput, 60),
+                // מסנן נקודות חסרות-קואורדינטות — אותו סינון בדיוק כמו drawFlightRoute עבור path
+                trail: _lastFlightRouteData.trail.filter(function(p) { return p.lat != null && p.lng != null; }),
+            };
+            radarLoading = true;
+            _radarJobKind = 'route_eval';
+            document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג, אותו איתות כמו סריקה רגילה
+            if (radarInfoEl) radarInfoEl.textContent = 'מעריך מסלול טיסה מול המכ"ם…';
+            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
+            fetch('http://localhost:5002/radar_doppler/evaluate_route/start', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+            })
+            .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function(data) {
+                if (data.error) throw new Error(data.error);
+                radarJobId = data.job_id;
+                radarPollTimer = setInterval(_pollRadarDopplerStatus, 1000);  // אותו polling בדיוק כמו סריקה רגילה
+            })
+            .catch(function(err) {
+                radarLoading = false;
+                _radarJobKind = null;
+                document.title = '__radar_doppler_error__';
+                if (radarInfoEl) radarInfoEl.textContent = '';
+                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+                alert('שגיאה בהערכת מסלול טיסה: ' + err.message);
+            });
+        }
+
+        function _drawRouteEvaluation(result) {
+            // מצייר את המסלול כסדרת קטעים צבעוניים (במקום flightPolyline החד-צבעי הרגיל) —
+            // צבע כל קטע נקבע לפי סטטוס הנקודה בקצהו (לא ממוצע/אינטרפולציה בין שתי הנקודות)
+            _clearRouteEvaluation();  // מנקה הערכה קודמת, אם הייתה
+            var pts = result.points;
+            if (!pts || pts.length === 0) {
+                alert('לא התקבלו נתוני הערכה עבור מסלול הטיסה'); return;
+            }
+            var statusColor = {  // אותם צבעים בדיוק כמו הסריקה הרגילה (ירוק/כתום/אדום), ועוד אפור למחוץ-לטווח
+                detected: '#00cc44', doppler_blind: '#ff9500', blocked: '#ff3300', out_of_range: '#6c7086'
+            };
+            var reasonText = {
+                ok: 'מזוהה', terrain: 'חסום ע"י שטח', radar_range: 'מעבר לטווח המכ"ם (משוואת מכ"ם/ריבוד)',
+                doppler: 'עיוור לדופלר', out_of_range: 'מחוץ לטווח המכ"ם כלל', no_elevation_data: 'נתוני גובה חסרים לנקודה זו'
+            };
+            function popupFor(p) {
+                return '<div style="direction:rtl;font-family:Arial;font-size:12px;min-width:150px;">' +
+                    '<div style="font-weight:bold;margin-bottom:3px;">' + (reasonText[p.reason] || p.status) + '</div>' +
+                    '<div>מרחק מהמשקיף: ' + p.dist_km + ' ק"מ</div>' +
+                    (p.alt_ft != null ? '<div>גובה: ' + Math.round(p.alt_ft) + ' ft</div>' : '') +
+                    (p.spd_kt != null ? '<div>מהירות: ' + Math.round(p.spd_kt) + ' kt</div>' : '') +
+                    '</div>';
+            }
+            if (pts.length === 1) {
+                // נקודה בודדת בלבד (למשל טיסה חיה בלי היסטוריית מסלול עדיין) — אין מה לצייר כקו,
+                // מציג סמן עגול צבעוני יחיד במקום להיכשל בשקט כמו קודם (pts.length<2 היה פשוט מדלג על הכל)
+                var p0 = pts[0];
+                var color0 = statusColor[p0.status] || '#6c7086';
+                var mk = L.circleMarker([p0.lat, p0.lng], {radius: 9, color: '#fff', weight: 2, fillColor: color0, fillOpacity: 0.95}).addTo(map);
+                mk.bindPopup(popupFor(p0)).openPopup();  // פתיחה מיידית — עם קטע יחיד המשתמש עלול לא לשים לב אחרת
+                _routeEvalLayers.push(mk);
+            } else {
+                for (var i = 1; i < pts.length; i++) {
+                    var p0 = pts[i - 1], p1 = pts[i];
+                    var color = statusColor[p1.status] || '#6c7086';
+                    var seg = L.polyline([[p0.lat, p0.lng], [p1.lat, p1.lng]], {color: color, weight: 4, opacity: 0.9}).addTo(map);
+                    seg.bindPopup(popupFor(p1));
+                    _routeEvalLayers.push(seg);
+                }
+            }
+            if (flightPolyline && map.hasLayer(flightPolyline)) { map.removeLayer(flightPolyline); }  // מסתיר את הקו הרגיל — לא מוחק אותו, רק חבוי מאחורי ההערכה
+        }
+
+        function _clearRouteEvaluation() {
+            // מסיר את קטעי ההערכה הצבעוניים ומחזיר את flightPolyline הרגיל לתצוגה, אם קיים —
+            // נקרא גם מ-clearFlightRoute (מסלול חדש/ניקוי) וגם לפני ציור הערכה חדשה
+            _routeEvalLayers.forEach(function(l) { map.removeLayer(l); });
+            _routeEvalLayers = [];
+            if (flightPolyline && !map.hasLayer(flightPolyline)) { flightPolyline.addTo(map); }
         }
 
         var _radarLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
@@ -3146,7 +3265,11 @@
                 _radarPanelBodyEl.style.display = radarActive ? 'flex' : 'none';
             }
             if (!radarActive) {
-                clearRadarDopplerResult();  // כיבוי הכלי מנקה גם משקיף/תצוגה מקדימה/תוצאה — לא נשאר "יתום" על המפה
+                // כיבוי/צמצום הפאנל בלבד — לא מוחק את התוצאה מהמפה (משקיף/פוליגון/חישורים/חתך-צד פתוח).
+                // רק עוצר job שעדיין רץ ברקע, אם יש (בדיוק כמו כפתור "בטל"). המשתמש שם דגש על כך:
+                // סגירת הפאנל לא אמורה "לפגוע בנתונים" — תוצאה חדשה נמחקת רק בהצבת משקיף חדש בפועל
+                // (_placeRadarObserver) או באיפוס מפה מלא (resetMapState), לא בכיבוי הפאנל עצמו.
+                _cancelRadarDoppler();
             }
         }
 
@@ -3299,6 +3422,12 @@
                 cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
                 L.DomEvent.on(cancelBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _cancelRadarDoppler(); });
                 _radarCancelBtnEl = cancelBtn;
+
+                var routeEvalBtn = L.DomUtil.create('button', '', panelBody);
+                routeEvalBtn.textContent = 'הערך מסלול טיסה מול המכ"ם';
+                routeEvalBtn.title = 'דורש משקיף מוצב וגם מסלול טיסה טעון (חיפוש FR24) — מעריך כל נקודה לאורך המסלול לפי הנתונים האמיתיים שלה';
+                routeEvalBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#cba6f7;cursor:pointer;margin-top:3px;';
+                L.DomEvent.on(routeEvalBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _runRouteEvaluation(); });
 
                 var info = L.DomUtil.create('div', '', panelBody);
                 info.style.cssText = 'font-size:10px;color:#555;text-align:center;direction:rtl;min-height:12px;';

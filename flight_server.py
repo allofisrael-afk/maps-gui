@@ -42,20 +42,24 @@ def _normalize_flight_num(fn: str) -> str:
 def _normalize_trail_point(point):
     """
     מנרמל נקודת מסלול בודדת ממבנה FR24 הלא-עקבי (lat/Lat, lng/Lng/lon/Lon,
-    alt/Alt/altitude, spd/Spd/speed) למבנה אחיד {lat, lng, alt, spd}.
+    alt/Alt/altitude, spd/Spd/speed, hd/Hd/heading) למבנה אחיד {lat, lng, alt, spd, hd}.
     מחזיר None אם אין קואורדינטות תקינות (הנקודה תידלג).
     מקור אמת יחיד — היו כאן שני עותקים כמעט-זהים (בנתיב הראשי ובנתיב search())
     שהתבררו כלא-זהים בפועל: אחד מהם לא בדק את המפתחות "altitude"/"speed".
+    hd (כיוון) נשמר כ-None אם חסר (לא 0) — 0 הוא כיוון-צפון תקף, אסור לבלבל בין "אין נתון"
+    ל"טס צפונה". נדרש ע"י הערכת מסלול טיסה מול מכ"ם-דופלר (ר' weather_server.py).
     """
     pt_lat = point.get("lat") if point.get("lat") is not None else point.get("Lat")
     pt_lng = point.get("lng") if point.get("lng") is not None else (point.get("Lng") or point.get("lon") or point.get("Lon"))
     if pt_lat is None or pt_lng is None:
         return None
+    hd = point.get("hd") if point.get("hd") is not None else (point.get("Hd") or point.get("heading"))
     return {
         "lat": pt_lat,
         "lng": pt_lng,
         "alt": point.get("alt") or point.get("Alt") or point.get("altitude") or 0,
         "spd": point.get("spd") or point.get("Spd") or point.get("speed") or 0,
+        "hd": hd,
     }
 
 app = create_app(__name__)  # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)

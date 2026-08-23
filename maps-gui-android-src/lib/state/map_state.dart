@@ -657,7 +657,11 @@ class MapState extends ChangeNotifier {
 
   void toggleRadarMode() {
     radarMode = !radarMode;
-    if (!radarMode) clearRadarDopplerResult();
+    // כיבוי/צמצום הפאנל בלבד — לא מוחק את התוצאה מהמפה (משקיף/פוליגון/חישורים/חתך-צד פתוח).
+    // רק עוצר job שעדיין רץ ברקע, אם יש. תוצאה חדשה נמחקת רק בהצבת משקיף חדש בפועל
+    // (setRadarObserver) או באיפוס מפה מלא — לא בכיבוי הפאנל עצמו. אותו תיקון בדיוק כמו
+    // ב-Desktop (toggleRadarDoppler ב-MAP.py, ר' MAPS-GUI_SRS.md FR-D-194).
+    if (!radarMode) cancelRadarDoppler();
     notifyListeners();
   }
 
