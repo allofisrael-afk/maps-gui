@@ -34,6 +34,19 @@ logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(a
 MAX_LOG_LINES = 500  # מגבלת שורות לוג למניעת האטה לאחר שעות ריצה
 
 
+def _load_app_version():
+    """ קורא את קובץ VERSION בשורש הפרויקט — מקור אמת יחיד למספר גרסה, משותף גם לאנדרואיד
+    (ר' lib/version.dart, מסונכרן ידנית לפי הוראה מפורשת "לסגור גרסה" — לא מתעדכן אוטומטית). """
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'VERSION'), 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return '0.0.0'  # קובץ חסר — לא אמור לקרות, אך לא חוסם עלייה של האפליקציה
+
+
+APP_VERSION = _load_app_version()  # למשל "1.0.0" — מוצג עם קידומת "V" ליד כותרת "שרתים"
+
+
 class LoggingWebEnginePage(QWebEnginePage):
     """ עמוד WebEngine שמתעד שגיאות JS ללוג עם קובץ ומספר שורה מדויקים (לאבחון שגיאות כמו getSize). """
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
@@ -1023,9 +1036,16 @@ class MapApp(QMainWindow):
         top_layout.setContentsMargins(8, 10, 8, 6)  # שוליים פנימיים לפאנל הצד
 
         # ── סעיף: שרתים ──
+        servers_header_row = QHBoxLayout()  # כותרת + תג גרסה קטן באותה שורה
         lbl_servers = QLabel("שרתים")  # כותרת קבוצת כפתורי השרתים
         lbl_servers.setObjectName("sectionLabel")  # שם לעיצוב QSS
-        top_layout.addWidget(lbl_servers)
+        servers_header_row.addWidget(lbl_servers)
+        lbl_version = QLabel(f"V{APP_VERSION}")  # תג גרסה — מקור: קובץ VERSION בשורש הפרויקט
+        lbl_version.setObjectName("versionLabel")  # שם לעיצוב QSS — עמום יותר מ-sectionLabel
+        lbl_version.setToolTip("גרסת האפליקציה (Desktop) — זהה לגרסה המוצגת באנדרואיד כשהבנייה מסונכרנת")
+        servers_header_row.addWidget(lbl_version)
+        servers_header_row.addStretch()  # דוחף את הכותרת+התג שמאלה, לא נמתחים לרוחב הפאנל
+        top_layout.addLayout(servers_header_row)
 
         # שורת כפתור שרתים + נורות סטטוס
         servers_row = QHBoxLayout()  # Layout אופקי לכפתור ולנורות בשורה אחת
@@ -1467,6 +1487,11 @@ class MapApp(QMainWindow):
                 font-weight: bold;
                 font-size: 11px;
                 padding: 2px 0px;
+            }
+            QLabel#versionLabel {
+                color: #585b70;
+                font-size: 9px;
+                padding: 2px 0px 2px 6px;
             }
             QFrame#separator { color: #313244; }
             QTextEdit {

@@ -13,6 +13,7 @@ import '../models/airport_ctr_zone.dart'; // מודל גבול CTR קבוע של
 import '../data/airport_ctr_zones.dart'; // נתוני גבולות ה-CTR הסטטיים, ממקור AIP רשמי
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../state/map_state.dart';
+import '../version.dart';
 import '../widgets/controls_panel.dart';
 
 class MapScreen extends StatefulWidget {
@@ -625,6 +626,23 @@ class _MapScreenState extends State<MapScreen> {
               right: 0,
               child: Center(child: _LoadingChip()),
             ),
+
+          // ── תג גרסה — פינה שמאלית-עליונה, מתחת ל-AppBar הצף (סימטרי לכפתורי Undo/Redo בפינה הימנית) ──
+          // מקור: lib/version.dart, מסונכרן ידנית מול VERSION בשורש הפרויקט (Desktop) — לא נקרא בזמן ריצה
+          // מקובץ חיצוני כי אין גישה לעץ המקור אחרי אריזה ל-APK.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 56,
+            left: 12,
+            child: Material(
+              color: cs.surfaceContainerHigh.withAlpha(200),
+              borderRadius: BorderRadius.circular(10),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text('V$kAppVersion', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              ),
+            ),
+          ),
 
           // ── כפתורי Undo/Redo — פינה ימנית-עליונה, מתחת ל-AppBar הצף (ר' MapState.performUndo/performRedo) ──
           Positioned(
