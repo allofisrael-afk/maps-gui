@@ -9,6 +9,8 @@ import '../models/city_result.dart'; // מודל תוצאת חיפוש עיר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
 import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
+import '../models/flight_trail_point.dart'; // נקודת מסלול טיסה עם טלמטריה — להערכת מסלול מול מכ"ם-דופלר
+import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
 import '../data/icao_glossary.dart'; // תרגום גס לעברית לטקסט NOTAM
 import '../data/notam_categories.dart'; // סיווג NOTAM ל-7 קטגוריות
 
@@ -32,6 +34,24 @@ class _RatchetPoint {
   _RatchetPoint(this.distM, this.elevation, this.losH, this.visible);
   final double distM, elevation, losH;
   final bool visible;
+}
+
+/// נקודת-מסלול טיסה + מרחקה מהמשקיף + מיקומה המקורי במסלול — שימוש פנימי בלבד ב-fetchRouteEvaluation
+/// (סינון-מוקדם, resample, ומיון-מחדש כרונולוגי בסוף).
+class _AnnotatedTrailPoint {
+  _AnnotatedTrailPoint(this.tp, this.distM, this.origIdx);
+  final FlightTrailPoint tp;
+  final double distM;
+  final int origIdx;
+}
+
+/// קרן דגימת-גובה בודדת (משקיף->נקודת-מסלול), נבנתה ע"י _buildRayMeta — שימוש פנימי בלבד ב-fetchRouteEvaluation.
+class _RayMeta {
+  _RayMeta(this.a, this.nSamples, this.rayPoints, this.rayDistsM);
+  final _AnnotatedTrailPoint a;
+  final int nSamples;
+  final List<LatLng> rayPoints;
+  final List<double> rayDistsM;
 }
 
 class ApiService {
@@ -177,7 +197,11 @@ class ApiService {
     'Referer': 'https://www.flightradar24.com/',
   };
 
-  static Future<({List<LatLng> path, LatLng? current, String callsign, String info})> fetchFlightTrack(String input) async {
+  // trail/aircraftIcao נוספו (23-24/08/2026) — לצד path/current/callsign/info הקיימים, לא במקומם —
+  // לשימוש בהערכת מסלול טיסה מול מכ"ם-דופלר (ר' fetchRouteEvaluation), שדורשת גובה/מהירות/כיוון
+  // אמיתיים לכל נקודה וסוג כלי-הטיס (לאמידת RCS), לא רק את הקואורדינטות ש-path כבר סיפק.
+  static Future<({List<LatLng> path, LatLng? current, String callsign, String info,
+      List<FlightTrailPoint> trail, String? aircraftIcao})> fetchFlightTrack(String input) async {
     final callsign = input.trim().toUpperCase();
 
     // 1. Try local FlightServer (desktop, same WiFi)
@@ -200,7 +224,8 @@ class ApiService {
     return _fetchFR24(callsign);
   }
 
-  static Future<({List<LatLng> path, LatLng? current, String callsign, String info})> _fetchOpenSky(String callsign) async {
+  static Future<({List<LatLng> path, LatLng? current, String callsign, String info,
+      List<FlightTrailPoint> trail, String? aircraftIcao})> _fetchOpenSky(String callsign) async {
     // שליפת טיסות פעילות לפי callsign
     final statesUri = Uri.parse(
       'https://opensky-network.org/api/states/all?callsign=${Uri.encodeComponent(callsign)}',
@@ -210,9 +235,17 @@ class ApiService {
     if (states == null || states.isEmpty) throw Exception('טיסה "$callsign" לא נמצאה ב-OpenSky');
 
     // מציאת הטיסה המתאימה — callsign מגיע עם רווחים ב-OpenSky
+    // נמצא ותוקן (24/08/2026): OpenSky לא מסנן בפועל לפי פרמטר ה-callsign בבקשה (מאומת ישירות מול
+    // ה-API — מחזיר את *כל* הטיסות הפעילות בעולם, אלפים, בלי קשר לפרמטר) — כל הסינון קורה כאן,
+    // בצד הלקוח. תנאי ה-"callsign.contains(cs)" היה מסוכן כש-cs ריק/קצר-מדי (כלי-טיס רבים לא
+    // משדרים callsign בכלל — כ-2.4% מהרשומות בבדיקה חיה): "CHZ256".contains("") הוא true תמיד,
+    // כך שכלי-הטיס האקראי *הראשון* ברשימה בלי callsign נבחר בטעות במקום הטיסה המבוקשת בפועל —
+    // בדיוק התקלה שדווחה ("CHZ256 מדובאי לישראל הוצג בצרפת", אומת: entry עם callsign ריק נמצא
+    // באינדקס 99 ברשימה, לפני ההתאמה האמיתית באינדקס 5822). תוקן: מדלג לגמרי על callsign קצר-מדי.
     List? match;
     for (final state in states) {
       final cs = (state[1] as String?)?.trim().toUpperCase() ?? '';
+      if (cs.length < 3) continue; // אין callsign משודר (או קצר חשוד) — לעולם לא התאמה אמיתית
       if (cs == callsign || cs.contains(callsign) || callsign.contains(cs)) {
         match = state as List;
         break;
@@ -227,6 +260,7 @@ class ApiService {
 
     // שליפת מסלול לפי transponder ICAO24
     List<LatLng> trail = [];
+    List<FlightTrailPoint> fullTrail = [];  // גרסה עשירה (גובה/כיוון) — OpenSky לא מספק מהירות/סוג-מטוס פר-נקודה בכלל
     try {
       // time=0 מחזיר את הטיסה הנוכחית/אחרונה
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -240,7 +274,19 @@ class ApiService {
               .where((p) => p[1] != null && p[2] != null)
               .map((p) => LatLng((p[1] as num).toDouble(), (p[2] as num).toDouble()))
               .toList();
-          if (pts.length > trail.length) trail = pts;
+          if (pts.length > trail.length) {
+            trail = pts;
+            // פורמט תיעודי של OpenSky: [time, lat, lon, baro_altitude(מטר), true_track(מעלות), on_ground] —
+            // אין מהירות פר-נקודה בכלל (רק בוקטור-מצב הכללי, לא לאורך המסלול), נשאר null
+            fullTrail = path.where((p) => p[1] != null && p[2] != null).map((p) {
+              final altM = (p.length > 3 && p[3] != null) ? (p[3] as num).toDouble() : null;
+              final hd = (p.length > 4 && p[4] != null) ? (p[4] as num).toDouble() : null;
+              return FlightTrailPoint(
+                lat: (p[1] as num).toDouble(), lng: (p[2] as num).toDouble(),
+                altFt: altM != null ? altM / 0.3048 : null, hdDeg: hd,
+              );
+            }).toList();
+          }
         }
         if (trail.length >= 2) break;
       }
@@ -249,17 +295,25 @@ class ApiService {
     if (trail.isEmpty && current != null) trail = [current];
     if (trail.isEmpty) throw Exception('אין נתוני מסלול לטיסה $callsign מ-OpenSky');
 
-    return (path: trail, current: current ?? trail.last, callsign: callsign, info: '${trail.length} נקודות מסלול');
+    return (path: trail, current: current ?? trail.last, callsign: callsign, info: '${trail.length} נקודות מסלול',
+        trail: fullTrail, aircraftIcao: null);  // OpenSky לא חושף סוג כלי-טיס בכלל — RCS ייפול לברירת המחדל
   }
 
-  static ({List<LatLng> path, LatLng? current, String callsign, String info}) _parseFlightServerResponse(
+  static ({List<LatLng> path, LatLng? current, String callsign, String info,
+      List<FlightTrailPoint> trail, String? aircraftIcao}) _parseFlightServerResponse(
       String body, String callsign) {
     final d = json.decode(body) as Map<String, dynamic>;
     if (d.containsKey('error')) throw Exception(d['error']);
-    final trail = (d['trail'] as List? ?? [])
-        .where((p) => p['lat'] != null && (p['lng'] ?? p['lon']) != null)
+    final rawTrail = (d['trail'] as List? ?? [])
+        .where((p) => p['lat'] != null && (p['lng'] ?? p['lon']) != null);
+    final trail = rawTrail
         .map((p) => LatLng((p['lat'] as num).toDouble(), ((p['lng'] ?? p['lon']) as num).toDouble()))
         .toList();
+    // גרסה עשירה — flight_server.py (Desktop) כבר מנרמל alt(רגל)/spd(קשר)/hd(מעלות, עשוי להיות null) לכל נקודה
+    final fullTrail = rawTrail.map((p) => FlightTrailPoint(
+      lat: (p['lat'] as num).toDouble(), lng: ((p['lng'] ?? p['lon']) as num).toDouble(),
+      altFt: (p['alt'] as num?)?.toDouble(), spdKt: (p['spd'] as num?)?.toDouble(), hdDeg: (p['hd'] as num?)?.toDouble(),
+    )).toList();
     final lat = d['lat'] as num?;
     final lng = d['lng'] as num?;
     final current = (lat != null && lng != null) ? LatLng(lat.toDouble(), lng.toDouble()) : null;
@@ -267,12 +321,15 @@ class ApiService {
     final orig = d['origin_iata'] as String? ?? '';
     final dest = d['dest_iata'] as String? ?? '';
     final aircraft = d['aircraft'] as String? ?? '';
+    final aircraftIcao = d['aircraft_icao'] as String?;  // קוד ICAO קצר (או null) — לאמידת RCS אוטומטית
     final info = [if (orig.isNotEmpty && dest.isNotEmpty) '$orig → $dest', if (aircraft.isNotEmpty) aircraft].join(' · ');
     if (trail.isEmpty && current == null) throw Exception('אין נתוני מסלול לטיסה $callsign');
-    return (path: trail.isNotEmpty ? trail : [current!], current: current ?? trail.last, callsign: cs, info: info);
+    return (path: trail.isNotEmpty ? trail : [current!], current: current ?? trail.last, callsign: cs, info: info,
+        trail: fullTrail, aircraftIcao: aircraftIcao);
   }
 
-  static Future<({List<LatLng> path, LatLng? current, String callsign, String info})> _fetchFR24(String callsign) async {
+  static Future<({List<LatLng> path, LatLng? current, String callsign, String info,
+      List<FlightTrailPoint> trail, String? aircraftIcao})> _fetchFR24(String callsign) async {
     // Search for the flight
     final feedUri = Uri.parse(
       'https://data.flightradar24.com/zones/fcgi/feed.js'
@@ -303,25 +360,33 @@ class ApiService {
     if (detResp.statusCode != 200) {
       if (curLat != null && curLon != null) {
         final p = LatLng(curLat, curLon);
-        return (path: [p], current: p, callsign: callsign, info: '');
+        return (path: [p], current: p, callsign: callsign, info: '', trail: const <FlightTrailPoint>[], aircraftIcao: null);
       }
       throw Exception('FR24 clickhandler שגיאה');
     }
 
     final det = json.decode(detResp.body) as Map<String, dynamic>;
-    final trail = (det['trail'] as List? ?? [])
-        .where((p) => p['lat'] != null && p['lng'] != null)
+    final rawTrail = (det['trail'] as List? ?? [])
+        .where((p) => p['lat'] != null && p['lng'] != null);
+    final trail = rawTrail
         .map((p) => LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()))
         .toList();
+    // clickhandler מחזיר trail עם alt(רגל)/spd(קשר)/hd(מעלות) פר-נקודה — אותו פורמט בדיוק כמו flight_server.py (Desktop)
+    final fullTrail = rawTrail.map((p) => FlightTrailPoint(
+      lat: (p['lat'] as num).toDouble(), lng: (p['lng'] as num).toDouble(),
+      altFt: (p['alt'] as num?)?.toDouble(), spdKt: (p['spd'] as num?)?.toDouble(), hdDeg: (p['hd'] as num?)?.toDouble(),
+    )).toList();
 
     final orig = (det['airport'] as Map?)?['origin']?['code']?['iata'] as String? ?? '';
     final dest = (det['airport'] as Map?)?['destination']?['code']?['iata'] as String? ?? '';
     final aircraft = (det['aircraft'] as Map?)?['model']?['text'] as String? ?? '';
+    final aircraftIcao = (det['aircraft'] as Map?)?['model']?['code'] as String?;  // קוד ICAO קצר, למשל "B77W"
     final info = [if (orig.isNotEmpty && dest.isNotEmpty) '$orig → $dest', if (aircraft.isNotEmpty) aircraft].join(' · ');
     final current = (curLat != null && curLon != null) ? LatLng(curLat!, curLon!) : (trail.isNotEmpty ? trail.last : null);
 
     if (trail.isEmpty && current == null) throw Exception('אין נתוני מסלול');
-    return (path: trail.isNotEmpty ? trail : [current!], current: current, callsign: callsign, info: info);
+    return (path: trail.isNotEmpty ? trail : [current!], current: current, callsign: callsign, info: info,
+        trail: fullTrail, aircraftIcao: aircraftIcao);
   }
 
   // ── קו ראייה (LOS) — חישוב on-device ללא שרת מקומי ────────────────────────
@@ -1024,6 +1089,272 @@ class ApiService {
     final y  = A*cos(f1)*sin(l1) + B*cos(f2)*sin(l2);
     final z  = A*sin(f1)         + B*sin(f2);
     return [atan2(z, sqrt(x*x + y*y)) * 180 / pi, atan2(y, x) * 180 / pi]; // [lat, lon]
+  }
+
+  /// אזימוט (0=צפון, בכיוון השעון, מעלות) מנקודה 1 לנקודה 2 — נוסחת "initial bearing" כדורית
+  /// סטנדרטית, זהה בדיוק ל-_bearing_deg ב-weather_server.py (Desktop). חסרה עד כה בקובץ הזה —
+  /// יש רק Distance().offset (ההפך: כיוון+מרחק -> יעד), נדרשת כאן לחישוב אזימוט משקיף->נקודת-מסלול.
+  static double _bearingDeg(double lat1, double lon1, double lat2, double lon2) {
+    final phi1 = lat1 * pi / 180, phi2 = lat2 * pi / 180;
+    final dLam = (lon2 - lon1) * pi / 180;
+    final x = sin(dLam) * cos(phi2);
+    final y = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dLam);
+    return (atan2(x, y) * 180 / pi) % 360;
+  }
+
+  /// מיפוי גס (חינוכי בלבד, לא נתון הנדסי מדויק) מקידומת קוד ICAO של כלי-הטיס ל-RCS משוער, מ"ר —
+  /// זהה בדיוק ל-_rcsForAircraftType ב-MAP.py (Desktop, JS). FR24/OpenSky לא מספקים RCS ישירות
+  /// (זה לא שדה שמשודר ע"י מטוסים בכלל) — רק סוג כלי-הטיס, אז מסווגים גס לפי גודל פיזי כללי.
+  static double rcsForAircraftType(String? icaoCode) {
+    const dflt = 30.0; // ברירת מחדל לסוג לא-מזוהה — "מטוס נוסעים ממוצע" (צר-גוף)
+    if (icaoCode == null || icaoCode.isEmpty) return dflt;
+    final code = icaoCode.toUpperCase();
+    bool has(List<String> prefixes) => prefixes.any(code.startsWith);
+    if (has(['B74', 'A38'])) return 150.0; // ג'מבו/ענק (747, A380)
+    if (has(['B77', 'B78', 'A33', 'A34', 'A35', 'MD1', 'DC1'])) return 80.0; // רחב-גוף
+    if (has(['B73', 'B75', 'B76', 'A31', 'A32', 'MD8', 'MD9'])) return 30.0; // צר-גוף
+    if (has(['CRJ', 'E17', 'E19', 'E29', 'SU9', 'AT4', 'AT7', 'DH8', 'F70'])) return 8.0; // אזורי
+    if (has(['C1', 'C2', 'C5', 'PA', 'SR2', 'BE', 'DA4'])) return 1.5; // קל-פרטי
+    return dflt;
+  }
+
+  static const double _routeEvalTargetSpacingKm = 2.0; // מרווח יעד בין נקודות-הערכה עוקבות (בטווח בלבד)
+  static const int _routeEvalMaxPoints = 100; // תקרת מספר נקודות-הערכה
+  static const int _routeEvalMaxTotalPoints = 4000; // תקרת נקודות-גובה כוללת — כמו _radialMaxTotalPoints
+  static const double _routeEvalOutOfRangeMargin = 1.1; // נקודה מעבר לזה * rangeKm מהמשקיף = out_of_range בלי בדיקה
+  static const double _routeEvalStepM = 5000.0; // מרווח דגימת-גובה קבוע לאורך כל קרן, כמו fetchLos
+
+  /// מעריך זיהוי מכ"ם-דופלר לכל נקודה (מדוגמת) לאורך מסלול טיסה אמיתי — on-device לגמרי, בלי
+  /// שרת. מקביל בדיוק ל-_radar_route_eval_worker ב-weather_server.py (Desktop): בשונה מ-
+  /// fetchRadarDoppler (סורק מגזר תיאורטי עם מטרה סינתטית אחידה), כאן לכל נקודת-מסלול יש קרן
+  /// נפרדת מהמשקיף (בסגנון fetchLos — יעד יחיד בקצה הרחוק, לא סריקת-אזימוט-קבוע), עם המהירות/
+  /// כיוון/גובה האמיתיים שלה. rcsM2 כבר נגזר מראש ע"י הקורא (ר' rcsForAircraftType).
+  static Future<RouteEvaluationResult?> fetchRouteEvaluation({
+    required LatLng observer,
+    required double rangeKm,
+    required double minRangeKm,
+    required double hAntenna,
+    required double ridgeMarginDeg,
+    required double powerKw,
+    required double gainDbi,
+    required double freqMhz,
+    required double rcsM2,
+    required double sensitivityDbm,
+    required double prfHz,
+    required double mdvKt,
+    required bool lobingEnabled,
+    required String reflectivityKey,
+    required String antennaType,
+    required double boresightDeg,
+    required double maxScanDeg,
+    required List<FlightTrailPoint> trail,
+    required String aircraftLabel,
+    void Function(int done, int total)? onProgress,
+    RadialLosCancelToken? cancelToken,
+  }) async {
+    rangeKm = _clampD(rangeKm, _radialRangeKmMin, _radialRangeKmMax);
+    minRangeKm = _clampD(minRangeKm, 0.0, rangeKm);
+    ridgeMarginDeg = _clampD(ridgeMarginDeg, _radialRidgeMarginMin, _radialRidgeMarginMax);
+    powerKw = _clampD(powerKw, _radarPowerKwMin, _radarPowerKwMax);
+    gainDbi = _clampD(gainDbi, _radarGainDbiMin, _radarGainDbiMax);
+    freqMhz = _clampD(freqMhz, _radarFreqMhzMin, _radarFreqMhzMax);
+    rcsM2 = _clampD(rcsM2, _radarRcsM2Min, _radarRcsM2Max);
+    sensitivityDbm = _clampD(sensitivityDbm, _radarSensitivityDbmMin, _radarSensitivityDbmMax);
+    prfHz = _clampD(prfHz, _radarPrfHzMin, _radarPrfHzMax);
+    mdvKt = _clampD(mdvKt, _radarMdvKtMin, _radarMdvKtMax);
+    if (!_radarAntennaTypes.contains(antennaType)) antennaType = _radarAntennaTypeDefault;
+    boresightDeg = boresightDeg % 360;
+    maxScanDeg = _clampD(maxScanDeg, _radarMaxScanMin, _radarMaxScanMax);
+    if (!_radarReflectivity.containsKey(reflectivityKey)) reflectivityKey = _radarReflectivityDefault;
+
+    // שלב 1: גובה המשקיף — בנפרד, נכשל-מהר אם לא זמין (כמו fetchRadarDoppler)
+    final obsElevs = await _fetchRadialElevChunk([observer]);
+    if (obsElevs.isEmpty || obsElevs[0] == null) {
+      throw Exception('לא ניתן לשלוף את גובה המשקיף');
+    }
+    final observerElev = obsElevs[0]!;
+    final hObs = observerElev + hAntenna;
+
+    // שלב 2: פיזיקה שלא תלויה בנקודה ספציפית — זהה בדיוק ל-fetchRadarDoppler
+    final wavelengthM = _speedOfLight / (freqMhz * 1e6);
+    final radarCleanRangeM = _radarMaxRangeM(powerKw, gainDbi, freqMhz, rcsM2, sensitivityDbm);
+    final unambigRangeM = _maxUnambiguousRangeM(prfHz);
+    final radarCeilingM = min(radarCleanRangeM, unambigRangeM);
+    final mdvMs = mdvKt * _ktToMs;
+    final reflectivity = _radarReflectivity[reflectivityKey] ?? _radarReflectivity[_radarReflectivityDefault]!;
+    final marginSlope = tan(ridgeMarginDeg * pi / 180);
+
+    // שלב 3: סינון-מוקדם (out_of_range) + resample חמדני לפי מרחק-לאורך-המסלול (בטווח בלבד)
+    final rangeM = rangeKm * 1000.0;
+    final outMarginM = rangeM * _routeEvalOutOfRangeMargin;
+    final annotated = [
+      for (int i = 0; i < trail.length; i++)
+        _AnnotatedTrailPoint(trail[i], _haversineM(observer.latitude, observer.longitude, trail[i].lat, trail[i].lng), i),
+    ];
+    final outOfRange = annotated.where((a) => a.distM > outMarginM).toList();
+    final inRange = annotated.where((a) => a.distM <= outMarginM).toList();
+
+    double totalTrackM = 0.0;
+    for (int i = 0; i < inRange.length - 1; i++) {
+      totalTrackM += _haversineM(inRange[i].tp.lat, inRange[i].tp.lng, inRange[i + 1].tp.lat, inRange[i + 1].tp.lng);
+    }
+    // מרווח בפועל — לא פחות מהיעד, אך גדל אוטומטית אם המסלול ארוך מדי לתקרת _routeEvalMaxPoints
+    final spacingM = max(_routeEvalTargetSpacingKm * 1000.0, totalTrackM / max(1, _routeEvalMaxPoints - 1));
+
+    final evalPoints = <_AnnotatedTrailPoint>[];
+    _AnnotatedTrailPoint? last;
+    for (final a in inRange) {
+      if (last == null || _haversineM(last.tp.lat, last.tp.lng, a.tp.lat, a.tp.lng) >= spacingM) {
+        evalPoints.add(a);
+        last = a;
+      }
+    }
+    if (inRange.isNotEmpty && (evalPoints.isEmpty || !identical(evalPoints.last, inRange.last))) {
+      evalPoints.add(inRange.last); // תמיד כולל את הנקודה האחרונה בטווח, גם אם קרובה לקודמתה
+    }
+
+    // שלב 4: בניית קרן דגימת-גובה לכל נקודת-הערכה (משקיף->נקודה, בסגנון fetchLos — _interpolateGC)
+    var raysMeta = [
+      for (final a in evalPoints) _buildRayMeta(observer, a),
+    ];
+    // דילול אחיד אם החישוב הכולל חורג מהתקציב — מצמצם מספר נקודות-הערכה, לא צפיפות-קרן בודדת
+    final totalNeeded = raysMeta.fold<int>(0, (sum, r) => sum + r.nSamples);
+    if (totalNeeded > _routeEvalMaxTotalPoints && raysMeta.length > 2) {
+      final keepN = max(2, (raysMeta.length * _routeEvalMaxTotalPoints / totalNeeded).toInt());
+      final idxs = <int>{
+        for (int i = 0; i < keepN; i++) (i * (raysMeta.length - 1) / max(1, keepN - 1)).round(),
+      }.toList()..sort();
+      raysMeta = [for (final i in idxs) raysMeta[i]];
+    }
+
+    // שלב 5: ריכוז כל נקודות-הדגימה מכל הקרניים לרשימה שטוחה אחת, batching/pause/cancel — כמו fetchRadarDoppler
+    final allPoints = <LatLng>[];
+    final rayOffsets = <(int, int)>[]; // (start, nSamples) לכל קרן
+    for (final r in raysMeta) {
+      rayOffsets.add((allPoints.length, r.nSamples));
+      allPoints.addAll(r.rayPoints);
+    }
+    final totalBatches = allPoints.isEmpty ? 0 : (allPoints.length / _radialBatchSize).ceil();
+    final elevations = List<double?>.filled(allPoints.length, null);
+    for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+      if (cancelToken?.isCancelled ?? false) return null;
+      if (batchIdx > 0) await Future.delayed(_radialBatchPause);
+      final start = batchIdx * _radialBatchSize;
+      final end = min(start + _radialBatchSize, allPoints.length);
+      final batchElevs = await _fetchRadialElevChunk(allPoints.sublist(start, end));
+      for (int k = 0; k < batchElevs.length; k++) {
+        elevations[start + k] = batchElevs[k];
+      }
+      onProgress?.call(batchIdx + 1, totalBatches);
+    }
+
+    // שלב 6: הערכה פר-נקודה — ratchet במצב יעד-יחיד (h_offset רק בנקודה האחרונה, כמו fetchLos) +
+    // טווח מכ"ם/ריבוד לפי הגובה האמיתי + דופלר לפי המהירות/כיוון האמיתיים
+    FlightTrailPoint? prevTp;
+    int detected = 0, dopplerBlind = 0, blockedCnt = 0, outOfRangeCnt = 0;
+    final results = <RouteEvalPoint>[];
+    for (int ri = 0; ri < raysMeta.length; ri++) {
+      final r = raysMeta[ri];
+      final (start, n) = rayOffsets[ri];
+      final tp = r.a.tp;
+      final distM = r.a.distM;
+      final rayElevs = elevations.sublist(start, start + n);
+      if (rayElevs.last == null) { // אין גובה בנקודת המטוס עצמה — אי אפשר לחשב h_offset נכון
+        results.add(RouteEvalPoint(lat: tp.lat, lng: tp.lng, altFt: tp.altFt, spdKt: tp.spdKt,
+            distKm: distM / 1000, status: 'blocked', reason: 'no_elevation_data'));
+        blockedCnt++;
+        prevTp = tp;
+        continue;
+      }
+      final survivingIdx = <int>[for (int i = 0; i < rayElevs.length; i++) if (rayElevs[i] != null) i];
+      final dists = survivingIdx.map((i) => r.rayDistsM[i]).toList();
+      final elevsOnly = survivingIdx.map((i) => rayElevs[i]!).toList();
+      final altM = (tp.altFt ?? 0) * 0.3048; // גובה MSL אמיתי של המטוס — רגל -> מטר
+      final targetTerrainElev = elevsOnly.last; // גובה קרקע בנקודת המטוס עצמה (אושר לא-null למעלה)
+      final hOffsets = [for (int i = 0; i < survivingIdx.length - 1; i++) 0.0, altM - targetTerrainElev];
+      final ratchet = _horizonRatchet(dists, elevsOnly, hObs, hOffsets, marginSlope: marginSlope);
+      final visible = ratchet.last.visible; // רק נקודת המטוס עצמה קובעת — לא מנרטש כל ביניים בנפרד כמו בסריקה
+
+      final bearingToPoint = _bearingDeg(observer.latitude, observer.longitude, tp.lat, tp.lng);
+      double? headingDeg = tp.hdDeg;
+      if (headingDeg == null && prevTp != null) { // fallback: כיוון-תנועה מהנקודה הקודמת (resampled)
+        headingDeg = _bearingDeg(prevTp.lat, prevTp.lng, tp.lat, tp.lng);
+      }
+      bool dopplerOk;
+      if (headingDeg == null) {
+        dopplerOk = true; // אין שום מידע לחשב ממנו כיוון — לא "מענישים" את הנקודה על חוסר-נתון
+      } else {
+        final speedMs = (tp.spdKt ?? 0) * _ktToMs;
+        final radialSpeedMs = (speedMs * cos((headingDeg - bearingToPoint) * pi / 180)).abs();
+        dopplerOk = _dopplerDetectable(radialSpeedMs, mdvMs, wavelengthM, prfHz);
+      }
+      final rayScanLoss = antennaType == 'phased_array' ? _scanLossFactor(bearingToPoint, boresightDeg, maxScanDeg) : 1.0;
+
+      double ceiling;
+      if (lobingEnabled) {
+        final elevAngleDeg = distM > 0 ? atan2(altM - hObs, distM) * 180 / pi : 90.0;
+        ceiling = radarCeilingM * _lobingFactor(elevAngleDeg, hAntenna, wavelengthM, reflectivity);
+      } else {
+        ceiling = radarCeilingM;
+      }
+      ceiling *= rayScanLoss;
+
+      String status, reason;
+      if (!visible) {
+        status = 'blocked'; reason = 'terrain';
+      } else if (distM > ceiling) {
+        status = 'blocked'; reason = 'radar_range';
+      } else if (!dopplerOk) {
+        status = 'doppler_blind'; reason = 'doppler';
+      } else {
+        status = 'detected'; reason = 'ok';
+      }
+      switch (status) {
+        case 'detected': detected++; break;
+        case 'doppler_blind': dopplerBlind++; break;
+        default: blockedCnt++;
+      }
+      results.add(RouteEvalPoint(lat: tp.lat, lng: tp.lng, altFt: tp.altFt, spdKt: tp.spdKt,
+          distKm: distM / 1000, status: status, reason: reason));
+      prevTp = tp;
+    }
+
+    for (final a in outOfRange) { // נוספים בסוף — ימוינו יחד עם results לפי orig_idx מיד אחר-כך
+      results.add(RouteEvalPoint(lat: a.tp.lat, lng: a.tp.lng, altFt: a.tp.altFt, spdKt: a.tp.spdKt,
+          distKm: a.distM / 1000, status: 'out_of_range', reason: 'out_of_range'));
+      outOfRangeCnt++;
+    }
+    // משחזר סדר כרונולוגי מקורי — נדרש כי results נבנה משני מקורות (evalPoints ואז outOfRange) בנפרד.
+    // orig_idx לא נשמר ישירות ב-RouteEvalPoint (המודל לא זקוק לו אחרי המיון), אז ממיינים דרך אינדקס-עזר.
+    final origIdxByResult = <int>[
+      for (final r in raysMeta) r.a.origIdx,
+      for (final a in outOfRange) a.origIdx,
+    ];
+    final order = List<int>.generate(results.length, (i) => i)..sort((x, y) => origIdxByResult[x].compareTo(origIdxByResult[y]));
+    final sortedResults = [for (final i in order) results[i]];
+
+    return RouteEvaluationResult(
+      observer: observer, observerElev: observerElev, observerH: hObs, rangeKm: rangeKm,
+      points: sortedResults, detectedCount: detected, dopplerBlindCount: dopplerBlind,
+      blockedCount: blockedCnt, outOfRangeCount: outOfRangeCnt,
+      pointsEvaluated: evalPoints.length, pointsTotal: trail.length,
+      rcsUsed: rcsM2, aircraftLabel: aircraftLabel,
+    );
+  }
+
+  static _RayMeta _buildRayMeta(LatLng observer, _AnnotatedTrailPoint a) {
+    final tp = a.tp;
+    final distM = a.distM;
+    final nSamples = max(2, min(100, (distM / _routeEvalStepM).toInt() + 1));
+    final rayPoints = <LatLng>[];
+    final rayDistsM = <double>[];
+    for (int j = 0; j < nSamples; j++) {
+      final frac = nSamples > 1 ? j / (nSamples - 1) : 0.0;
+      final ll = _interpolateGC(observer.latitude, observer.longitude, tp.lat, tp.lng, frac);
+      rayPoints.add(LatLng(ll[0], ll[1]));
+      rayDistsM.add(frac * distM);
+    }
+    return _RayMeta(a, nSamples, rayPoints, rayDistsM);
   }
 
   static Future<Map<String, dynamic>> fetchPointWeather({

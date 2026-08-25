@@ -12,6 +12,8 @@ import '../models/grid_point.dart';
 import '../models/los_session.dart'; // מודל סשן קו ראייה
 import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ראייה רדיאלי
 import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
+import '../models/flight_trail_point.dart'; // נקודת מסלול טיסה עם טלמטריה — להערכת מסלול מול מכ"ם-דופלר
+import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../services/api_service.dart'; // גם geocodeCity() -> CityResult, בשימוש מוסק (inferred) ללא ייבוא ישיר
 import '../utils/heat_image.dart';
@@ -22,7 +24,14 @@ class FlightData {
   final LatLng? current;
   final String callsign;
   final String info;
-  const FlightData({required this.path, required this.current, required this.callsign, this.info = ''});
+  // trail/aircraftIcao נוספו (24/08/2026) — טלמטריה מלאה (גובה/מהירות/כיוון) לכל נקודה + סוג
+  // כלי-הטיס, לצד path/current הקיימים — לשימוש בהערכת מסלול טיסה מול מכ"ם-דופלר בלבד
+  final List<FlightTrailPoint> trail;
+  final String? aircraftIcao;
+  const FlightData({
+    required this.path, required this.current, required this.callsign, this.info = '',
+    this.trail = const [], this.aircraftIcao,
+  });
 }
 
 enum DisplayMode { heat, grid, dots }
@@ -174,6 +183,10 @@ class MapState extends ChangeNotifier {
   // Device location
   bool locationLoading = false;
   String? locationError;
+  // המיקום העצמי (GPS) האחרון שאותר בהצלחה — בניגוד ל-lastPinnedPoint (שנצרך/מתאפס
+  // מיד ע"י map_screen.dart לצורך קפיצת מצלמה), זה נשאר זמין כדי שכלים שמופעלים
+  // מאוחר יותר (כמו מכ"ם-דופלר) יוכלו להשתמש בו כמשקיף אוטומטית. מתאפס רק באיפוס מפה מלא.
+  LatLng? lastSelfLocation;
 
   // מחזיר את הקואורדינטה שנמצאה (או null בכישלון) — כדי שהקורא (למשל שדות LAT/LON
   // בפאנל המיקום) יוכל להציג אותה ישירות, בלי תלות בטריגר lastPinnedPoint המשותף
@@ -193,6 +206,7 @@ class MapState extends ChangeNotifier {
       final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
       pinCoordinate(pos.latitude, pos.longitude); // מוסיף סיכה על המפה ומפעיל קפיצת מצלמה, כרגיל
       result = LatLng(pos.latitude, pos.longitude); // נשמר להחזרה — עותק עצמאי, לא מושפע מצריכת lastPinnedPoint
+      lastSelfLocation = result; // נשמר לשימוש מאוחר יותר ע"י כלים כמו מכ"ם-דופלר
     } catch (e) {
       locationError = e.toString().replaceFirst('Exception: ', '');
     }
@@ -210,8 +224,10 @@ class MapState extends ChangeNotifier {
     flightLoading = true; flightError = null; notifyListeners();
     try {
       final result = await ApiService.fetchFlightTrack(callsign);
-      flightData = FlightData(path: result.path, current: result.current, callsign: result.callsign, info: result.info);
+      flightData = FlightData(path: result.path, current: result.current, callsign: result.callsign, info: result.info,
+          trail: result.trail, aircraftIcao: result.aircraftIcao);
       flightFocusPoint = result.current ?? (result.path.isNotEmpty ? result.path.last : null);
+      clearRouteEval();  // מסלול טיסה חדש נטען — הערכת המסלול הקודמת (אם הייתה) כבר לא רלוונטית
       unawaited(_pushHistory('flight_history', flightHistory, result.callsign));
       // נקודה בודדת = נמצא בפיד הרדאר אך אין מסלול זמין; מציגים מיקום + הסבר
       if (result.path.length == 1) flightError = 'מיקום נוכחי בלבד — אין מסלול זמין לטיסה $callsign';
@@ -661,7 +677,14 @@ class MapState extends ChangeNotifier {
     // רק עוצר job שעדיין רץ ברקע, אם יש. תוצאה חדשה נמחקת רק בהצבת משקיף חדש בפועל
     // (setRadarObserver) או באיפוס מפה מלא — לא בכיבוי הפאנל עצמו. אותו תיקון בדיוק כמו
     // ב-Desktop (toggleRadarDoppler ב-MAP.py, ר' MAPS-GUI_SRS.md FR-D-194).
-    if (!radarMode) cancelRadarDoppler();
+    if (!radarMode) {
+      cancelRadarDoppler();
+    } else if (radarObs == null && lastSelfLocation != null) {
+      // אם כבר אותרה קודם מיקום עצמי (GPS) ועדיין אין משקיף — משתמש בה ישירות
+      // כמשקיף, בלי לחייב הצבעה חוזרת על המפה (ר' דיווח משתמש: "בחרתי מיקום עצמי...
+      // בחרתי מכ"ם דופלר... המתין לבחירת מיקום עמדה חדש").
+      setRadarObserver(lastSelfLocation!);
+    }
     notifyListeners();
   }
 
@@ -753,7 +776,69 @@ class MapState extends ChangeNotifier {
     radarResult = null;
     radarError = null;
     clearRadarProfile(); // תוצאה שלמה חדשה/נמחקת מייתרת גם חתך-צד פתוח לקרן ישנה
+    clearRouteEval(); // וגם הערכת מסלול טיסה קודמת — קשורה למשקיף שנמחק, לא רלוונטית יותר
     notifyListeners();
+  }
+
+  // ── הערכת מסלול טיסה אמיתי (FR24/OpenSky) מול תצורת מכ"ם-דופלר — on-device, ר' ApiService.fetchRouteEvaluation ──
+  // מקביל ל-runRadarDoppler/cancelRadarDoppler/clearRadarDopplerResult למעלה, אך עם state נפרד
+  // (לא radarLoading/_radarCancelToken המשותפים) — כאן אין job-registry משותף כמו ב-Desktop (JS)
+  // שהצריך _radarJobKind להבחין בין סוגי חישוב; כל Future עצמאי, פשוט יותר לשמור state נפרד.
+  bool routeEvalLoading = false;
+  int routeEvalBatchesDone = 0;
+  int routeEvalBatchesTotal = 0;
+  String? routeEvalError;
+  RouteEvaluationResult? routeEvalResult;
+  RadialLosCancelToken? _routeEvalCancelToken;
+
+  Future<void> evaluateFlightRoute() async {
+    if (radarObs == null || radarLoading || routeEvalLoading) return;
+    final trail = flightData?.trail ?? const [];
+    if (trail.isEmpty) return; // אין מסלול טעון — הכפתור בממשק כבר נועל את זה, זו הגנה כפולה בלבד
+    final token = RadialLosCancelToken();
+    _routeEvalCancelToken = token;
+    routeEvalLoading = true; routeEvalError = null;
+    routeEvalBatchesDone = 0; routeEvalBatchesTotal = 0;
+    notifyListeners();
+    try {
+      // RCS נגזר אוטומטית מסוג כלי-הטיס האמיתי (FR24) — לא מהשדה הידני radarRcsM2, שרלוונטי
+      // רק לסריקה הרגילה (שם אין מטרה אמיתית לגזור ממנה). ר' ApiService.rcsForAircraftType.
+      final rcsUsed = ApiService.rcsForAircraftType(flightData?.aircraftIcao);
+      final result = await ApiService.fetchRouteEvaluation(
+        observer: radarObs!,
+        rangeKm: radarRangeKm, minRangeKm: radarMinRangeKm,
+        hAntenna: radarHAntenna, ridgeMarginDeg: radarRidgeMarginDeg,
+        powerKw: radarPowerKw, gainDbi: radarGainDbi, freqMhz: radarFreqMhz,
+        rcsM2: rcsUsed, sensitivityDbm: radarSensitivityDbm,
+        prfHz: radarPrfHz, mdvKt: radarMdvKt,
+        lobingEnabled: radarLobingEnabled, reflectivityKey: radarReflectivity,
+        antennaType: radarAntennaType, boresightDeg: radarBoresightDeg, maxScanDeg: radarMaxScanDeg,
+        trail: trail, aircraftLabel: flightData?.aircraftIcao ?? flightData?.callsign ?? '',
+        onProgress: (done, total) {
+          routeEvalBatchesDone = done; routeEvalBatchesTotal = total;
+          notifyListeners();
+        },
+        cancelToken: token,
+      );
+      if (token.isCancelled) return;
+      routeEvalResult = result;
+    } catch (e) {
+      routeEvalError = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      routeEvalLoading = false; notifyListeners();
+    }
+  }
+
+  void cancelRouteEval() {
+    _routeEvalCancelToken?.cancel();
+    routeEvalLoading = false;
+    notifyListeners();
+  }
+
+  void clearRouteEval() {
+    cancelRouteEval();
+    routeEvalResult = null;
+    routeEvalError = null;
   }
 
   // ── חתך-צד לקרן בודדת — נשלף על-פי דרישה בלחיצה על חישור, לא נשמר מראש לכל הקרניים ──
@@ -944,7 +1029,7 @@ class MapState extends ChangeNotifier {
     radarMode = false; radarObs = null; radarResult = null; // איפוס מצב/משקיף/תוצאה מכ"ם דופלר
     radarLoading = false; radarError = null;
     flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
-    pinnedPoints = []; lastPinnedPoint = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
+    pinnedPoints = []; lastPinnedPoint = null; lastSelfLocation = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
     cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת
     resetFocusPoint = const LatLng(31.5, 34.9); // אותה נקודת פתיחה כמו initialCenter ב-map_screen.dart — מחזיר את המצלמה למרכז
     notifyListeners(); // עדכון כל ה-widgets שמאזינים ל-state בבת אחת

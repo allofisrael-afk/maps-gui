@@ -117,6 +117,7 @@
         var flightMarker   = null;    // סמן מטוס במיקום הנוכחי
         var _lastFlightRouteData = null;  // routeData המלא (כולל trail עם alt/spd/hd) של הטיסה האחרונה שנטענה — לשימוש בהערכת מסלול מול מכ"ם-דופלר
         var _routeEvalLayers = [];    // קטעי הפוליליין הצבעוניים של הערכת המסלול האחרונה (לא flightPolyline הרגיל)
+        var _routeEvalRcsUsed = null; // ה-RCS שנגזר אוטומטית וששימש בהערכה האחרונה — מוצג ב-radarInfoEl בסיום, לשקיפות
         var elevationLayer  = null;    // שכבת גבהים — null כשכבויה
         var elevationActive = false;  // האם שכבת הגבהים פעילה
         var elevationPoints = [];     // נקודות גובה {lat, lng, elevation} לפופאפ בלחיצה
@@ -2979,8 +2980,10 @@
                         _drawRouteEvaluation(data.result);
                         if (radarInfoEl) {
                             var c = data.result.counts;
+                            // מציג גם את ה-RCS שנגזר אוטומטית מסוג כלי-הטיס — שקיפות: המשתמש לא הזין אותו ידנית
                             radarInfoEl.textContent = c.detected + ' מזוהות, ' + c.doppler_blind + ' עיוורות-דופלר, ' +
-                                c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ')';
+                                c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ') — ' +
+                                'RCS משוער: ' + _routeEvalRcsUsed + ' מ"ר (' + (_lastFlightRouteData.aircraft || '?') + ')';
                         }
                     } else {
                         _drawRadarDopplerResult(data.result);
@@ -3004,6 +3007,31 @@
             });
         }
 
+        // מיפוי גס (חינוכי בלבד, לא נתון הנדסי מדויק) מקידומת קוד ICAO של כלי-הטיס ל-RCS משוער, מ"ר —
+        // FR24 לא מספק RCS בעצמו (זה לא שדה שמשודר ע"י מטוסים בכלל), רק את סוג כלי-הטיס — לכן
+        // מסווגים גס לפי גודל פיזי כללי. כל רשומה: [רשימת קידומות קוד-ICAO, RCS משוער]. נבדק לפי
+        // "מתחיל ב-" (לא שוויון מדויק) כדי לכסות משפחות שלמות (B77W/B772/B77L וכו') בקידומת אחת.
+        var _AIRCRAFT_RCS_TABLE = [
+            [['B74', 'A38'], 150],                                          // ג'מבו/ענק (747, A380)
+            [['B77', 'B78', 'A33', 'A34', 'A35', 'MD1', 'DC1'], 80],        // רחב-גוף (777/787/A330/A340/A350)
+            [['B73', 'B75', 'B76', 'A31', 'A32', 'MD8', 'MD9'], 30],        // צר-גוף (737/757/767/A320)
+            [['CRJ', 'E17', 'E19', 'E29', 'SU9', 'AT4', 'AT7', 'DH8', 'F70'], 8],  // אזורי (סילון/טורבו-פרופ)
+            [['C1', 'C2', 'C5', 'PA', 'SR2', 'BE', 'DA4'], 1.5],            // מטוס קל פרטי
+        ];
+        var _AIRCRAFT_RCS_DEFAULT = 30;  // ברירת מחדל לסוג לא-מזוהה — "מטוס נוסעים ממוצע" (צר-גוף)
+
+        function _rcsForAircraftType(icaoCode) {
+            if (!icaoCode) return _AIRCRAFT_RCS_DEFAULT;
+            var code = String(icaoCode).toUpperCase();
+            for (var i = 0; i < _AIRCRAFT_RCS_TABLE.length; i++) {
+                var prefixes = _AIRCRAFT_RCS_TABLE[i][0];
+                for (var j = 0; j < prefixes.length; j++) {
+                    if (code.indexOf(prefixes[j]) === 0) return _AIRCRAFT_RCS_TABLE[i][1];
+                }
+            }
+            return _AIRCRAFT_RCS_DEFAULT;
+        }
+
         function _runRouteEvaluation() {
             // מפעיל הערכת מסלול טיסה מלא (FR24) מול תצורת המכ"ם הנוכחית — דורש גם משקיף מוצב
             // וגם מסלול טיסה טעון; משתמש באותם radarLoading/radarJobId/radarPollTimer של הסריקה
@@ -3014,6 +3042,10 @@
             }
             if (radarLoading) return;  // חישוב אחר (סריקה או הערכת מסלול) כבר רץ
             function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }
+            // RCS נגזר אוטומטית מסוג כלי-הטיס בפועל (FR24) — לא משדה הקלט הידני, שרלוונטי רק לסריקה
+            // הרגילה (שם אין מטרה אמיתית לגזור ממנה). מוצג גם ב-radarInfoEl בסיום, לשקיפות.
+            var _rcsUsed = _rcsForAircraftType(_lastFlightRouteData.aircraft_icao);
+            _routeEvalRcsUsed = _rcsUsed;  // נשמר גלובלית — נצרך ב-_pollRadarDopplerStatus בסיום (פונקציה אחרת, אסינכרונית)
             var body = {
                 lat: radarObs.lat, lon: radarObs.lng,
                 range_km: num(_radarRangeInput, 50), min_range_km: num(_radarMinRangeInput, 1),
@@ -3021,7 +3053,7 @@
                 vertical_center_deg: num(_radarVCenterInput, 0), vertical_width_deg: num(_radarVWidthInput, 10),
                 power_kw: num(_radarPowerInput, 100), gain_dbi: num(_radarGainInput, 30),
                 freq_mhz: (_radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000),
-                sensitivity_dbm: num(_radarSensInput, -100), rcs_m2: num(_radarRcsInput, 2),
+                sensitivity_dbm: num(_radarSensInput, -100), rcs_m2: _rcsUsed,
                 prf_hz: num(_radarPrfInput, 1000), mdv_kt: num(_radarMdvInput, 20),
                 lobing_enabled: !!(_radarLobingCheck && _radarLobingCheck.checked),
                 reflectivity: (_radarReflSelect ? _radarReflSelect.value : 'land'),

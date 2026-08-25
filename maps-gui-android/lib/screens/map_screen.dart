@@ -12,6 +12,7 @@ import '../data/uas_coordination_zones.dart'; // נתוני אזורי התיא�
 import '../models/airport_ctr_zone.dart'; // מודל גבול CTR קבוע של שדה תעופה
 import '../data/airport_ctr_zones.dart'; // נתוני גבולות ה-CTR הסטטיים, ממקור AIP רשמי
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
+import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
 import '../state/map_state.dart';
 import '../version.dart';
 import '../widgets/controls_panel.dart';
@@ -31,6 +32,8 @@ class _MapScreenState extends State<MapScreen> {
   // מזהה לחיצה על חישור בתוצאת מכ"ם-דופלר — hitValue הוא אינדקס הקרן ב-radarResult.rays,
   // הדרך המובנית של flutter_map לזהות לחיצה על Polyline ספציפי (PolylineLayer.hitNotifier)
   final _radarHitNotifier = ValueNotifier<LayerHitResult<int>?>(null);
+  // מזהה לחיצה על קטע בהערכת מסלול טיסה — hitValue הוא אינדקס הנקודה ב-routeEvalResult.points
+  final _routeEvalHitNotifier = ValueNotifier<LayerHitResult<int>?>(null);
 
   @override
   void initState() {
@@ -41,12 +44,15 @@ class _MapScreenState extends State<MapScreen> {
       });
     });
     _radarHitNotifier.addListener(_onRadarRayHit);
+    _routeEvalHitNotifier.addListener(_onRouteEvalHit);
   }
 
   @override
   void dispose() {
     _radarHitNotifier.removeListener(_onRadarRayHit);
     _radarHitNotifier.dispose();
+    _routeEvalHitNotifier.removeListener(_onRouteEvalHit);
+    _routeEvalHitNotifier.dispose();
     super.dispose();
   }
 
@@ -58,6 +64,16 @@ class _MapScreenState extends State<MapScreen> {
     final idx = hit.hitValues.first;
     if (rays == null || idx < 0 || idx >= rays.length) return;
     state.showRadarRayProfile(rays[idx]);
+  }
+
+  void _onRouteEvalHit() {
+    final hit = _routeEvalHitNotifier.value;
+    if (hit == null || hit.hitValues.isEmpty || !mounted) return;
+    final state = context.read<MapState>();
+    final pts = state.routeEvalResult?.points;
+    final idx = hit.hitValues.first;
+    if (pts == null || idx < 0 || idx >= pts.length) return;
+    _showRouteEvalPointDetails(pts[idx]);
   }
 
   LatLng? _screenToLatLng(Offset local) {
@@ -414,7 +430,9 @@ class _MapScreenState extends State<MapScreen> {
               // ── שכבת "גבולות CTR שדות תעופה" — נתונים סטטיים ממקור AIP רשמי ──
               if (state.airportCtrActive) ..._buildAirportCtrZonesLayers(),
               if (state.flightData != null) ...[
-                if (state.flightData!.path.length >= 2)
+                // הקו הכחול הרגיל מוסתר (לא נמחק) כשהערכת מסלול מוצגת — מוחלף בקטעים צבעוניים,
+                // בדיוק כמו flightPolyline מוסתר ב-MAP.py (Desktop) בזמן שהערכה פעילה
+                if (state.flightData!.path.length >= 2 && state.routeEvalResult == null)
                   PolylineLayer(polylines: [
                     Polyline(
                       points: state.flightData!.path,
@@ -422,6 +440,7 @@ class _MapScreenState extends State<MapScreen> {
                       strokeWidth: 3,
                     ),
                   ]),
+                if (state.routeEvalResult != null) ..._buildRouteEvalLayers(state),
                 if (state.flightData!.current != null)
                   MarkerLayer(markers: [
                     Marker(
@@ -1121,6 +1140,95 @@ class _MapScreenState extends State<MapScreen> {
     return layers;
   }
 
+  // אותם 4 צבעי סטטוס בדיוק כמו _drawRouteEvaluation ב-MAP.py (Desktop) — לעקביות חזותית בין הפלטפורמות
+  static const Map<String, Color> _routeEvalStatusColor = {
+    'detected': Color(0xFF00CC44), 'doppler_blind': Color(0xFFFF9500),
+    'blocked': Color(0xFFFF3300), 'out_of_range': Color(0xFF6C7086),
+  };
+  static const Map<String, String> _routeEvalReasonText = {
+    'ok': 'מזוהה', 'terrain': 'חסום ע"י שטח', 'radar_range': 'מעבר לטווח המכ"ם (משוואת מכ"ם/ריבוד)',
+    'doppler': 'עיוור לדופלר', 'out_of_range': 'מחוץ לטווח המכ"ם כלל', 'no_elevation_data': 'נתוני גובה חסרים לנקודה זו',
+  };
+
+  // מצייר את הערכת מסלול הטיסה כסדרת קטעים צבעוניים (מחליף את הקו הכחול הרגיל, ר' build() למעלה) —
+  // או סמן בודד אם יש רק נקודת-הערכה אחת (למשל טיסה חיה בלי היסטוריית מסלול). מקביל בדיוק ל-
+  // _drawRouteEvaluation ב-MAP.py (Desktop): צבע כל קטע נקבע לפי סטטוס הנקודה בקצהו.
+  List<Widget> _buildRouteEvalLayers(MapState state) {
+    final result = state.routeEvalResult;
+    if (result == null || result.points.isEmpty) return [];
+    final pts = result.points;
+    if (pts.length == 1) {
+      final p = pts.first;
+      final color = _routeEvalStatusColor[p.status] ?? const Color(0xFF6C7086);
+      return [
+        MarkerLayer(markers: [
+          Marker(
+            point: LatLng(p.lat, p.lng), width: 26, height: 26,
+            child: GestureDetector(
+              onTap: () => _showRouteEvalPointDetails(p),
+              child: Container(
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+              ),
+            ),
+          ),
+        ]),
+      ];
+    }
+    final segments = <Polyline<int>>[];
+    for (int i = 1; i < pts.length; i++) {
+      final p0 = pts[i - 1], p1 = pts[i];
+      final color = _routeEvalStatusColor[p1.status] ?? const Color(0xFF6C7086);
+      // hitValue: i — אינדקס הנקודה ב-pts (לא i-1), נצרך ע"י _routeEvalHitNotifier בלחיצה
+      segments.add(Polyline(points: [LatLng(p0.lat, p0.lng), LatLng(p1.lat, p1.lng)], color: color, strokeWidth: 4, hitValue: i));
+    }
+    return [PolylineLayer<int>(polylines: segments, hitNotifier: _routeEvalHitNotifier)];
+  }
+
+  // גיליון פרטים בלחיצה על קטע/נקודה בהערכת מסלול — אותו דפוס showModalBottomSheet כמו
+  // _showAirportCtrDetails/_showUasNotamDetails הקיימים, לעקביות עיצובית באפליקציה.
+  void _showRouteEvalPointDetails(RouteEvalPoint p) {
+    final color = _routeEvalStatusColor[p.status] ?? const Color(0xFF6C7086);
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 24 + MediaQuery.of(ctx).padding.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: cs.outlineVariant, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(children: [
+                  Container(width: 14, height: 14, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_routeEvalReasonText[p.reason] ?? p.status,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                ]),
+                const SizedBox(height: 10),
+                Text('מרחק מהמשקיף: ${p.distKm.toStringAsFixed(1)} ק"מ'),
+                if (p.altFt != null) Padding(padding: const EdgeInsets.only(top: 4),
+                    child: Text('גובה: ${p.altFt!.round()} ft')),
+                if (p.spdKt != null) Padding(padding: const EdgeInsets.only(top: 4),
+                    child: Text('מהירות: ${p.spdKt!.round()} kt')),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // גבולות כל אזורי ה-NOTAM המוצגים כרגע (לפי הקטגוריות המסומנות) — לשימוש בהתאמת תצוגת המפה.
   // מעגלים מקורבים ע"י ניפוח נקודת המרכז ברדיוס (במעלות, גס מספיק למטרת fitBounds בלבד).
   LatLngBounds? _notamVisibleBounds(MapState state) {
@@ -1597,6 +1705,12 @@ class _MapScreenState extends State<MapScreen> {
     // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי
     if (state.radarMode) {
       if (state.radarLoading) return;
+      // בניגוד ל-Leaflet (Desktop), ל-flutter_map אין stopPropagation מובנה בין hitNotifier של
+      // שכבה (PolylineLayer, ר' _radarHitNotifier/_onRadarRayHit למעלה) לבין onTap הכללי של המפה —
+      // שניהם נורים באותה לחיצה בדיוק. בלי הבדיקה הזו, לחיצה על חישור הייתה גם פותחת חתך-צד
+      // (_onRadarRayHit) וגם ממקמת משקיף חדש/מוחקת את התוצאה כולה (setRadarObserver) בו-זמנית —
+      // בדיוק התקלה המקבילה שכבר תוקנה ב-Desktop עם L.DomEvent.stopPropagation.
+      if (_radarHitNotifier.value != null || _routeEvalHitNotifier.value != null) return;
       state.setRadarObserver(point);
       return;
     }
@@ -3273,6 +3387,51 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF22D3EE), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
                       child: const Text('הפעל חישוב', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                ],
+                // ── הערכת מסלול טיסה אמיתי (FR24/OpenSky) מול תצורת המכ"ם — פעולה נפרדת מהסריקה
+                // הרגילה למעלה, לא נעולה ביחד איתה בממשק (guard כפול קיים גם ב-evaluateFlightRoute)
+                const SizedBox(height: 6),
+                if (s.routeEvalLoading) ...[
+                  Text(
+                    s.routeEvalBatchesTotal > 0 ? 'מעריך מסלול... ${s.routeEvalBatchesDone}/${s.routeEvalBatchesTotal}' : 'מתחיל הערכה...',
+                    style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonal(
+                      onPressed: s.cancelRouteEval,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: cs.errorContainer, foregroundColor: cs.onErrorContainer, visualDensity: VisualDensity.compact),
+                      child: const Text('בטל', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                ] else ...[
+                  if (s.routeEvalError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(s.routeEvalError!, style: TextStyle(fontSize: 9.5, color: cs.error), textAlign: TextAlign.center),
+                    ),
+                  if (s.routeEvalResult != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '${s.routeEvalResult!.detectedCount} מזוהות, ${s.routeEvalResult!.dopplerBlindCount} עיוורות-דופלר, '
+                        '${s.routeEvalResult!.blockedCount} חסומות, ${s.routeEvalResult!.outOfRangeCount} מחוץ-לטווח '
+                        '(מתוך ${s.routeEvalResult!.pointsTotal}) — RCS משוער: ${s.routeEvalResult!.rcsUsed.toStringAsFixed(1)} מ"ר',
+                        style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonal(
+                      onPressed: (s.radarObs != null && !s.radarLoading && (s.flightData?.trail.isNotEmpty ?? false))
+                          ? s.evaluateFlightRoute : null,
+                      style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFCBA6F7), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
+                      child: const Text('הערך מסלול טיסה מול המכ"ם', style: TextStyle(fontSize: 11)),
                     ),
                   ),
                 ],

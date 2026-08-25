@@ -3,6 +3,7 @@ import os        # קריאת משתני סביבה לפרטי התחברות
 import re        # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד
 from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app
 from FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24
+from FlightRadar24.core import Core  # קבועי URL/headers של הספרייה — משמשים ב-_fetch_flight_details_direct
 
 from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
 from ports import FLIGHT_PORT
@@ -61,6 +62,32 @@ def _normalize_trail_point(point):
         "spd": point.get("spd") or point.get("Spd") or point.get("speed") or 0,
         "hd": hd,
     }
+
+
+def _fetch_flight_details_direct(flight_id):
+    """
+    שולף פרטי טיסה מלאים (כולל trail) ישירות מ-FR24 — עוקף את fr_api.get_flight_details()
+    הרגיל, שנמצא ב-403 עקבי לכל טיסה (גם עם FR24_TOKEN רענן, וגם לטיסות שבוודאות באוויר).
+    הסיבה שנמצאה: get_flight_details() בספרייה לא מצרף שום cookie/הזדהות לבקשה הזו כלל
+    (בדוק במקור — FlightRadar24/api.py, שורה 429) — כלומר ה-403 הוא הגנת Cloudflare/זיהוי-בוטים
+    לפי טביעת-אצבע HTTP/TLS של הבקשה עצמה, לא היעדר טוקן. curl_cffi (impersonate="chrome")
+    מדמה טביעת-אצבע TLS של דפדפן אמיתי ועוקף את זה — אומת ידנית: 200 ו-trail מלא (994 נקודות)
+    מול אותו URL בדיוק שהחזיר 403 עם requests/urllib הרגילים של הספרייה.
+    Fallback לספרייה המקורית (fr_api.get_flight_details, דרך אותו URL/headers) אם curl_cffi
+    לא מותקן או נכשל מסיבה אחרת — כדי שלא לשבור התקנות ישנות בלי התלות החדשה.
+    """
+    url = Core.flight_data_url.format(flight_id)
+    try:
+        from curl_cffi import requests as cffi_requests  # ייבוא עצל — נכשל בעדינות אם התלות חסרה
+        r = cffi_requests.get(url, impersonate="chrome", headers=Core.json_headers, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        logging.warning(f"curl_cffi נכשל עבור flight_id={flight_id}: {e}. נופל חזרה לבקשה הרגילה (ללא עקיפת חסימה).")
+        from FlightRadar24.request import APIRequest  # ייבוא מקומי — נדרש רק בנתיב ה-fallback
+        response = APIRequest(url, headers=Core.json_headers, timeout=15)
+        return response.get_content()
+
 
 app = create_app(__name__)  # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
 
@@ -157,15 +184,16 @@ def get_flight_route():
                         fid   = str(item.get("id", item.get("flight_id", "")))
                     if flight_number in label and fid:
                         logging.info(f"נמצא via search: id={fid}, label={label}")
-                        details = fr_api.get_flight_details(fid)
+                        details = _fetch_flight_details_direct(fid)  # אותה עקיפת-403 — גם fid כאן הוא מזהה מחרוזת, לא Flight, ולכן זה גם תיקן קריאה שגויה קודמת ל-fr_api.get_flight_details (שציפתה ל-Flight.id)
                         trail = details.get("trail", [])
                         airports     = details.get("airport", {})
                         origin_iata  = airports.get("origin",      {}).get("code", {}).get("iata", "N/A")
                         origin_name  = airports.get("origin",      {}).get("name", "")
                         dest_iata    = airports.get("destination", {}).get("code", {}).get("iata", "N/A")
                         dest_name    = airports.get("destination", {}).get("name", "")
-                        aircraft_mdl = details.get("aircraft", {}).get("model", {}).get("text", "לא ידוע")
-                        airline_name = details.get("airline",  {}).get("name", "לא ידוע")
+                        aircraft_mdl  = details.get("aircraft", {}).get("model", {}).get("text", "לא ידוע")
+                        aircraft_icao = details.get("aircraft", {}).get("model", {}).get("code")  # ר' הערה מקבילה בנתיב הראשי
+                        airline_name  = details.get("airline",  {}).get("name", "לא ידוע")
                         norm_trail = [p for p in (_normalize_trail_point(pt) for pt in trail) if p is not None]
                         if len(norm_trail) > 400:
                             norm_trail = norm_trail[-400:]
@@ -174,7 +202,7 @@ def get_flight_route():
                             "callsign":    label,
                             "origin_iata": origin_iata, "origin_name": origin_name,
                             "dest_iata":   dest_iata,   "dest_name":   dest_name,
-                            "aircraft":    aircraft_mdl, "airline":    airline_name,
+                            "aircraft":    aircraft_mdl, "aircraft_icao": aircraft_icao, "airline": airline_name,
                             "altitude": details.get("trail", [{}])[-1].get("alt", 0) if norm_trail else 0,
                             "speed":    details.get("trail", [{}])[-1].get("spd", 0) if norm_trail else 0,
                             "heading":  details.get("trail", [{}])[-1].get("hd",  0) if norm_trail else 0,
@@ -198,10 +226,11 @@ def get_flight_route():
         dest_iata    = "N/A"
         dest_name    = ""
         aircraft_model = "לא ידוע"
+        aircraft_icao  = None  # קוד ICAO קצר (למשל "B77W") — נצרך ב-MAP.py לאמידת RCS אוטומטית, ר' _rcsForAircraftType
         airline_name   = "לא ידוע"
 
         try:
-            details = fr_api.get_flight_details(flight)  # דורש login — יכשל ב-403 בלעדיו
+            details = _fetch_flight_details_direct(flight.id)  # עוקף 403 (ר' תיעוד הפונקציה — לא עניין של login/טוקן)
             flight.set_flight_details(details)
 
             trail = details.get("trail", [])  # רשימת נקודות [{lat, lng, alt, spd, ts}]
@@ -212,6 +241,7 @@ def get_flight_route():
             dest_iata      = airports.get("destination", {}).get("code", {}).get("iata", "N/A")
             dest_name      = airports.get("destination", {}).get("name", "")
             aircraft_model = details.get("aircraft", {}).get("model", {}).get("text", "לא ידוע")
+            aircraft_icao  = details.get("aircraft", {}).get("model", {}).get("code")  # למשל "B77W", "A320" — עשוי להיות None
             airline_name   = details.get("airline",  {}).get("name", "לא ידוע")
 
         except Exception as detail_err:
@@ -241,7 +271,8 @@ def get_flight_route():
             "origin_name": origin_name,
             "dest_iata":   dest_iata,
             "dest_name":   dest_name,
-            "aircraft":    aircraft_model,
+            "aircraft":      aircraft_model,
+            "aircraft_icao": aircraft_icao,  # קוד ICAO קצר (או None) — לאמידת RCS אוטומטית ב-MAP.py, לא לתצוגה
             "airline":     airline_name,
             "altitude":    getattr(flight, "altitude",     0),
             "speed":       getattr(flight, "ground_speed", 0),
