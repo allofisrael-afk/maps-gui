@@ -1619,7 +1619,13 @@ def start_radar_route_eval():
 _STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_stations.json')  # תמיד לצד weather_server.py, לא תלוי-תיקיית-עבודה
 _STATIONS_LOCK = threading.Lock()  # מגן על קריאה/כתיבה בו-זמנית לקובץ מכמה בקשות
 _STATIONS_MAX_PER_TOOL = 20  # תקרת עמדות שמורות לכל כלי — מונע צמיחה בלתי מוגבלת של הקובץ
-_STATIONS_VALID_TOOLS = ('los', 'radial_los', 'radar_doppler')  # מפתחות תקינים — שם JS מזהה כל כלי
+_STATIONS_VALID_TOOLS = (
+    'los', 'radial_los', 'radar_doppler',
+    # שני המפתחות הבאים הם "הגדרות שמורות" (בלי מיקום) לרדיוס-ראייה/מכ"ם-דופלר — נשלחים מה-JS
+    # עם אותם params בדיוק כמו העמדות הרגילות, רק בלי lat/lon (ר' _buildStationUI ב-MAP.py).
+    # אותו קובץ/מנגנון בדיוק — השרת לא צריך לדעת את ההבדל, ה-JS פשוט לא שולח מיקום.
+    'radial_los_settings', 'radar_doppler_settings',
+)  # מפתחות תקינים — שם JS מזהה כל כלי
 
 
 def _load_stations():

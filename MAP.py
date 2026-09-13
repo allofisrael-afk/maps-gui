@@ -2298,11 +2298,18 @@ def create_map():
         // ── "עמדות שמורות" — UI משותף לשלושת כלי התצפית (LOS/רדיוס-ראייה/מכ"ם-דופלר) ──
         // שמירה/טעינה/מחיקה של מיקום+פרמטרים תחת שם, דרך /stations/* ב-weather_server.py.
         var _stationsCache = {{}};  // toolKey -> [{{name, params}}, ...] — מטמון הרשימה האחרונה שנשלפה, לצורך טעינה בלי fetch נוסף
-        function _buildStationUI(parentEl, toolKey, fieldMap, getObsFn, placeObsFn, redrawFn) {{
-            // parentEl: לאן להוסיף את ה-UI. toolKey: 'los'/'radial_los'/'radar_doppler'.
+        function _buildStationUI(parentEl, toolKey, fieldMap, getObsFn, placeObsFn, redrawFn, label) {{
+            // parentEl: לאן להוסיף את ה-UI. toolKey: 'los'/'radial_los'/'radar_doppler', או
+            // 'radial_los_settings'/'radar_doppler_settings' ל"הגדרות שמורות" בלי מיקום (getObsFn=null אז).
             // fieldMap: {{paramName: inputElement}} — כל שדות הכלי (חוץ ממיקום, המטופל בנפרד).
-            // getObsFn: ()=>L.LatLng|null — מיקום נוכחי (null אם אין, כמו ב-LOS). placeObsFn(latlng): ממקם משקיף.
-            // redrawFn: ()=>void — מצייר מחדש תצוגה מקדימה אחרי טעינת עמדה (אם רלוונטי לכלי).
+            // getObsFn: ()=>L.LatLng|null — מיקום נוכחי (null אם אין, כמו ב-LOS, או ב"הגדרות שמורות" במכוון). placeObsFn(latlng): ממקם משקיף.
+            // redrawFn: ()=>void — מצייר מחדש תצוגה מקדימה אחרי טעינה (אם רלוונטי לכלי).
+            // label: אופציונלי — כותרת קטנה מעל הבלוק, נחוצה כשמוצגים שני בלוקים (עמדות+הגדרות) זה מתחת לזה באותו פאנל.
+            if (label) {{
+                var headerEl = L.DomUtil.create('div', '', parentEl);
+                headerEl.style.cssText = 'font-size:9px;font-weight:bold;color:#666;margin-top:4px;border-top:1px solid #ddd;padding-top:2px;';
+                headerEl.textContent = label;
+            }}
             var row1 = L.DomUtil.create('div', '', parentEl);
             row1.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
             var nameInput = L.DomUtil.create('input', '', row1);
@@ -2800,12 +2807,20 @@ def create_map():
                 _radialVCenterInput  = _mkField('מרכז אלומה אנכי (°)',  0,  0.5, -45, 45,  'זווית עילוי/הטיה מרכזית (0=אופקי) — שדה-ראייה של "מכ"ם" רעיוני, לא כלי אמיתי');
                 _radialVWidthInput   = _mkField('רוחב אלומה אנכי (°)',  4,  0.5, 1,   90,  'רוחב שדה-הראייה האנכי הכולל סביב המרכז — מוגבל בכוונה, לא כל טווח הגובה נבדק');
 
-                _buildStationUI(panelBody, 'radial_los', {{
+                // מקור-אמת יחיד למפת השדות — משמש גם ל"עמדות שמורות" (עם מיקום) וגם ל"הגדרות שמורות" (בלעדיו) מיד למטה
+                var _radialFieldMap = {{
                     range_km: _radialRangeInput, min_range_km: _radialMinRangeInput, angle_step_deg: _radialStepInput,
                     start_bearing_deg: _radialStartInput, end_bearing_deg: _radialEndInput,
                     obs_h: _radialObsInput, tgt_h: _radialTgtInput, ridge_margin_deg: _radialMarginInput,
                     vertical_center_deg: _radialVCenterInput, vertical_width_deg: _radialVWidthInput,
-                }}, function() {{ return radialLosObs; }}, _placeRadialLosObserver, _updateRadialLosPreview);
+                }};
+                _buildStationUI(panelBody, 'radial_los', _radialFieldMap,
+                    function() {{ return radialLosObs; }}, _placeRadialLosObserver, _updateRadialLosPreview,
+                    'עמדות שמורות (מיקום+הגדרות):');
+                // בלוק שני — "הגדרות שמורות" בלי מיקום: getObsFn/placeObsFn null כדי ש-lat/lon לעולם לא יישמרו/יוחלו
+                _buildStationUI(panelBody, 'radial_los_settings', _radialFieldMap,
+                    null, null, _updateRadialLosPreview,
+                    'הגדרות שמורות (ללא מיקום):');
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
@@ -3456,7 +3471,8 @@ def create_map():
                     ['יבשה מחוספסת', 'land'], ['ים חלק', 'sea']
                 ], 0, 'רלוונטי רק כש"הצג השפעת ריבוד" מסומן — משטח חלק יותר מחזיר חזק יותר');
 
-                _buildStationUI(panelBody, 'radar_doppler', {{
+                // מקור-אמת יחיד למפת השדות — משמש גם ל"עמדות שמורות" (עם מיקום) וגם ל"הגדרות שמורות" (בלעדיו) מיד למטה
+                var _radarFieldMap = {{
                     range_km: _radarRangeInput, min_range_km: _radarMinRangeInput, angle_step_deg: _radarStepInput,
                     start_bearing_deg: _radarStartInput, end_bearing_deg: _radarEndInput, h_antenna: _radarHAntInput,
                     ridge_margin_deg: _radarMarginInput, vertical_center_deg: _radarVCenterInput, vertical_width_deg: _radarVWidthInput,
@@ -3464,7 +3480,14 @@ def create_map():
                     rcs_m2: _radarRcsInput, antenna_type: _radarAntennaSelect, boresight_deg: _radarBoresightInput, max_scan_deg: _radarMaxScanInput,
                     prf_hz: _radarPrfInput, mdv_kt: _radarMdvInput, target_speed_kt: _radarSpeedInput, target_heading_deg: _radarHeadingInput,
                     lobing_enabled: _radarLobingCheck, reflectivity: _radarReflSelect,
-                }}, function() {{ return radarObs; }}, _placeRadarObserver, _updateRadarDopplerPreview);
+                }};
+                _buildStationUI(panelBody, 'radar_doppler', _radarFieldMap,
+                    function() {{ return radarObs; }}, _placeRadarObserver, _updateRadarDopplerPreview,
+                    'עמדות שמורות (מיקום+הגדרות):');
+                // בלוק שני — "הגדרות שמורות" בלי מיקום: getObsFn/placeObsFn null כדי ש-lat/lon לעולם לא יישמרו/יוחלו
+                _buildStationUI(panelBody, 'radar_doppler_settings', _radarFieldMap,
+                    null, null, _updateRadarDopplerPreview,
+                    'הגדרות שמורות (ללא מיקום):');
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';

@@ -263,6 +263,8 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 
 **קובץ נוסף שנוצר (25/08/2026)**: `מדריך-הפעלה-Android.md` — מדריך תפעולי למשתמש-קצה (לא טכני) לאפליקציית האנדרואיד, מחליף/מעדכן את ה-PDF הישן (`מדריך-הפעלה-Android.pdf`, מיושן מ-12/08). ה-PDF נשאר בריפו כארכיון היסטורי בלבד — **מקור האמת מעכשיו הוא ה-md**.
 
+**"הגדרות שמורות" — פריסטים בלי מיקום (25/08/2026, Desktop+Android, רדיוס-ראייה+מכ"ם-דופלר בלבד)**: תכונה נפרדת מ"עמדות שמורות" הקיים — שומרת/טוענת/מוחקת פרמטרים בלי לגעת במיקום. Desktop: שני מפתחות-כלי חדשים (`radial_los_settings`/`radar_doppler_settings`) ב-`_STATIONS_VALID_TOOLS` (`weather_server.py`) — האנדפוינטים הגנריים לא השתנו. `_buildStationUI` ב-`MAP.py` נקרא פעמיים לכל כלי (עם/בלי `getObsFn`). Android: `_paramsFromState(includePosition:)` + מתודות/UI מקבילים חדשים בכל פאנל, ה-storage הגנרי (`loadStations`/`saveStation`/`deleteStation`) לא השתנה. ר' `MAPS-GUI_SRS.md` FR-D-209.
+
 ---
 
 *כעת תאר מה אתה רוצה לעשות/לשנות/לתקן בפרויקט.*

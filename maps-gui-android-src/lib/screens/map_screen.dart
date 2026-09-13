@@ -2467,6 +2467,10 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   final _stationNameCtrl = TextEditingController(); // "עמדות שמורות" — היה חסר לגמרי בכלי הזה (נמצא בבדיקה חיה: "טעינת מיקום שמור לא מתפקדת")
   List<Map<String, dynamic>> _stations = [];
   String? _selectedStation;
+  // "הגדרות שמורות" — כמו עמדות שמורות, אך בלי מיקום (lat/lon) בכלל — בקשת המשתמש: לשמור פרמטרים בלי לקבע מיקום
+  final _settingsNameCtrl = TextEditingController();
+  List<Map<String, dynamic>> _settingsPresets = [];
+  String? _selectedSettingsPreset;
 
   // Undo/Redo לשדות מספריים — FocusNode אחד לכל שדה (נוצר עצלנית, לא בכל build), נלכד ערך
   // בכניסה לשדה (focus) ונרשם ל-Undo רק ביציאה ממנו (blur) עם ערך שונה — לא בכל הקשה
@@ -2489,6 +2493,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     _vCenterCtrl = TextEditingController(text: _fmt(s.radialVCenterDeg));
     _vWidthCtrl = TextEditingController(text: _fmt(s.radialVWidthDeg));
     _refreshStations();
+    _refreshSettingsPresets(); // טוען גם את רשימת "הגדרות שמורות" (בלי מיקום) עם פתיחת הפאנל
   }
 
   Future<void> _refreshStations() async {
@@ -2497,16 +2502,27 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     setState(() { _stations = list; _selectedStation = null; });
   }
 
-  // 10 הפרמטרים + מיקום — אותם שמות שדה בדיוק כמו ב-Desktop (weather_server.py), לעקביות
-  Map<String, dynamic> _paramsFromState() {
+  // 'radial_los_settings' — אותו אחסון בדיוק (SharedPreferences לפי toolKey), רק מפתח נפרד
+  Future<void> _refreshSettingsPresets() async {
+    final list = await widget.state.loadStations('radial_los_settings');
+    if (!mounted) return;
+    setState(() { _settingsPresets = list; _selectedSettingsPreset = null; });
+  }
+
+  // 10 הפרמטרים, ומיקום רק כש-includePosition — "הגדרות שמורות" קוראות עם false כדי לא לשמור lat/lon בכלל
+  Map<String, dynamic> _paramsFromState({bool includePosition = true}) {
     final s = widget.state;
-    return {
-      'lat': s.radialLosObs?.latitude, 'lon': s.radialLosObs?.longitude,
+    final params = <String, dynamic>{
       'range_km': s.radialRangeKm, 'min_range_km': s.radialMinRangeKm, 'angle_step_deg': s.radialAngleStepDeg,
       'start_bearing_deg': s.radialStartBearingDeg, 'end_bearing_deg': s.radialEndBearingDeg,
       'obs_h': s.radialObsH, 'tgt_h': s.radialTgtH, 'ridge_margin_deg': s.radialRidgeMarginDeg,
       'vertical_center_deg': s.radialVCenterDeg, 'vertical_width_deg': s.radialVWidthDeg,
     };
+    if (includePosition) {
+      params['lat'] = s.radialLosObs?.latitude;
+      params['lon'] = s.radialLosObs?.longitude;
+    }
+    return params;
   }
 
   Future<void> _saveStation() async {
@@ -2515,6 +2531,30 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     await widget.state.saveStation('radial_los', name, _paramsFromState());
     _stationNameCtrl.clear();
     await _refreshStations();
+  }
+
+  // שמירת פריסט-הגדרות תחת 'radial_los_settings' — params בלי lat/lon בכלל (includePosition: false)
+  Future<void> _saveSettingsPreset() async {
+    final name = _settingsNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    await widget.state.saveStation('radial_los_settings', name, _paramsFromState(includePosition: false));
+    _settingsNameCtrl.clear();
+    await _refreshSettingsPresets();
+  }
+
+  // מעדכן את כל שדות הטקסט בפאנל מה-state הנוכחי — משותף בין טעינת עמדה וטעינת פריסט-הגדרות
+  void _syncAllControllers() {
+    final s = widget.state;
+    _rangeCtrl.text = _fmt(s.radialRangeKm);
+    _minRangeCtrl.text = _fmt(s.radialMinRangeKm);
+    _stepCtrl.text = _fmt(s.radialAngleStepDeg);
+    _startCtrl.text = _fmt(s.radialStartBearingDeg);
+    _endCtrl.text = _fmt(s.radialEndBearingDeg);
+    _obsHCtrl.text = _fmt(s.radialObsH);
+    _tgtHCtrl.text = _fmt(s.radialTgtH);
+    _marginCtrl.text = _fmt(s.radialRidgeMarginDeg);
+    _vCenterCtrl.text = _fmt(s.radialVCenterDeg);
+    _vWidthCtrl.text = _fmt(s.radialVWidthDeg);
   }
 
   void _loadStation(Map<String, dynamic> station) {
@@ -2538,21 +2578,37 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
       s.setRadialLosObserver(loadedPoint);
       s.radialLosFocusPoint = loadedPoint; // מפעיל קפיצת מצלמה ב-build() של _MapScreenState — ר' map_state.dart
     }
-    _rangeCtrl.text = _fmt(s.radialRangeKm);
-    _minRangeCtrl.text = _fmt(s.radialMinRangeKm);
-    _stepCtrl.text = _fmt(s.radialAngleStepDeg);
-    _startCtrl.text = _fmt(s.radialStartBearingDeg);
-    _endCtrl.text = _fmt(s.radialEndBearingDeg);
-    _obsHCtrl.text = _fmt(s.radialObsH);
-    _tgtHCtrl.text = _fmt(s.radialTgtH);
-    _marginCtrl.text = _fmt(s.radialRidgeMarginDeg);
-    _vCenterCtrl.text = _fmt(s.radialVCenterDeg);
-    _vWidthCtrl.text = _fmt(s.radialVWidthDeg);
+    _syncAllControllers();
+  }
+
+  // טעינת פריסט-הגדרות — זהה ל-_loadStation, אך בלי שום התייחסות ל-lat/lon (הפריסט מעולם לא כולל אותם)
+  void _loadSettingsPreset(Map<String, dynamic> preset) {
+    final params = (preset['params'] as Map).cast<String, dynamic>();
+    final s = widget.state;
+    double d(String key, double fallback) => params[key] != null ? (params[key] as num).toDouble() : fallback;
+    s.updateRadialLosParam(() {
+      s.radialRangeKm = d('range_km', s.radialRangeKm);
+      s.radialMinRangeKm = d('min_range_km', s.radialMinRangeKm);
+      s.radialAngleStepDeg = d('angle_step_deg', s.radialAngleStepDeg);
+      s.radialStartBearingDeg = d('start_bearing_deg', s.radialStartBearingDeg);
+      s.radialEndBearingDeg = d('end_bearing_deg', s.radialEndBearingDeg);
+      s.radialObsH = d('obs_h', s.radialObsH);
+      s.radialTgtH = d('tgt_h', s.radialTgtH);
+      s.radialRidgeMarginDeg = d('ridge_margin_deg', s.radialRidgeMarginDeg);
+      s.radialVCenterDeg = d('vertical_center_deg', s.radialVCenterDeg);
+      s.radialVWidthDeg = d('vertical_width_deg', s.radialVWidthDeg);
+    });
+    _syncAllControllers();
   }
 
   Future<void> _deleteStation(String name) async {
     await widget.state.deleteStation('radial_los', name);
     await _refreshStations();
+  }
+
+  Future<void> _deleteSettingsPreset(String name) async {
+    await widget.state.deleteStation('radial_los_settings', name);
+    await _refreshSettingsPresets();
   }
 
   Widget _header(String text) {
@@ -2627,6 +2683,66 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     );
   }
 
+  // שורת "הגדרות שמורות" — זהה מבנית ל-_stationUI, אך בלי מיקום בכלל: שם+שמירה, ואז dropdown+טעינה/מחיקה
+  Widget _settingsPresetUI() {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 26,
+              child: TextField(
+                controller: _settingsNameCtrl,
+                style: const TextStyle(fontSize: 10),
+                decoration: const InputDecoration(
+                  isDense: true, hintText: 'שם הגדרה',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _saveSettingsPreset, icon: const Icon(Icons.save, size: 16),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            tooltip: 'שמור הגדרות נוכחיות (בלי מיקום)',
+          ),
+        ]),
+        if (_settingsPresets.isNotEmpty)
+          Row(children: [
+            Expanded(
+              child: DropdownButton<String>(
+                value: _selectedSettingsPreset,
+                isDense: true, isExpanded: true,
+                hint: Text('בחר הגדרות שמורות', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                style: TextStyle(fontSize: 9, color: cs.onSurface),
+                underline: const SizedBox.shrink(),
+                items: [for (final st in _settingsPresets) DropdownMenuItem(value: st['name'] as String, child: Text(st['name'] as String))],
+                onChanged: (v) => setState(() => _selectedSettingsPreset = v),
+              ),
+            ),
+            IconButton(
+              onPressed: _selectedSettingsPreset == null ? null : () {
+                final st = _settingsPresets.firstWhere((s) => s['name'] == _selectedSettingsPreset);
+                _loadSettingsPreset(st);
+              },
+              icon: const Icon(Icons.folder_open, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'טען הגדרות נבחרות',
+            ),
+            IconButton(
+              onPressed: _selectedSettingsPreset == null ? null : () => _deleteSettingsPreset(_selectedSettingsPreset!),
+              icon: const Icon(Icons.delete_outline, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'מחק הגדרות נבחרות',
+            ),
+          ]),
+      ]),
+    );
+  }
+
   // עיגול תצוגה ל-1 ספרה אחרי הנקודה — מונע "5.0000000001" מחישובי גרירה
   String _fmt(double v) => v.toStringAsFixed(1);
 
@@ -2648,7 +2764,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   @override
   void dispose() {
     // שחרור כל הבקרים — מונע memory leak כשהפאנל מוסר מהעץ (למשל באיפוס מפה)
-    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _obsHCtrl, _tgtHCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl, _stationNameCtrl]) {
+    for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _obsHCtrl, _tgtHCtrl, _marginCtrl, _vCenterCtrl, _vWidthCtrl, _stationNameCtrl, _settingsNameCtrl]) {
       c.dispose();
     }
     for (final fn in _fieldFocusNodes.values) { fn.dispose(); }
@@ -2787,8 +2903,10 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
               _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radialVCenterDeg = v),
               _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radialVWidthDeg = v),
 
-              _header('עמדות שמורות'),
+              _header('עמדות שמורות (מיקום+הגדרות)'),
               _stationUI(),
+              _header('הגדרות שמורות (ללא מיקום)'),
+              _settingsPresetUI(),
 
               const SizedBox(height: 4),
               if (s.radialLosLoading) ...[
@@ -2865,6 +2983,10 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   final _stationNameCtrl = TextEditingController();
   List<Map<String, dynamic>> _stations = [];
   String? _selectedStation;
+  // "הגדרות שמורות" — כמו עמדות שמורות, אך בלי מיקום (lat/lon) בכלל, ר' _RadialLosPanelState המקביל
+  final _settingsNameCtrl = TextEditingController();
+  List<Map<String, dynamic>> _settingsPresets = [];
+  String? _selectedSettingsPreset;
 
   // Undo/Redo לשדות מספריים — אותו דפוס בדיוק כמו _RadialLosPanelState._fieldFocusNodes
   final Map<TextEditingController, FocusNode> _fieldFocusNodes = {};
@@ -2899,6 +3021,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     _boresightCtrl = TextEditingController(text: _fmt(s.radarBoresightDeg));
     _maxScanCtrl = TextEditingController(text: _fmt(s.radarMaxScanDeg));
     _refreshStations();
+    _refreshSettingsPresets(); // טוען גם את רשימת "הגדרות שמורות" (בלי מיקום) עם פתיחת הפאנל
   }
 
   String _fmt(double v) => v.toStringAsFixed(1);
@@ -2945,7 +3068,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   void dispose() {
     for (final c in [_rangeCtrl, _minRangeCtrl, _stepCtrl, _startCtrl, _endCtrl, _hAntCtrl, _marginCtrl,
         _vCenterCtrl, _vWidthCtrl, _powerCtrl, _gainCtrl, _sensCtrl, _rcsCtrl, _prfCtrl, _mdvCtrl, _speedCtrl,
-        _headingCtrl, _boresightCtrl, _maxScanCtrl, _stationNameCtrl]) {
+        _headingCtrl, _boresightCtrl, _maxScanCtrl, _stationNameCtrl, _settingsNameCtrl]) {
       c.dispose();
     }
     for (final fn in _fieldFocusNodes.values) { fn.dispose(); }
@@ -3105,11 +3228,17 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     setState(() { _stations = list; _selectedStation = null; });
   }
 
-  // כל 22 הפרמטרים + מיקום — אותם שמות שדה בדיוק כמו ב-Desktop (weather_server.py), לעקביות
-  Map<String, dynamic> _paramsFromState() {
+  // 'radar_doppler_settings' — אותו אחסון בדיוק (SharedPreferences לפי toolKey), רק מפתח נפרד
+  Future<void> _refreshSettingsPresets() async {
+    final list = await widget.state.loadStations('radar_doppler_settings');
+    if (!mounted) return;
+    setState(() { _settingsPresets = list; _selectedSettingsPreset = null; });
+  }
+
+  // כל 22 הפרמטרים, ומיקום רק כש-includePosition — "הגדרות שמורות" קוראות עם false כדי לא לשמור lat/lon בכלל
+  Map<String, dynamic> _paramsFromState({bool includePosition = true}) {
     final s = widget.state;
-    return {
-      'lat': s.radarObs?.latitude, 'lon': s.radarObs?.longitude,
+    final params = <String, dynamic>{
       'range_km': s.radarRangeKm, 'min_range_km': s.radarMinRangeKm, 'angle_step_deg': s.radarAngleStepDeg,
       'start_bearing_deg': s.radarStartBearingDeg, 'end_bearing_deg': s.radarEndBearingDeg,
       'h_antenna': s.radarHAntenna, 'ridge_margin_deg': s.radarRidgeMarginDeg,
@@ -3121,6 +3250,11 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
       'lobing_enabled': s.radarLobingEnabled, 'reflectivity': s.radarReflectivity,
       'antenna_type': s.radarAntennaType, 'boresight_deg': s.radarBoresightDeg, 'max_scan_deg': s.radarMaxScanDeg,
     };
+    if (includePosition) {
+      params['lat'] = s.radarObs?.latitude;
+      params['lon'] = s.radarObs?.longitude;
+    }
+    return params;
   }
 
   Future<void> _saveStation() async {
@@ -3129,6 +3263,15 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     await widget.state.saveStation('radar_doppler', name, _paramsFromState());
     _stationNameCtrl.clear();
     await _refreshStations();
+  }
+
+  // שמירת פריסט-הגדרות תחת 'radar_doppler_settings' — params בלי lat/lon בכלל (includePosition: false)
+  Future<void> _saveSettingsPreset() async {
+    final name = _settingsNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    await widget.state.saveStation('radar_doppler_settings', name, _paramsFromState(includePosition: false));
+    _settingsNameCtrl.clear();
+    await _refreshSettingsPresets();
   }
 
   void _loadStation(Map<String, dynamic> station) {
@@ -3171,6 +3314,44 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   Future<void> _deleteStation(String name) async {
     await widget.state.deleteStation('radar_doppler', name);
     await _refreshStations();
+  }
+
+  // טעינת פריסט-הגדרות — זהה ל-_loadStation, אך בלי שום התייחסות ל-lat/lon (הפריסט מעולם לא כולל אותם)
+  void _loadSettingsPreset(Map<String, dynamic> preset) {
+    final params = (preset['params'] as Map).cast<String, dynamic>();
+    final s = widget.state;
+    double d(String key, double fallback) => params[key] != null ? (params[key] as num).toDouble() : fallback;
+    s.updateRadarParam(() {
+      s.radarRangeKm = d('range_km', s.radarRangeKm);
+      s.radarMinRangeKm = d('min_range_km', s.radarMinRangeKm);
+      s.radarAngleStepDeg = d('angle_step_deg', s.radarAngleStepDeg);
+      s.radarStartBearingDeg = d('start_bearing_deg', s.radarStartBearingDeg);
+      s.radarEndBearingDeg = d('end_bearing_deg', s.radarEndBearingDeg);
+      s.radarHAntenna = d('h_antenna', s.radarHAntenna);
+      s.radarRidgeMarginDeg = d('ridge_margin_deg', s.radarRidgeMarginDeg);
+      s.radarVCenterDeg = d('vertical_center_deg', s.radarVCenterDeg);
+      s.radarVWidthDeg = d('vertical_width_deg', s.radarVWidthDeg);
+      s.radarPowerKw = d('power_kw', s.radarPowerKw);
+      s.radarGainDbi = d('gain_dbi', s.radarGainDbi);
+      s.radarFreqMhz = d('freq_mhz', s.radarFreqMhz);
+      s.radarSensitivityDbm = d('sensitivity_dbm', s.radarSensitivityDbm);
+      s.radarRcsM2 = d('rcs_m2', s.radarRcsM2);
+      s.radarPrfHz = d('prf_hz', s.radarPrfHz);
+      s.radarMdvKt = d('mdv_kt', s.radarMdvKt);
+      s.radarTargetSpeedKt = d('target_speed_kt', s.radarTargetSpeedKt);
+      s.radarTargetHeadingDeg = d('target_heading_deg', s.radarTargetHeadingDeg);
+      if (params['lobing_enabled'] != null) s.radarLobingEnabled = params['lobing_enabled'] as bool;
+      if (params['reflectivity'] != null) s.radarReflectivity = params['reflectivity'] as String;
+      if (params['antenna_type'] != null) s.radarAntennaType = params['antenna_type'] as String;
+      s.radarBoresightDeg = d('boresight_deg', s.radarBoresightDeg);
+      s.radarMaxScanDeg = d('max_scan_deg', s.radarMaxScanDeg);
+    });
+    _syncAllControllers();
+  }
+
+  Future<void> _deleteSettingsPreset(String name) async {
+    await widget.state.deleteStation('radar_doppler_settings', name);
+    await _refreshSettingsPresets();
   }
 
   // שורת "עמדות שמורות" — שם+שמירה, ואז dropdown+טעינה/מחיקה, אותו רעיון כמו _buildStationUI ב-Desktop
@@ -3227,6 +3408,66 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
               icon: const Icon(Icons.delete_outline, size: 16),
               visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
               tooltip: 'מחק עמדה נבחרת',
+            ),
+          ]),
+      ]),
+    );
+  }
+
+  // שורת "הגדרות שמורות" — זהה מבנית ל-_stationUI, אך בלי מיקום בכלל: שם+שמירה, ואז dropdown+טעינה/מחיקה
+  Widget _settingsPresetUI() {
+    final cs = widget.cs;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 26,
+              child: TextField(
+                controller: _settingsNameCtrl,
+                style: const TextStyle(fontSize: 10),
+                decoration: const InputDecoration(
+                  isDense: true, hintText: 'שם הגדרה',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: _saveSettingsPreset, icon: const Icon(Icons.save, size: 16),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            tooltip: 'שמור הגדרות נוכחיות (בלי מיקום)',
+          ),
+        ]),
+        if (_settingsPresets.isNotEmpty)
+          Row(children: [
+            Expanded(
+              child: DropdownButton<String>(
+                value: _selectedSettingsPreset,
+                isDense: true, isExpanded: true,
+                hint: Text('בחר הגדרות שמורות', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                style: TextStyle(fontSize: 9, color: cs.onSurface),
+                underline: const SizedBox.shrink(),
+                items: [for (final st in _settingsPresets) DropdownMenuItem(value: st['name'] as String, child: Text(st['name'] as String))],
+                onChanged: (v) => setState(() => _selectedSettingsPreset = v),
+              ),
+            ),
+            IconButton(
+              onPressed: _selectedSettingsPreset == null ? null : () {
+                final st = _settingsPresets.firstWhere((s) => s['name'] == _selectedSettingsPreset);
+                _loadSettingsPreset(st);
+              },
+              icon: const Icon(Icons.folder_open, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'טען הגדרות נבחרות',
+            ),
+            IconButton(
+              onPressed: _selectedSettingsPreset == null ? null : () => _deleteSettingsPreset(_selectedSettingsPreset!),
+              icon: const Icon(Icons.delete_outline, size: 16),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              tooltip: 'מחק הגדרות נבחרות',
             ),
           ]),
       ]),
@@ -3346,8 +3587,10 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                 _dropdownRow<String>('סוג משטח מחזיר', s.radarReflectivity, const ['land', 'sea'],
                     const ['יבשה מחוספסת', 'ים חלק'], (v) => s.radarReflectivity = v),
 
-                _header('עמדות שמורות'),
+                _header('עמדות שמורות (מיקום+הגדרות)'),
                 _stationUI(),
+                _header('הגדרות שמורות (ללא מיקום)'),
+                _settingsPresetUI(),
 
                 const SizedBox(height: 4),
                 if (s.radarLoading) ...[
