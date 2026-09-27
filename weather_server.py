@@ -1625,6 +1625,10 @@ _STATIONS_VALID_TOOLS = (
     # עם אותם params בדיוק כמו העמדות הרגילות, רק בלי lat/lon (ר' _buildStationUI ב-MAP.py).
     # אותו קובץ/מנגנון בדיוק — השרת לא צריך לדעת את ההבדל, ה-JS פשוט לא שולח מיקום.
     'radial_los_settings', 'radar_doppler_settings',
+    # מפתח נוסף — כלי "מסלול טיסה מותאם" (נקודות שהמשתמש מזין ידנית, ר' MAP.py CustomRouteControl).
+    # params כאן הוא {'points': [{lat, lng, alt}, ...]} במקום שדות בודדים — עדיין עובד ללא שינוי
+    # כי /stations/* גנרי לגמרי ולא בודק את מבנה params בכלל.
+    'custom_route',
 )  # מפתחות תקינים — שם JS מזהה כל כלי
 
 

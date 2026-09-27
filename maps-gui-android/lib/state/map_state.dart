@@ -14,6 +14,7 @@ import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ר�
 import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
 import '../models/flight_trail_point.dart'; // נקודת מסלול טיסה עם טלמטריה — להערכת מסלול מול מכ"ם-דופלר
 import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
+import '../models/route_point.dart'; // נקודה ב"מסלול טיסה מותאם" — {lat, lng, altM אופציונלי}
 import '../models/uas_notam_zone.dart'; // מודל אזור NOTAM לרחפנים
 import '../services/api_service.dart'; // גם geocodeCity() -> CityResult, בשימוש מוסק (inferred) ללא ייבוא ישיר
 import '../utils/heat_image.dart';
@@ -1001,6 +1002,62 @@ class MapState extends ChangeNotifier {
     }
   }
 
+  // ── כלי "מסלול טיסה מותאם" — המשתמש מזין רשימת נקודות (הקלדה/הדבקה/קליק על המפה) ומקבל
+  // מסלול סגור מצויר על המפה. בשונה מ-LOS/רדיוס-ראייה/מכ"ם-דופלר — אין כאן שום חישוב פיזיקלי,
+  // אין תלות בשרת/API בכלל (חיבור-נקודות גרפי טהור). שמירה/טעינה משתמשות ב-saveStation/
+  // loadStations/deleteStation הגנריים הקיימים (toolKey='custom_route'), כמו "הגדרות שמורות".
+  bool customRouteMode = false; // האם מצב הוספת נקודות למסלול פעיל (קליק על המפה מוסיף נקודה)
+  List<RoutePoint> customRoutePoints = []; // נקודות המסלול לפי סדר — מצויר כקו סגור (חוזר לראשונה)
+
+  void toggleCustomRouteMode() {
+    customRouteMode = !customRouteMode;
+    notifyListeners();
+    // כיבוי המצב בלבד — לא מוחק את המסלול המצויר, עקבי עם כל שאר הכלים (LOS/רדיוס-ראייה/
+    // מכ"ם-דופלר): רק clearCustomRoute המפורש או resetMap מוחקים בפועל
+  }
+
+  void addCustomRoutePoint(double lat, double lng, {double? alt}) {
+    customRoutePoints = [...customRoutePoints, RoutePoint(lat: lat, lng: lng, altM: alt)];
+    notifyListeners();
+  }
+
+  void removeLastCustomRoutePoint() {
+    if (customRoutePoints.isEmpty) return;
+    customRoutePoints = customRoutePoints.sublist(0, customRoutePoints.length - 1);
+    notifyListeners();
+  }
+
+  void removeCustomRoutePointAt(int index) {
+    final next = [...customRoutePoints]..removeAt(index);
+    customRoutePoints = next;
+    notifyListeners();
+  }
+
+  void updateCustomRoutePointAlt(int index, double? alt) {
+    final p = customRoutePoints[index];
+    final next = [...customRoutePoints];
+    next[index] = RoutePoint(lat: p.lat, lng: p.lng, altM: alt); // immutable — מחליף את הנקודה כולה
+    customRoutePoints = next;
+    notifyListeners();
+  }
+
+  void clearCustomRoute() {
+    customRoutePoints = [];
+    notifyListeners();
+  }
+
+  void setCustomRoutePoints(List<RoutePoint> points) {
+    customRoutePoints = points; // נקרא מטעינת מסלול שמור — מחליף את כל הרשימה בבת אחת
+    notifyListeners();
+  }
+
+  // טריגר חד-פעמי למיקוד המפה על כל נקודות המסלול — נדרש רק אחרי הוספה מרובה (מטקסט) או טעינת
+  // מסלול שמור, לא אחרי כל קליק בודד (שם המשתמש כבר מסתכל על האזור). בלי זה, נקודות שהוזנו
+  // כטקסט באזור רחוק מהתצוגה הנוכחית "נעלמות" בשקט (נמצא בבדיקה חיה של המשתמש ב-Desktop).
+  bool customRouteFitPending = false;
+  void requestCustomRouteFit() { customRouteFitPending = true; notifyListeners(); }
+  void consumeCustomRouteFit() { customRouteFitPending = false; }
+
   // ── איפוס מפה מלא ─────────────────────────────────────────────────────────
   // מקביל ל-resetMapState() בגרסת הדסקטופ — מנקה את כל השכבות/הכלים/הסימונים
   // הפעילים ומחזיר את המצלמה למרכז ברירת המחדל. לא נוגע בהיסטוריית החיפוש
@@ -1030,6 +1087,7 @@ class MapState extends ChangeNotifier {
     radarLoading = false; radarError = null;
     flightData = null; flightError = null; flightFocusPoint = null; // ניקוי מסלול טיסה מוצג, אם קיים
     pinnedPoints = []; lastPinnedPoint = null; lastSelfLocation = null; // מחיקת כל הסיכות שנוספו ידנית/ע"י GPS
+    customRouteMode = false; customRoutePoints = []; customRouteFitPending = false; // איפוס מלא של מסלול הטיסה המותאם
     cityBounds = null; cityBoundaryRings = []; citySearchError = null; cityFocusPoint = null; // ניקוי תוצאת חיפוש עיר מוצגת
     resetFocusPoint = const LatLng(31.5, 34.9); // אותה נקודת פתיחה כמו initialCenter ב-map_screen.dart — מחזיר את המצלמה למרכז
     notifyListeners(); // עדכון כל ה-widgets שמאזינים ל-state בבת אחת

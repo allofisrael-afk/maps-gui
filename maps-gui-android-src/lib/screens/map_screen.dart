@@ -13,6 +13,8 @@ import '../models/airport_ctr_zone.dart'; // מודל גבול CTR קבוע של
 import '../data/airport_ctr_zones.dart'; // נתוני גבולות ה-CTR הסטטיים, ממקור AIP רשמי
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
+import '../models/route_point.dart'; // נקודה ב"מסלול טיסה מותאם"
+import '../services/api_service.dart'; // ApiService.parseCoordLine — פענוח קואורדינטות חופשי
 import '../state/map_state.dart';
 import '../version.dart';
 import '../widgets/controls_panel.dart';
@@ -315,6 +317,22 @@ class _MapScreenState extends State<MapScreen> {
       });
     }
 
+    if (state.customRouteFitPending) {
+      // ממקד על כל נקודות "מסלול טיסה מותאם" — נקרא רק אחרי הוספה מרובה מטקסט/טעינת מסלול שמור
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final pts = state.customRoutePoints.map((p) => LatLng(p.lat, p.lng)).toList();
+        if (pts.length >= 2) {
+          _mapController.fitCamera(CameraFit.bounds(
+            bounds: LatLngBounds.fromPoints(pts),
+            padding: const EdgeInsets.all(40),
+          ));
+        } else if (pts.length == 1) {
+          _mapController.move(pts.first, 10);
+        }
+        state.consumeCustomRouteFit();
+      });
+    }
+
     if (state.resetFocusPoint != null) {
       // איפוס מפה בוצע — מחזיר את המצלמה למרכז ברירת המחדל, באותו דפוס כמו שאר טריגרי הקפיצה
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -493,6 +511,8 @@ class _MapScreenState extends State<MapScreen> {
               ..._buildRadialLosLayers(state),
               // ── שכבות תצפית מכ"ם דופלר — תצוגה מקדימה או תוצאה מחושבת (תלת-צבעונית) ──
               ..._buildRadarDopplerLayers(state),
+              // ── שכבת "מסלול טיסה מותאם" — קו סגור + סמנים ממוספרים לפי הנקודות שהוזנו ──
+              ..._buildCustomRouteLayers(state),
               // ── סמן תצפית זמני: מוצג לאחר לחיצה ראשונה בטרם בחירת יעד ──
               if (state.losCurObs != null)
                 CircleLayer(circles: [
@@ -903,6 +923,8 @@ class _MapScreenState extends State<MapScreen> {
                     _RadialLosPanel(state: state, cs: cs),
                     const SizedBox(height: 8),
                     _RadarDopplerPanel(state: state, cs: cs),
+                    const SizedBox(height: 8),
+                    _CustomRoutePanel(state: state, cs: cs),
                   ],
                 ),
               ),
@@ -1137,6 +1159,42 @@ class _MapScreenState extends State<MapScreen> {
           borderColor: const Color(0xFF333333), borderStrokeWidth: 2),
     ]));
 
+    return layers;
+  }
+
+  // צבע ייחודי לכלי "מסלול טיסה מותאם" — לא בשימוש אצל אף כלי אחר (תכלת-ירקרק, שונה מכל
+  // הצבעים הקיימים: כחול-מסלול-טיסה/ירוק-מכ"ם/כתום-דופלר/אדום-חסום/אפור-מחוץ-לטווח/ציאן-מכ"ם/מגנטה-CTR)
+  static const Color _customRouteColor = Color(0xFF14B8A6);
+
+  // מצייר את שכבת "מסלול טיסה מותאם" — קו סגור (חוזר לנקודה הראשונה) + סמן ממוספר לכל נקודה,
+  // בדיוק כמו ב-Desktop (MAP.py::_redrawCustomRoute) — המספור מסייע לוודא ויזואלית שסדר/מיקום
+  // הנקודות (במיוחד קו-רוחב/קו-אורך שהוזנו כטקסט חופשי) נכונים.
+  List<Widget> _buildCustomRouteLayers(MapState state) {
+    final pts = state.customRoutePoints;
+    if (pts.isEmpty) return const [];
+    final layers = <Widget>[];
+    if (pts.length >= 2) {
+      final closed = [...pts.map((p) => LatLng(p.lat, p.lng)), LatLng(pts.first.lat, pts.first.lng)];
+      layers.add(PolylineLayer(polylines: [
+        Polyline(points: closed, color: _customRouteColor, strokeWidth: 3),
+      ]));
+    }
+    layers.add(MarkerLayer(markers: [
+      for (int i = 0; i < pts.length; i++)
+        Marker(
+          point: LatLng(pts[i].lat, pts[i].lng),
+          width: 20, height: 20,
+          child: Container(
+            decoration: BoxDecoration(
+              color: _customRouteColor, shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            alignment: Alignment.center,
+            child: Text('${i + 1}',
+                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+        ),
+    ]));
     return layers;
   }
 
@@ -1726,6 +1784,11 @@ class _MapScreenState extends State<MapScreen> {
     }
     if (state.rulerMode) {
       state.addRulerPoint(point); // הוסף נקודה למדידת מרחק
+      return;
+    }
+    // מצב "מסלול טיסה מותאם" — לחיצה מוסיפה נקודה בלי גובה (ניתן להזין גובה ידנית אח"כ בפאנל)
+    if (state.customRouteMode) {
+      state.addCustomRoutePoint(point.latitude, point.longitude);
       return;
     }
     if (state.activeLayer == LayerType.elevation && state.elevPoints.isNotEmpty) {
@@ -3682,6 +3745,308 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
             ),
         ),
       ),
+    );
+  }
+}
+
+// ── פאנל "מסלול טיסה מותאם" — אותו מבנה בדיוק כמו _RadialLosPanel/_RadarDopplerPanel (עיגול
+// אייקון כשכבוי, פאנל מלא כשפעיל) — ר' map_state.dart לשדות/מתודות (customRouteMode וכו').
+class _CustomRoutePanel extends StatefulWidget {
+  const _CustomRoutePanel({required this.state, required this.cs});
+  final MapState state;
+  final ColorScheme cs;
+
+  @override
+  State<_CustomRoutePanel> createState() => _CustomRoutePanelState();
+}
+
+class _CustomRoutePanelState extends State<_CustomRoutePanel> {
+  final _textCtrl = TextEditingController(); // תיבת הטקסט להדבקת/הקלדת קואורדינטות מרובות
+  final _routeNameCtrl = TextEditingController(); // שם המסלול לשמירה
+  List<Map<String, dynamic>> _savedRoutes = []; // רשימת המסלולים השמורים שנטענה מהמכשיר
+  String? _selectedRoute;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshSavedRoutes();
+  }
+
+  @override
+  void dispose() {
+    _textCtrl.dispose();
+    _routeNameCtrl.dispose();
+    super.dispose();
+  }
+
+  // 'custom_route' — אותו אחסון גנרי בדיוק (SharedPreferences לפי toolKey) כמו "עמדות שמורות"/
+  // "הגדרות שמורות" בכלי המכ"ם, רק שה-params כאן הוא {points: [...]} במקום שדות בודדים
+  Future<void> _refreshSavedRoutes() async {
+    final list = await widget.state.loadStations('custom_route');
+    if (!mounted) return;
+    setState(() { _savedRoutes = list; _selectedRoute = null; });
+  }
+
+  // מפענח כל שורה בתיבת הטקסט (ApiService.parseCoordLine, זהה בהתנהגותו ל-_parseCustomRouteLine
+  // ב-MAP.py) ומוסיף נקודות תקינות למסלול; שורות שנכשלו מדווחות בדיאלוג אחד, לא נזרקות בשקט
+  void _addFromText() {
+    final lines = _textCtrl.text.split('\n');
+    final errorLines = <int>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.trim().isEmpty) continue;
+      final pt = ApiService.parseCoordLine(line);
+      if (pt != null) {
+        widget.state.addCustomRoutePoint(pt.lat, pt.lng, alt: pt.altM);
+      } else {
+        errorLines.add(i + 1);
+      }
+    }
+    widget.state.requestCustomRouteFit(); // ממקד את המפה על הנקודות שנוספו — לא נשארות "מחוץ למסך" בשקט
+    _textCtrl.clear();
+    if (errorLines.isNotEmpty && mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('שגיאת פענוח'),
+          content: Text('שורות ${errorLines.join(', ')} לא זוהו כקואורדינטה תקינה ודולגו.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('אישור'))],
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveRoute() async {
+    final name = _routeNameCtrl.text.trim();
+    if (name.isEmpty) return;
+    if (widget.state.customRoutePoints.length < 2) return; // נדרשות לפחות 2 נקודות לשמירה
+    final points = widget.state.customRoutePoints
+        .map((p) => {'lat': p.lat, 'lng': p.lng, 'alt': p.altM})
+        .toList();
+    await widget.state.saveStation('custom_route', name, {'points': points});
+    _routeNameCtrl.clear();
+    await _refreshSavedRoutes();
+  }
+
+  void _loadRoute(Map<String, dynamic> route) {
+    final params = (route['params'] as Map).cast<String, dynamic>();
+    final rawPoints = (params['points'] as List?) ?? [];
+    final pts = rawPoints.map((p) {
+      final m = (p as Map).cast<String, dynamic>();
+      return RoutePoint(
+        lat: (m['lat'] as num).toDouble(),
+        lng: (m['lng'] as num).toDouble(),
+        altM: m['alt'] != null ? (m['alt'] as num).toDouble() : null,
+      );
+    }).toList();
+    widget.state.setCustomRoutePoints(pts);
+    widget.state.requestCustomRouteFit(); // ממקד על כל המסלול הטעון
+  }
+
+  Future<void> _deleteRoute(String name) async {
+    await widget.state.deleteStation('custom_route', name);
+    await _refreshSavedRoutes();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs;
+    final s = widget.state;
+
+    if (!s.customRouteMode) {
+      // מצב כבוי — עיגול אייקון בלבד, כמו _RadialLosPanel/_RadarDopplerPanel
+      return Material(
+        color: cs.surface.withAlpha(230),
+        shape: const CircleBorder(),
+        elevation: 3,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: s.toggleCustomRouteMode,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.route, size: 20, color: cs.onSurface), // אייקון ייחודי — לא בשימוש בכלי אחר
+          ),
+        ),
+      );
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: cs.surface.withAlpha(240),
+        borderRadius: BorderRadius.circular(10),
+        elevation: 4,
+        child: Container(
+          width: 230,
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(children: [
+                    Icon(Icons.route, size: 15, color: cs.primary),
+                    const SizedBox(width: 4),
+                    Text('מסלול טיסה מותאם', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                  ]),
+                  InkWell(
+                    onTap: s.toggleCustomRouteMode,
+                    child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text('שורה אחת לכל נקודה, גובה (מ\') אופציונלי בסוף. אפשר גם ללחוץ על המפה.',
+                  style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: _textCtrl,
+                maxLines: 3,
+                minLines: 2,
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(fontSize: 10),
+                decoration: const InputDecoration(
+                  isDense: true, hintText: 'N3127.551 E3359.569',
+                  contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonal(
+                  onPressed: _addFromText,
+                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(30)),
+                  child: const Text('הוסף מטקסט', style: TextStyle(fontSize: 11)),
+                ),
+              ),
+              if (s.customRoutePoints.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text('נקודות המסלול (${s.customRoutePoints.length}):',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant)),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 140),
+                  child: SingleChildScrollView(
+                    child: Column(children: [
+                      for (int i = 0; i < s.customRoutePoints.length; i++) _pointRow(s, i, cs),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: s.removeLastCustomRoutePoint,
+                      style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(28)),
+                      child: const Text('הסר אחרונה', style: TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: s.clearCustomRoute,
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(28),
+                        foregroundColor: cs.error,
+                      ),
+                      child: const Text('נקה מסלול', style: TextStyle(fontSize: 10)),
+                    ),
+                  ),
+                ]),
+              ],
+              const Divider(height: 16),
+              Row(children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 26,
+                    child: TextField(
+                      controller: _routeNameCtrl,
+                      style: const TextStyle(fontSize: 10),
+                      decoration: const InputDecoration(
+                        isDense: true, hintText: 'שם מסלול',
+                        contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _saveRoute, icon: const Icon(Icons.save, size: 16),
+                  visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                  tooltip: 'שמור מסלול נוכחי',
+                ),
+              ]),
+              if (_savedRoutes.isNotEmpty)
+                Row(children: [
+                  Expanded(
+                    child: DropdownButton<String>(
+                      value: _selectedRoute,
+                      isDense: true, isExpanded: true,
+                      hint: Text('בחר מסלול שמור', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+                      style: TextStyle(fontSize: 9, color: cs.onSurface),
+                      underline: const SizedBox.shrink(),
+                      items: [for (final r in _savedRoutes) DropdownMenuItem(value: r['name'] as String, child: Text(r['name'] as String))],
+                      onChanged: (v) => setState(() => _selectedRoute = v),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _selectedRoute == null ? null : () {
+                      final r = _savedRoutes.firstWhere((x) => x['name'] == _selectedRoute);
+                      _loadRoute(r);
+                    },
+                    icon: const Icon(Icons.folder_open, size: 16),
+                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                    tooltip: 'טען מסלול נבחר',
+                  ),
+                  IconButton(
+                    onPressed: _selectedRoute == null ? null : () => _deleteRoute(_selectedRoute!),
+                    icon: const Icon(Icons.delete_outline, size: 16),
+                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                    tooltip: 'מחק מסלול נבחר',
+                  ),
+                ]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // שורת נקודה ברשימה — טקסט lat/lon + שדה גובה ניתן-לעריכה (TextFormField עם initialValue, לא
+  // controller קבוע — נמנע מהצורך לנהל/לשחרר controller לכל שורה כשרשימת הנקודות משתנה) + מחיקה
+  Widget _pointRow(MapState s, int i, ColorScheme cs) {
+    final p = s.customRoutePoints[i];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(children: [
+        Expanded(
+          child: Text('${i + 1}. ${p.lat.toStringAsFixed(5)}, ${p.lng.toStringAsFixed(5)}',
+              style: TextStyle(fontSize: 9, color: cs.onSurface)),
+        ),
+        SizedBox(
+          width: 55,
+          height: 24,
+          child: TextFormField(
+            key: ValueKey('custom_route_alt_$i'),
+            initialValue: p.altM != null ? p.altM!.toStringAsFixed(0) : '',
+            style: const TextStyle(fontSize: 9),
+            decoration: const InputDecoration(
+              isDense: true, hintText: 'גובה',
+              contentPadding: EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+            onFieldSubmitted: (v) => s.updateCustomRoutePointAlt(i, double.tryParse(v)),
+          ),
+        ),
+        IconButton(
+          onPressed: () => s.removeCustomRoutePointAt(i),
+          icon: Icon(Icons.close, size: 12, color: cs.error),
+          visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(2),
+        ),
+      ]),
     );
   }
 }

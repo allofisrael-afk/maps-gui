@@ -1424,6 +1424,8 @@ def create_map():
             if (radialLosActive) {{ toggleRadialLos(); }}  // כיבוי מצב רדיוס-ראייה אם פעיל
             clearRadarDopplerResult();  // ניקוי תוצאת/תצוגת תצפית מכ"ם דופלר (כולל עצירת polling וביטול job בשרת אם רץ)
             if (radarActive) {{ toggleRadarDoppler(); }}  // כיבוי מצב תצפית מכ"ם דופלר אם פעיל
+            _clearCustomRoute();  // ניקוי מסלול הטיסה המותאם (נקודות/קו/סמנים)
+            if (customRouteActive) {{ toggleCustomRoute(); }}  // כיבוי מצב הוספת נקודות אם פעיל
             clearElevationLayer();  // מנקה גם שכבה טעונה וגם בחירה באמצע ביצוע (כולל שלב ההמתנה ללחיצה הראשונה)
             heatmapData = [];
             if (map.hasLayer(heatmap)) {{ heatmap.setLatLngs([]); map.removeLayer(heatmap); }}
@@ -3542,6 +3544,438 @@ def create_map():
         map.whenReady(function() {{
             _mapReady = true;
             _updateToolButtonsEnabled();
+        }});
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── כלי "מסלול טיסה מותאם" — המשתמש מזין רשימת נקודות (הקלדה/הדבקה/קליק
+        // על המפה) ומקבל מסלול סגור מצויר על המפה. בשונה מ-LOS/רדיוס-ראייה/מכ"ם-
+        // דופלר — אין כאן שום חישוב פיזיקלי ואין תלות בשרת כלל (חיבור-נקודות גרפי
+        // טהור); שמירה/טעינה בלבד משתמשות ב-/stations הקיים (tool='custom_route').
+        // ══════════════════════════════════════════════════════════════════
+        var customRouteActive     = false; // האם מצב הוספת נקודות למסלול פעיל (קליק על המפה מוסיף נקודה)
+        var customRoutePoints     = [];     // מערך {{lat, lng, alt}} לכל נקודה — alt הוא null אם לא הוזן גובה
+        var customRoutePolyline   = null;   // הקו הסגור המצויר על המפה (null אם פחות מ-2 נקודות)
+        var customRouteMarkers    = [];     // סמן ממוספר לכל נקודה — מאפשר לוודא ויזואלית שהמיקום/הסדר נכונים
+        var _customRouteBtnEl     = null;
+        var _customRoutePanelBodyEl = null;
+        var _customRouteListEl    = null;   // מיכל ה-DOM לרשימת הנקודות הממוספרת בפאנל
+        var _customRouteSelect    = null;
+        var _customRouteCache     = [];     // מטמון רשימת המסלולים השמורים שנשלפה לאחרונה
+
+        // מפצל שורה לטוקנים לפי פסיקים/רווחים — בכוונה בלי regex (רק split/join/filter פשוטים),
+        // כדי לא לגעת בכלל בסיכון ה-escaping הכפול שקיים בתוך ה-f-string הזה (ר' CLAUDE_PROMPT).
+        function _splitCoordTokens(line) {{
+            return line.split(',').join(' ').split(' ').filter(function(t) {{ return t.length > 0; }});
+        }}
+
+        // מפרק טוקן עם אות-כיוון מובילה לערך עשרוני — תומך בשתי צורות: (א) דחוס DDMM.mmm/
+        // DDDMM.mmm (4-5 ספרות שלמות, כמו "N3127.551") ו-(ב) מעלות עשרוניות ישירות (1-3 ספרות
+        // שלמות, כמו "N35.19" = 35.19°). ההבחנה לפי מספר הספרות השלמות בלבד — בלי regex בכלל.
+        function _parseHemisphereToken(tok, hemiChars) {{
+            if (hemiChars.indexOf(tok.charAt(0)) === -1) return null;  // האות המובילה לא מתאימה (לא N/S או לא E/W)
+            var body = tok.slice(1);                                   // כל מה שאחרי אות-הכיוון
+            if (body === '' || isNaN(Number(body))) return null;       // חייב להיות מספר תקין (עם עד נקודה עשרונית אחת)
+            var dotIdx  = body.indexOf('.');
+            var intPart = dotIdx === -1 ? body : body.slice(0, dotIdx);
+            var fracPart = dotIdx === -1 ? '' : body.slice(dotIdx);
+            var val;
+            if (intPart.length === 4 || intPart.length === 5) {{
+                // דחוס: 2 הספרות האחרונות הן תמיד דקות, השאר מעלות
+                var degLen = intPart.length - 2;
+                var deg = Number(intPart.slice(0, degLen));
+                var min = Number(intPart.slice(degLen) + fracPart);
+                val = deg + min / 60;
+            }} else if (intPart.length >= 1 && intPart.length <= 3) {{
+                // מעלות עשרוניות ישירות — בלי מבנה DDMM בכלל, האות-כיוון פשוט מצורפת למספר רגיל
+                val = Number(intPart + fracPart);
+            }} else {{
+                return null;  // אורך לא-תקין (0 או 6+ ספרות שלמות) — לא פורמט מוכר
+            }}
+            var c = tok.charAt(0);
+            var negative = (c === 'S' || c === 's' || c === 'W' || c === 'w');
+            return negative ? -val : val;
+        }}
+
+        // ניסיון פורמט (1): שני טוקנים דחוסים עם אות-כיוון, בכל סדר (האות מזהה lat/lon, לא המיקום
+        // בשורה) + עד טוקן מספרי נוסף אחד = גובה אופציונלי במטרים. מחזיר {{lat,lng,alt}} או null.
+        function _tryParseDdmLine(tokens) {{
+            var lat = null, lon = null, extra = [];
+            for (var i = 0; i < tokens.length; i++) {{
+                var t = tokens[i];
+                var asLat = _parseHemisphereToken(t, 'NSns');
+                var asLon = _parseHemisphereToken(t, 'EWew');
+                if (asLat !== null) {{ lat = asLat; }}
+                else if (asLon !== null) {{ lon = asLon; }}
+                else if (t !== '' && !isNaN(Number(t))) {{ extra.push(Number(t)); }}
+                else {{ return null; }}  // טוקן לא מזוהה — הפורמט הזה לא מתאים לשורה כולה
+            }}
+            if (lat === null || lon === null || extra.length > 1) return null;
+            if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;  // ערך חסר-פיזיקה — כנראה טעות הקלדה
+            return {{ lat: lat, lng: lon, alt: extra.length ? extra[0] : null }};
+        }}
+
+        // ניסיון פורמט (2): מעלות/דקות/שניות עם סמלים (למשל 31°11'24"N 34°48'36"E) — regex יחיד
+        // בכל הכלי, ובכוונה בלי אף backslash (משתמש ב-[0-9] במקום ד'-הספרה, [.] במקום נקודה-מוסקפת) כדי
+        // להימנע לגמרי מסיכון ה-escaping הכפול בתוך ה-f-string הזה.
+        function _tryParseDmsLine(line) {{
+            var dmsRe = /([0-9]{{1,3}})[°ºo][ ]*([0-9]{{1,2}})['′][ ]*([0-9]{{1,2}}(?:[.][0-9]+)?)["″]?[ ]*([NSEWnsew])/g;
+            var matches = [], m;
+            while ((m = dmsRe.exec(line)) !== null) {{ matches.push(m); }}
+            if (matches.length !== 2) return null;  // בדיוק זוג אחד (קו-רוחב+קו-אורך) נדרש
+            var lat = null, lon = null;
+            for (var i = 0; i < matches.length; i++) {{
+                var deg = Number(matches[i][1]), min = Number(matches[i][2]), sec = Number(matches[i][3]);
+                var val = deg + min / 60 + sec / 3600;
+                var h = matches[i][4];
+                if (h === 'N' || h === 'n' || h === 'S' || h === 's') {{ lat = (h === 'S' || h === 's') ? -val : val; }}
+                else {{ lon = (h === 'W' || h === 'w') ? -val : val; }}
+            }}
+            if (lat === null || lon === null) return null;
+            if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+            // בדיקת מספר-גובה שנותר בשורה אחרי הסרת שני ביטויי ה-DMS (ל-dmsRe דגל g, ולכן
+            // lastIndex כבר התאפס ל-0 מעצמו לאחר ה-exec האחרון שהחזיר null בלולאה למעלה)
+            var rest = line.replace(dmsRe, ' ');
+            var restTokens = _splitCoordTokens(rest);
+            var alt = (restTokens.length === 1 && !isNaN(Number(restTokens[0]))) ? Number(restTokens[0]) : null;
+            return {{ lat: lat, lng: lon, alt: alt }};
+        }}
+
+        // ניסיון פורמט (3): זוג/שלישיית מספרים עשרוניים פשוטים ("34.33 31.19" או עם גובה שלישי).
+        // אם אחד הערכים חורג מטווח קו-רוחב (±90) בעוד השני בתוכו — מזוהה אוטומטית כקו-האורך
+        // (בלי תלות בסדר בשורה). אם שניהם בטווח (עמום) — ברירת המחדל: קו-רוחב ואז קו-אורך,
+        // עקבי עם כל שאר הכלי (LAT/LON בפאנל המיקום, pinCoordinate וכו').
+        function _tryParseDecimalLine(tokens) {{
+            if (tokens.length !== 2 && tokens.length !== 3) return null;
+            for (var i = 0; i < tokens.length; i++) {{
+                if (tokens[i] === '' || isNaN(Number(tokens[i]))) return null;
+            }}
+            var a = Number(tokens[0]), b = Number(tokens[1]);
+            var alt = tokens.length === 3 ? Number(tokens[2]) : null;
+            if (Math.abs(a) > 90 && Math.abs(b) <= 90) return {{ lat: b, lng: a, alt: alt }};
+            if (Math.abs(b) > 90 && Math.abs(a) <= 90) return {{ lat: a, lng: b, alt: alt }};
+            // עמום (שני הערכים בטווח ±90) — נמצא ותוקן (28/09/2026): אומת מול נתוני-אמת גיאוגרפיים
+            // אמיתיים (אזור אילת/סיני) שברירת המחדל הנכונה היא **קו-אורך קודם, קו-רוחב אחריו**
+            // (הפוך ממה שהוחלט קודם בשיחה לפי תשובה מילולית) — הראשון בשורה הוא lng, השני lat.
+            if (Math.abs(a) <= 90 && Math.abs(b) <= 90) return {{ lat: b, lng: a, alt: alt }};
+            return null;  // שני הערכים מעל 90 — אף אחד מהם לא יכול להיות קו-רוחב תקין
+        }}
+
+        // מנסה את שלושת הפורמטים על שורה נתונה (בלי טיפול בתווית מובילה) — פונקציית עזר משותפת
+        // בין הניסיון הרגיל לבין הניסיון השני שמדלג על טוקן ראשון שאינו קואורדינטה (ר' למטה).
+        function _tryAllCoordFormats(line) {{
+            var tokens = _splitCoordTokens(line);
+            var ddm = _tryParseDdmLine(tokens);
+            if (ddm) return ddm;
+            var dms = _tryParseDmsLine(line);
+            if (dms) return dms;
+            return _tryParseDecimalLine(tokens);
+        }}
+
+        function _parseCustomRouteLine(line) {{
+            line = line.trim();
+            if (!line) return null;
+            var direct = _tryAllCoordFormats(line);
+            if (direct) return direct;
+            // נכשל — ייתכן שהטוקן הראשון הוא תווית/שם-נקודה (למשל "C" לפני הקואורדינטה עצמה,
+            // כמו בקבצי תכנון-מסלול צבאיים) ולא חלק מהקואורדינטה. מדלגים עליו ומנסים שוב;
+            // התווית עצמה לא נשמרת (לפי בחירת המשתמש) — משמשת רק לזיהוי/דילוג.
+            var firstSpaceIdx = line.indexOf(' ');
+            if (firstSpaceIdx > 0) {{
+                var rest = line.slice(firstSpaceIdx + 1).trim();
+                if (rest) {{ return _tryAllCoordFormats(rest); }}
+            }}
+            return null;
+        }}
+
+        // מצייר מחדש את כל שכבת המסלול (קו סגור + סמנים ממוספרים) מאפס — פשוט מספיק לכמות
+        // הנקודות הצפויה (עשרות, לא אלפים). מרענן גם את הרשימה בפאנל בסוף.
+        function _redrawCustomRoute() {{
+            if (customRoutePolyline) {{ map.removeLayer(customRoutePolyline); customRoutePolyline = null; }}
+            customRouteMarkers.forEach(function(mk) {{ map.removeLayer(mk); }});
+            customRouteMarkers = [];
+
+            customRoutePoints.forEach(function(p, i) {{
+                var mk = L.marker([p.lat, p.lng], {{
+                    icon: L.divIcon({{
+                        html: '<div style="background:#14b8a6;color:white;border-radius:50%;width:18px;height:18px;'
+                            + 'display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;'
+                            + 'border:2px solid white;box-shadow:0 0 3px rgba(0,0,0,.5);">' + (i + 1) + '</div>',
+                        className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+                    }})
+                }}).addTo(map);
+                customRouteMarkers.push(mk);
+            }});
+
+            if (customRoutePoints.length >= 2) {{
+                var latlngs = customRoutePoints.map(function(p) {{ return [p.lat, p.lng]; }});
+                latlngs.push(latlngs[0]);  // סגירת המסלול — קטע חוזר לנקודה הראשונה
+                customRoutePolyline = L.polyline(latlngs, {{ color: '#14b8a6', weight: 3, opacity: 0.85 }}).addTo(map);
+            }}
+
+            _renderCustomRouteList();
+        }}
+
+        // מרענן את רשימת הנקודות הממוספרת בפאנל — שדה גובה ניתן-לעריכה וכפתור מחיקה לכל שורה
+        function _renderCustomRouteList() {{
+            if (!_customRouteListEl) return;
+            _customRouteListEl.innerHTML = '';
+            customRoutePoints.forEach(function(p, i) {{
+                var row = L.DomUtil.create('div', '', _customRouteListEl);
+                row.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;padding:1px 0;';
+                var label = L.DomUtil.create('span', '', row);
+                label.style.cssText = 'flex:1;';
+                label.textContent = (i + 1) + '. ' + p.lat.toFixed(5) + ', ' + p.lng.toFixed(5);
+                var altInput = L.DomUtil.create('input', '', row);
+                altInput.type = 'number'; altInput.placeholder = 'גובה (מ\\')';
+                altInput.value = (p.alt !== null && p.alt !== undefined) ? p.alt : '';
+                altInput.style.cssText = 'width:55px;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';
+                L.DomEvent.on(altInput, 'change', function() {{
+                    var v = parseFloat(altInput.value);
+                    customRoutePoints[i].alt = isNaN(v) ? null : v;  // עדכון גובה ידני לנקודה — לא גורר ציור מחדש (רק המספר משתנה)
+                }});
+                var delBtn = L.DomUtil.create('a', '', row);
+                delBtn.href = '#'; delBtn.innerHTML = '&#10005;'; delBtn.title = 'הסר נקודה זו';
+                delBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#e74c3c;font-size:11px;';
+                L.DomEvent.on(delBtn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    customRoutePoints.splice(i, 1);
+                    _redrawCustomRoute();
+                }});
+            }});
+        }}
+
+        function _addCustomRoutePoint(lat, lng, alt) {{
+            customRoutePoints.push({{ lat: lat, lng: lng, alt: (alt === undefined ? null : alt) }});
+            _redrawCustomRoute();
+        }}
+
+        function _removeLastCustomRoutePoint() {{
+            if (customRoutePoints.length === 0) return;
+            customRoutePoints.pop();
+            _redrawCustomRoute();
+        }}
+
+        function _clearCustomRoute() {{
+            customRoutePoints = [];
+            _redrawCustomRoute();
+        }}
+
+        // ממקד את המפה על כל נקודות המסלול — נקרא רק אחרי הוספה מרובה (טקסט) או טעינת מסלול
+        // שמור, לא אחרי כל קליק בודד על המפה (שם המשתמש כבר מסתכל על האזור הרלוונטי ממילא).
+        // בלי זה, נקודות שהוזנו כטקסט באזור רחוק מהתצוגה הנוכחית "נעלמות" (מצוירות אך מחוץ למסך).
+        function _fitCustomRouteView() {{
+            if (customRoutePoints.length === 0) return;
+            var bounds = customRoutePoints.map(function(p) {{ return [p.lat, p.lng]; }});
+            if (bounds.length === 1) {{ map.setView(bounds[0], 10); }}
+            else {{ map.fitBounds(bounds, {{ padding: [40, 40] }}); }}
+        }}
+
+        // מרענן את רשימת "המסלולים השמורים" בפאנל — GET גנרי, tool='custom_route'
+        function _refreshCustomRouteList() {{
+            fetch('http://localhost:5002/stations/list?tool=custom_route')
+            .then(function(r) {{ return r.json(); }})
+            .then(function(data) {{
+                var routes = data.stations || [];
+                _customRouteCache = routes;
+                if (!_customRouteSelect) return;
+                _customRouteSelect.innerHTML = '';
+                if (routes.length === 0) {{
+                    var opt = L.DomUtil.create('option', '', _customRouteSelect);
+                    opt.textContent = '(אין מסלולים שמורים)'; opt.disabled = true; opt.selected = true;
+                    return;
+                }}
+                routes.forEach(function(r) {{
+                    var opt = L.DomUtil.create('option', '', _customRouteSelect);
+                    opt.value = r.name;
+                    opt.textContent = r.name + ' (' + ((r.params && r.params.points) ? r.params.points.length : 0) + ' נק\\')';
+                }});
+            }})
+            .catch(function() {{ /* כשל רשת בטעינת הרשימה — לא קריטי, אפשר לנסות שוב */ }});
+        }}
+
+        function toggleCustomRoute() {{
+            customRouteActive = !customRouteActive;
+            map.getContainer().style.cursor = customRouteActive ? 'crosshair' : '';
+            if (_customRouteBtnEl) {{
+                _customRouteBtnEl.style.background = customRouteActive ? '#14b8a6' : 'white';
+                _customRouteBtnEl.style.color      = customRouteActive ? 'white'  : '#333';
+            }}
+            if (_customRoutePanelBodyEl) {{
+                _customRoutePanelBodyEl.style.display = customRouteActive ? 'flex' : 'none';
+            }}
+            // כיבוי הפאנל בלבד — לא מוחק את המסלול המצויר, עקבי עם כל שאר הכלים (LOS/רדיוס-ראייה/
+            // מכ"ם-דופלר): רק "נקה מסלול" המפורש או resetMapState מוחקים בפועל
+        }}
+
+        var CustomRouteControl = L.Control.extend({{
+            options: {{ position: 'topright' }},
+            onAdd: function() {{
+                var container = L.DomUtil.create('div', 'leaflet-control');
+                container.style.cssText = 'display:flex;flex-direction:column;gap:3px;background:white;' +
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:4px 6px;font-family:Arial;max-width:250px;';
+
+                var row1 = L.DomUtil.create('div', '', container);
+                row1.style.cssText = 'display:flex;align-items:center;gap:5px;';
+                var btn = L.DomUtil.create('a', '', row1);
+                btn.href = '#'; btn.title = 'מסלול טיסה מותאם';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:26px;height:26px;' +
+                    'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;';
+                btn.innerHTML = '&#129517;';  // 🧭 מצפן — אייקון ייחודי, לא בשימוש בשום כלי אחר בפרויקט
+                _customRouteBtnEl = btn;
+                L.DomEvent.on(btn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    toggleCustomRoute();
+                }});
+
+                var panelBody = L.DomUtil.create('div', '', container);
+                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:70vh;overflow-y:auto;';
+                _customRoutePanelBodyEl = panelBody;
+
+                var hint = L.DomUtil.create('div', '', panelBody);
+                hint.style.cssText = 'font-size:9px;color:#666;';
+                hint.textContent = 'שורה אחת לכל נקודה, למשל: N3127.551 E3359.569 3000 (גובה אופציונלי בסוף). אפשר גם ללחוץ על המפה.';
+
+                var textarea = L.DomUtil.create('textarea', '', panelBody);
+                textarea.rows = 3; textarea.placeholder = 'N3127.551 E3359.569';
+                textarea.style.cssText = 'font-size:10px;padding:3px;border:1px solid #ccc;border-radius:3px;direction:ltr;resize:vertical;';
+
+                var addFromTextBtn = L.DomUtil.create('button', '', panelBody);
+                addFromTextBtn.textContent = 'הוסף מטקסט';
+                addFromTextBtn.style.cssText = 'font-size:10px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f0f0f0;cursor:pointer;';
+                L.DomEvent.on(addFromTextBtn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    var lines = textarea.value.split('\\n');  // כל שורה = נקודה אחת בתיבת הטקסט
+                    var errorLines = [];
+                    lines.forEach(function(line, idx) {{
+                        if (!line.trim()) return;
+                        var pt = _parseCustomRouteLine(line);
+                        if (pt) {{ customRoutePoints.push(pt); }}
+                        else {{ errorLines.push(idx + 1); }}
+                    }});
+                    _redrawCustomRoute();
+                    _fitCustomRouteView();  // ממקד את המפה על הנקודות שנוספו — לא נשארות "מחוץ למסך" בשקט
+                    textarea.value = '';
+                    if (errorLines.length) {{ alert('שורות ' + errorLines.join(', ') + ' לא זוהו כקואורדינטה תקינה ודולגו.'); }}
+                }});
+
+                // כפתור "טען מקובץ" — input type=file מוסתר, נפתח בלחיצה על הכפתור הנראה (תבנית סטנדרטית)
+                var fileInput = L.DomUtil.create('input', '', panelBody);
+                fileInput.type = 'file'; fileInput.accept = '.txt,.csv';
+                fileInput.style.display = 'none';
+                var loadFileBtn = L.DomUtil.create('button', '', panelBody);
+                loadFileBtn.textContent = 'טען מקובץ...';
+                loadFileBtn.style.cssText = 'font-size:10px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f0f0f0;cursor:pointer;';
+                L.DomEvent.on(loadFileBtn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    fileInput.click();
+                }});
+                L.DomEvent.on(fileInput, 'change', function() {{
+                    var file = fileInput.files[0];
+                    if (!file) return;
+                    var reader = new FileReader();
+                    reader.onload = function(ev) {{
+                        // מציב את תוכן הקובץ בתיבת הטקסט — המשתמש עדיין לוחץ "הוסף מטקסט" בעצמו כדי לאשר/לבדוק שגיאות
+                        textarea.value = ev.target.result;
+                    }};
+                    reader.readAsText(file);
+                    fileInput.value = '';  // מאפשר לבחור שוב את אותו קובץ בפעם הבאה
+                }});
+
+                var listWrap = L.DomUtil.create('div', '', panelBody);
+                listWrap.style.cssText = 'font-size:9px;color:#333;margin-top:3px;';
+                var listTitle = L.DomUtil.create('div', '', listWrap);
+                listTitle.style.cssText = 'font-weight:bold;color:#666;';
+                listTitle.textContent = 'נקודות המסלול:';
+                var listEl = L.DomUtil.create('div', '', listWrap);
+                _customRouteListEl = listEl;
+
+                var actionsRow = L.DomUtil.create('div', '', panelBody);
+                actionsRow.style.cssText = 'display:flex;gap:4px;';
+                var undoBtn = L.DomUtil.create('button', '', actionsRow);
+                undoBtn.textContent = 'הסר אחרונה';
+                undoBtn.style.cssText = 'flex:1;font-size:9px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f0f0f0;cursor:pointer;';
+                L.DomEvent.on(undoBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _removeLastCustomRoutePoint(); }});
+                var clearBtn = L.DomUtil.create('button', '', actionsRow);
+                clearBtn.textContent = 'נקה מסלול';
+                clearBtn.style.cssText = 'flex:1;font-size:9px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ffdddd;cursor:pointer;';
+                L.DomEvent.on(clearBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _clearCustomRoute(); }});
+
+                // שמירה/טעינה/מחיקה — נבנה ידנית (לא _buildStationUI, כי אין fieldMap של שדות בודדים,
+                // כל התוכן הוא מערך נקודות אחד) אך משתמש באותם /stations/* בדיוק, tool='custom_route'
+                var saveRow = L.DomUtil.create('div', '', panelBody);
+                saveRow.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:4px;border-top:1px solid #ddd;padding-top:3px;';
+                var nameInput = L.DomUtil.create('input', '', saveRow);
+                nameInput.type = 'text'; nameInput.placeholder = 'שם מסלול';
+                nameInput.style.cssText = 'flex:1;font-size:10px;padding:2px 3px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-width:0;';
+                var saveBtn = L.DomUtil.create('a', '', saveRow);
+                saveBtn.href = '#'; saveBtn.title = 'שמור מסלול נוכחי תחת השם שהוזן'; saveBtn.innerHTML = '&#128190;';
+                saveBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                L.DomEvent.on(saveBtn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    var name = nameInput.value.trim();
+                    if (!name) {{ alert('הזן שם למסלול'); return; }}
+                    if (customRoutePoints.length < 2) {{ alert('נדרשות לפחות 2 נקודות במסלול כדי לשמור'); return; }}
+                    fetch('http://localhost:5002/stations/save', {{
+                        method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{tool: 'custom_route', name: name, params: {{points: customRoutePoints}}}})
+                    }})
+                    .then(function(r) {{ return r.json(); }})
+                    .then(function(data) {{
+                        if (data.error) throw new Error(data.error);
+                        nameInput.value = '';
+                        _refreshCustomRouteList();
+                    }})
+                    .catch(function(err) {{ alert('שגיאה בשמירת מסלול: ' + err.message); }});
+                }});
+
+                var loadRow = L.DomUtil.create('div', '', panelBody);
+                loadRow.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
+                var routeSelect = L.DomUtil.create('select', '', loadRow);
+                routeSelect.style.cssText = 'flex:1;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-width:0;';
+                _customRouteSelect = routeSelect;
+                var loadBtn = L.DomUtil.create('a', '', loadRow);
+                loadBtn.href = '#'; loadBtn.title = 'טען מסלול נבחר'; loadBtn.innerHTML = '&#128194;';
+                loadBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                L.DomEvent.on(loadBtn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    var name = routeSelect.value;
+                    var route = _customRouteCache.filter(function(r) {{ return r.name === name; }})[0];
+                    if (!route || !route.params || !route.params.points) return;
+                    customRoutePoints = route.params.points.map(function(p) {{
+                        return {{ lat: p.lat, lng: p.lng, alt: (p.alt === undefined ? null : p.alt) }};
+                    }});
+                    _redrawCustomRoute();
+                    _fitCustomRouteView();  // ממקד על כל המסלול הטעון, לא רק על הנקודה הראשונה
+                }});
+                var delBtn2 = L.DomUtil.create('a', '', loadRow);
+                delBtn2.href = '#'; delBtn2.title = 'מחק מסלול נבחר'; delBtn2.innerHTML = '&#128465;';
+                delBtn2.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                L.DomEvent.on(delBtn2, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    var name = routeSelect.value;
+                    if (!name) return;
+                    if (!confirm('למחוק את המסלול "' + name + '"?')) return;
+                    fetch('http://localhost:5002/stations/delete', {{
+                        method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{tool: 'custom_route', name: name}})
+                    }})
+                    .then(function() {{ _refreshCustomRouteList(); }})
+                    .catch(function() {{ /* כשל רשת במחיקה — לא קריטי */ }});
+                }});
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            }}
+        }});
+        new CustomRouteControl().addTo(map);  // הוספת ה-Control למפה
+        _refreshCustomRouteList();  // טעינת רשימת המסלולים השמורים מיד עם בניית ה-Control
+
+        // לחיצה על המפה בעת מצב "מסלול טיסה מותאם" — מוסיפה נקודה בלי גובה (ניתן להזין גובה
+        // ידנית אח"כ ברשימה). handler עצמאי לגמרי, בדיוק כמו כלי המדידה — לא נוגע בשום מצב אחר.
+        map.on('click', function(e) {{
+            if (!customRouteActive) return;
+            _addCustomRoutePoint(e.latlng.lat, e.latlng.lng, null);
         }});
 
         // ── הודעת מידע — כלל טיסת VLOS ──

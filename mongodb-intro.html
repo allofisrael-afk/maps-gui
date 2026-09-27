@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מבוא ל-MongoDB</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1f2328; --muted: #5b6470; --card: #ffffff;
+    --border: #e3e0d8; --accent: #13aa52; --code-bg: #f3f1ec; --warn: #b35900;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181c; --fg: #e8e6e3; --muted: #a0a7b0; --card: #1e2126;
+      --border: #30343b; --accent: #3ddc84; --code-bg: #0f1114; --warn: #ffb057;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181c; --fg: #e8e6e3; --muted: #a0a7b0; --card: #1e2126;
+    --border: #30343b; --accent: #3ddc84; --code-bg: #0f1114; --warn: #ffb057;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", Arial, "Noto Sans Hebrew", sans-serif;
+    line-height: 1.75; font-size: 17px;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 2rem; margin: 0 0 8px; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 1.35rem; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 24px 0 8px; }
+  p.lead { color: var(--muted); margin-top: 0; }
+  code { font-family: Consolas, "Cascadia Code", monospace; font-size: 0.9em;
+         background: var(--code-bg); padding: 1px 6px; border-radius: 4px; direction: ltr; unicode-bidi: isolate; }
+  pre { direction: ltr; text-align: left; background: var(--code-bg); border: 1px solid var(--border);
+        border-radius: 8px; padding: 14px 16px; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; padding: 0; font-size: 0.88rem; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: right; vertical-align: top; }
+  th { background: var(--code-bg); }
+  ul, ol { padding-right: 22px; padding-left: 0; }
+  li { margin: 4px 0; }
+  .note { background: var(--card); border: 1px solid var(--border); border-right: 4px solid var(--accent);
+          border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+  .note.warn { border-right-color: var(--warn); }
+  .levels { display: grid; gap: 10px; margin: 16px 0; }
+  .level { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .level b { color: var(--accent); }
+  .level:nth-child(2) { margin-right: 24px; }
+  .level:nth-child(3) { margin-right: 48px; }
+  .level:nth-child(4) { margin-right: 72px; }
+  @media (max-width: 520px) {
+    .level:nth-child(2) { margin-right: 10px; }
+    .level:nth-child(3) { margin-right: 20px; }
+    .level:nth-child(4) { margin-right: 30px; }
+  }
+  a { color: var(--accent); }
+  .cta { margin-top: 40px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>הבסיס של <span>MongoDB</span></h1>
+  <p class="lead">מבוא למתחילים מאפס, בלי שום ידע קודם במסדי נתונים.</p>
+
+  <h2>1. מה זה מסד נתונים בכלל?</h2>
+  <p><strong>מסד נתונים</strong> הוא מקום שבו תוכנה שומרת מידע לאורך זמן, כדי שהמידע לא ייעלם כשסוגרים אותה.</p>
+  <p>לדוגמה: אפליקציה של חנות צריכה לזכור מי המשתמשים, אילו מוצרים יש ומה כל אחד הזמין. כל זה נשמר במסד נתונים.</p>
+  <p><strong>MongoDB</strong> הוא אחד ממסדי הנתונים הפופולריים בעולם. הוא שומר את המידע בצורה של <strong>מסמכים</strong>, שנראים כמו כרטיסיות מידע.</p>
+
+  <h2>2. הדימוי: ארון תיקים</h2>
+  <p>הדרך הכי קלה להבין את MongoDB היא לדמיין ארון תיקים במשרד:</p>
+  <div class="levels">
+    <div class="level">🗄️ <b>Database</b> (מסד נתונים): הארון כולו. למשל, ארון של "החנות שלי".</div>
+    <div class="level">🗂️ <b>Collection</b> (אוסף): מגירה בארון. מגירה אחת למשתמשים, מגירה אחרת למוצרים.</div>
+    <div class="level">📄 <b>Document</b> (מסמך): כרטיס אחד בתוך המגירה. כרטיס אחד לכל משתמש.</div>
+    <div class="level">✏️ <b>Field</b> (שדה): שורה אחת על הכרטיס, עם שם וערך. למשל: שם = דני.</div>
+  </div>
+  <div class="note">כלומר: בארון יש מגירות, בכל מגירה יש כרטיסים, ועל כל כרטיס כתובים פרטים.</div>
+
+  <h2>3. איך נראה מסמך?</h2>
+  <p>מסמך הוא אוסף של זוגות: <strong>שם השדה</strong> ו<strong>הערך שלו</strong>. הנה כרטיס של משתמש אחד:</p>
+<pre><code>{
+  "name": "Dani",
+  "age": 28,
+  "email": "dani@example.com"
+}</code></pre>
+  <p>איך קוראים את זה:</p>
+  <ul>
+    <li>הסוגריים המסולסלים <code>{ }</code> מסמנים את ההתחלה והסוף של המסמך.</li>
+    <li>משמאל לנקודתיים נמצא <strong>שם השדה</strong>, ומימין להן <strong>הערך</strong>.</li>
+    <li>פסיק מפריד בין שדה לשדה.</li>
+  </ul>
+
+  <h3>סוגי ערכים</h3>
+  <table>
+    <tr><th>סוג</th><th>דוגמה</th><th>הסבר</th></tr>
+    <tr><td>טקסט</td><td><code>"Dani"</code></td><td>תמיד בתוך מירכאות</td></tr>
+    <tr><td>מספר</td><td><code>28</code></td><td>בלי מירכאות</td></tr>
+    <tr><td>אמת / שקר</td><td><code>true</code></td><td>כן או לא</td></tr>
+    <tr><td>רשימה</td><td><code>["football", "guitar"]</code></td><td>כמה ערכים בתוך סוגריים מרובעים</td></tr>
+    <tr><td>אובייקט</td><td><code>{ "city": "Haifa" }</code></td><td>מסמך קטן בתוך המסמך</td></tr>
+  </table>
+
+  <h3>מסמך עשיר יותר</h3>
+<pre><code>{
+  "_id": ObjectId("65a1f..."),
+  "name": "Dani",
+  "age": 28,
+  "isActive": true,
+  "hobbies": ["football", "guitar"],
+  "address": {
+    "city": "Tel Aviv",
+    "street": "Herzl 10"
+  }
+}</code></pre>
+  <ul>
+    <li><code>_id</code>: מספר זהות ייחודי שכל מסמך מקבל אוטומטית. לא צריך ליצור אותו לבד.</li>
+    <li><code>hobbies</code>: רשימה של תחביבים.</li>
+    <li><code>address</code>: כתובת, שהיא בעצמה מסמך קטן עם עיר ורחוב.</li>
+  </ul>
+  <div class="note"><strong>גמישות:</strong> לא כל הכרטיסים באותה מגירה חייבים להיות זהים. למשתמש אחד יכול להיות טלפון, ולאחר לא. זה אחד היתרונות הגדולים של MongoDB.</div>
+
+  <h2>4. ארבע הפעולות הבסיסיות</h2>
+  <p>כמעט כל מה שעושים עם מסד נתונים הוא אחת מארבע פעולות:</p>
+  <table>
+    <tr><th>פעולה</th><th>מה היא עושה</th><th>בארון התיקים</th></tr>
+    <tr><td>➕ הוספה</td><td>יצירת מסמך חדש</td><td>מכניסים כרטיס חדש למגירה</td></tr>
+    <tr><td>🔍 חיפוש</td><td>מציאת מסמכים</td><td>מחפשים כרטיס במגירה</td></tr>
+    <tr><td>✏️ עדכון</td><td>שינוי מסמך קיים</td><td>מתקנים פרט על כרטיס</td></tr>
+    <tr><td>❌ מחיקה</td><td>הסרת מסמך</td><td>זורקים כרטיס</td></tr>
+  </table>
+  <p>הפקודות כותבים ב-<strong>mongosh</strong>, חלון הפקודות של MongoDB. בכל פקודה, <code>db.users</code> פירושו: "במגירה של המשתמשים".</p>
+
+  <h3>➕ הוספה</h3>
+<pre><code>use myShop    // open (or create) the "myShop" cabinet
+
+db.users.insertOne({ name: "Dani", age: 28 })
+
+db.users.insertMany([
+  { name: "Ruti", age: 32 },
+  { name: "Yossi", age: 19 }
+])</code></pre>
+  <p><code>insertOne</code> מוסיף כרטיס אחד, ו-<code>insertMany</code> מוסיף כמה כרטיסים בבת אחת. אם המגירה עוד לא קיימת, היא נוצרת אוטומטית.</p>
+
+  <h3>🔍 חיפוש</h3>
+<pre><code>db.users.find()                       // show all users
+db.users.find({ name: "Dani" })       // users named Dani
+db.users.find({ age: { $gt: 20 } })   // users older than 20
+db.users.findOne({ name: "Ruti" })    // just the first match</code></pre>
+  <p>בתוך הסוגריים כותבים <strong>מה מחפשים</strong>. סוגריים ריקים מחזירים את כל הכרטיסים.</p>
+
+  <h3>✏️ עדכון</h3>
+<pre><code>db.users.updateOne(
+  { name: "Dani" },        // which document
+  { $set: { age: 29 } }    // what to change
+)</code></pre>
+  <p>החלק הראשון אומר <strong>איזה כרטיס</strong> לעדכן, והחלק השני אומר <strong>מה לשנות</strong>. הפקודה <code>$set</code> פירושה "קבע ערך חדש".</p>
+
+  <h3>❌ מחיקה</h3>
+<pre><code>db.users.deleteOne({ name: "Yossi" })</code></pre>
+  <div class="note warn">⚠️ שים לב: <code>deleteMany({})</code> עם סוגריים ריקים מוחק את <strong>כל</strong> המסמכים במגירה.</div>
+
+  <h3>מילות חיפוש שימושיות</h3>
+  <p>מילים שמתחילות בסימן <code>$</code> הן פקודות מיוחדות:</p>
+  <table>
+    <tr><th>מילה</th><th>משמעות</th></tr>
+    <tr><td><code>$gt</code></td><td>גדול מ-</td></tr>
+    <tr><td><code>$lt</code></td><td>קטן מ-</td></tr>
+    <tr><td><code>$gte</code></td><td>גדול או שווה ל-</td></tr>
+    <tr><td><code>$lte</code></td><td>קטן או שווה ל-</td></tr>
+    <tr><td><code>$in</code></td><td>אחד מתוך רשימה</td></tr>
+    <tr><td><code>$set</code></td><td>קבע ערך חדש (בעדכון)</td></tr>
+    <tr><td><code>$push</code></td><td>הוסף פריט לרשימה (בעדכון)</td></tr>
+  </table>
+
+  <h2>5. איך מתחילים לתרגל?</h2>
+  <ol>
+    <li>פותחים חשבון חינמי ב-<a href="https://www.mongodb.com/atlas">MongoDB Atlas</a>. זה MongoDB בענן, בלי שום התקנה.</li>
+    <li>מתקינים את <strong>MongoDB Compass</strong>, תוכנה גרפית שמראה את המגירות והכרטיסים בצורה ויזואלית.</li>
+    <li>יוצרים מגירה, מוסיפים כמה כרטיסים ומתרגלים את ארבע הפעולות.</li>
+    <li>לומדים בחינם באתר <a href="https://learn.mongodb.com">MongoDB University</a>.</li>
+  </ol>
+
+  <h2>6. מה הלאה?</h2>
+  <p>אחרי שארבע הפעולות ברורות, אלה הנושאים הבאים:</p>
+  <ol>
+    <li><strong>חיבור מקוד</strong>: שימוש ב-MongoDB מתוך תוכנה שאתה כותב, למשל ב-Python או ב-JavaScript.</li>
+    <li><strong>Indexes</strong>: דרך לגרום לחיפושים לרוץ מהר, כמו אינדקס בסוף ספר.</li>
+    <li><strong>תכנון מסמכים</strong>: איך להחליט מה לשים באותו כרטיס ומה לפצל לכרטיסים נפרדים.</li>
+    <li><strong>Aggregation</strong>: חישובים על הרבה מסמכים יחד, כמו ממוצע גילאים או סכום הזמנות.</li>
+  </ol>
+
+  <div class="cta">רוצה שנתרגל יחד? אני יכול להכין לך תרגיל קטן, למשל מגירה של ספרים עם שאלות שתפתור בעצמך.</div>
+</main>
+</body>
+</html>

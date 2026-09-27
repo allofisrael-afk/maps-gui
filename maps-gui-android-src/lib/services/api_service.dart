@@ -11,6 +11,7 @@ import '../models/radial_los_result.dart'; // מודל תוצאת רדיוס-ר�
 import '../models/radar_doppler_result.dart'; // מודל תוצאת תצפית מכ"ם דופלר
 import '../models/flight_trail_point.dart'; // נקודת מסלול טיסה עם טלמטריה — להערכת מסלול מול מכ"ם-דופלר
 import '../models/route_evaluation_result.dart'; // תוצאת הערכת מסלול טיסה מול מכ"ם-דופלר
+import '../models/route_point.dart'; // נקודה ב"מסלול טיסה מותאם" — {lat, lng, altM אופציונלי}
 import '../data/icao_glossary.dart'; // תרגום גס לעברית לטקסט NOTAM
 import '../data/notam_categories.dart'; // סיווג NOTAM ל-7 קטגוריות
 
@@ -1100,6 +1101,146 @@ class ApiService {
     final x = sin(dLam) * cos(phi2);
     final y = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dLam);
     return (atan2(x, y) * 180 / pi) % 360;
+  }
+
+  // ── פענוח קואורדינטות חופשי ל"מסלול טיסה מותאם" — זהה בהתנהגותו ל-_parseCustomRouteLine
+  // ב-MAP.py (Desktop, JS), שני מימושים עצמאיים לאותה לוגיקה בדיוק (עקבי עם שאר הפרויקט —
+  // אין שיתוף קוד בין הפלטפורמות). תומך ב-3 פורמטים + גובה אופציונלי בסוף השורה.
+
+  // מפצל שורה לטוקנים לפי פסיקים/רווחים — מחליף פסיקים ברווחים ואז מפצל, מסנן טוקנים ריקים
+  static List<String> _splitCoordTokens(String line) {
+    return line.replaceAll(',', ' ').split(' ').where((t) => t.isNotEmpty).toList();
+  }
+
+  // מפרק טוקן דחוס עם אות-כיוון מובילה (למשל "N3127.551" או "E3359.569") לערך עשרוני —
+  // תומך בשתי צורות: (א) דחוס DDMM.mmm/DDDMM.mmm (4-5 ספרות שלמות, כמו "N3127.551")
+  // ו-(ב) מעלות עשרוניות ישירות (1-3 ספרות שלמות, כמו "N35.19" = 35.19°) — ההבחנה לפי
+  // מספר הספרות השלמות בלבד. נמצא ותוקן (25/08/2026): נתוני אמת מהמשתמש השתמשו בצורה (ב).
+  static double? _parseHemisphereToken(String tok, String hemiChars) {
+    if (tok.isEmpty || !hemiChars.contains(tok[0])) return null; // האות המובילה לא מתאימה
+    final body = tok.substring(1); // כל מה שאחרי אות-הכיוון
+    if (body.isEmpty || double.tryParse(body) == null) return null; // חייב להיות מספר תקין
+    final dotIdx = body.indexOf('.');
+    final intPart = dotIdx == -1 ? body : body.substring(0, dotIdx);
+    final fracPart = dotIdx == -1 ? '' : body.substring(dotIdx);
+    double val;
+    if (intPart.length == 4 || intPart.length == 5) {
+      // דחוס: 2 הספרות האחרונות הן תמיד דקות, השאר מעלות
+      final degLen = intPart.length - 2;
+      final deg = double.parse(intPart.substring(0, degLen));
+      final min = double.parse(intPart.substring(degLen) + fracPart);
+      val = deg + min / 60;
+    } else if (intPart.length >= 1 && intPart.length <= 3) {
+      // מעלות עשרוניות ישירות — בלי מבנה DDMM בכלל
+      val = double.parse(intPart + fracPart);
+    } else {
+      return null; // אורך לא-תקין (0 או 6+ ספרות שלמות) — לא פורמט מוכר
+    }
+    final c = tok[0];
+    final negative = c == 'S' || c == 's' || c == 'W' || c == 'w';
+    return negative ? -val : val;
+  }
+
+  // ניסיון פורמט (1): שני טוקנים דחוסים עם אות-כיוון, בכל סדר + עד טוקן מספרי נוסף אחד = גובה
+  static RoutePoint? _tryParseDdmLine(List<String> tokens) {
+    double? lat, lon;
+    final extra = <double>[];
+    for (final t in tokens) {
+      final asLat = _parseHemisphereToken(t, 'NSns');
+      final asLon = _parseHemisphereToken(t, 'EWew');
+      if (asLat != null) {
+        lat = asLat;
+      } else if (asLon != null) {
+        lon = asLon;
+      } else if (t.isNotEmpty && double.tryParse(t) != null) {
+        extra.add(double.parse(t));
+      } else {
+        return null; // טוקן לא מזוהה — הפורמט הזה לא מתאים לשורה כולה
+      }
+    }
+    if (lat == null || lon == null || extra.length > 1) return null;
+    if (lat.abs() > 90 || lon.abs() > 180) return null; // ערך חסר-פיזיקה — כנראה טעות הקלדה
+    return RoutePoint(lat: lat, lng: lon, altM: extra.isNotEmpty ? extra[0] : null);
+  }
+
+  // regex יחיד לפורמט (2): מעלות/דקות/שניות עם סמלים (למשל 31°11'24"N 34°48'36"E) —
+  // מחרוזת raw משולשת (r'''...''') כי התבנית מכילה גם ' וגם " ממש (סמלי דקות/שניות)
+  static final RegExp _dmsRe = RegExp(
+    r'''([0-9]{1,3})[°ºo][ ]*([0-9]{1,2})['′][ ]*([0-9]{1,2}(?:[.][0-9]+)?)["″]?[ ]*([NSEWnsew])''',
+  );
+
+  static RoutePoint? _tryParseDmsLine(String line) {
+    final matches = _dmsRe.allMatches(line).toList();
+    if (matches.length != 2) return null; // בדיוק זוג אחד (קו-רוחב+קו-אורך) נדרש
+    double? lat, lon;
+    for (final m in matches) {
+      final deg = double.parse(m.group(1)!);
+      final min = double.parse(m.group(2)!);
+      final sec = double.parse(m.group(3)!);
+      final val = deg + min / 60 + sec / 3600;
+      final h = m.group(4)!;
+      if (h == 'N' || h == 'n' || h == 'S' || h == 's') {
+        lat = (h == 'S' || h == 's') ? -val : val;
+      } else {
+        lon = (h == 'W' || h == 'w') ? -val : val;
+      }
+    }
+    if (lat == null || lon == null) return null;
+    if (lat.abs() > 90 || lon.abs() > 180) return null;
+    // בדיקת מספר-גובה שנותר בשורה אחרי הסרת שני ביטויי ה-DMS
+    final rest = line.replaceAll(_dmsRe, ' ');
+    final restTokens = _splitCoordTokens(rest);
+    final alt = (restTokens.length == 1 && double.tryParse(restTokens[0]) != null)
+        ? double.parse(restTokens[0])
+        : null;
+    return RoutePoint(lat: lat, lng: lon, altM: alt);
+  }
+
+  // ניסיון פורמט (3): זוג/שלישיית מספרים עשרוניים פשוטים. זיהוי אוטומטי של קו-האורך אם ערך
+  // אחד חורג מטווח קו-רוחב (±90) והשני בתוכו; אחרת (עמום) ברירת המחדל: קו-רוחב ואז קו-אורך —
+  // עקבי עם שאר האפליקציה (LAT/LON בפאנל המיקום, pinCoordinate וכו').
+  static RoutePoint? _tryParseDecimalLine(List<String> tokens) {
+    if (tokens.length != 2 && tokens.length != 3) return null;
+    for (final t in tokens) {
+      if (t.isEmpty || double.tryParse(t) == null) return null;
+    }
+    final a = double.parse(tokens[0]);
+    final b = double.parse(tokens[1]);
+    final alt = tokens.length == 3 ? double.parse(tokens[2]) : null;
+    if (a.abs() > 90 && b.abs() <= 90) return RoutePoint(lat: b, lng: a, altM: alt);
+    if (b.abs() > 90 && a.abs() <= 90) return RoutePoint(lat: a, lng: b, altM: alt);
+    // עמום (שני הערכים בטווח ±90) — נמצא ותוקן (28/09/2026): אומת מול נתוני-אמת גיאוגרפיים
+    // אמיתיים (אזור אילת/עקבה) שברירת המחדל הנכונה היא **קו-אורך קודם, קו-רוחב אחריו** —
+    // הראשון בשורה הוא lng, השני lat (הפוך ממה שהוחלט קודם בשיחה לפי תשובה מילולית).
+    if (a.abs() <= 90 && b.abs() <= 90) return RoutePoint(lat: b, lng: a, altM: alt);
+    return null; // שני הערכים מעל 90 — אף אחד מהם לא יכול להיות קו-רוחב תקין
+  }
+
+  // מנסה את שלושת הפורמטים על שורה נתונה (בלי טיפול בתווית מובילה) — עזר משותף בין
+  // הניסיון הרגיל לבין הניסיון השני שמדלג על טוקן ראשון שאינו קואורדינטה (ר' parseCoordLine).
+  static RoutePoint? _tryAllCoordFormats(String line) {
+    final tokens = _splitCoordTokens(line);
+    final ddm = _tryParseDdmLine(tokens);
+    if (ddm != null) return ddm;
+    final dms = _tryParseDmsLine(line);
+    if (dms != null) return dms;
+    return _tryParseDecimalLine(tokens);
+  }
+
+  static RoutePoint? parseCoordLine(String line) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) return null;
+    final direct = _tryAllCoordFormats(trimmed);
+    if (direct != null) return direct;
+    // נכשל — ייתכן שהטוקן הראשון הוא תווית/שם-נקודה (למשל "C" לפני הקואורדינטה עצמה,
+    // כמו בקבצי תכנון-מסלול צבאיים) ולא חלק מהקואורדינטה. מדלגים עליו ומנסים שוב;
+    // התווית עצמה לא נשמרת (לפי בחירת המשתמש) — משמשת רק לזיהוי/דילוג.
+    final firstSpaceIdx = trimmed.indexOf(' ');
+    if (firstSpaceIdx > 0) {
+      final rest = trimmed.substring(firstSpaceIdx + 1).trim();
+      if (rest.isNotEmpty) return _tryAllCoordFormats(rest);
+    }
+    return null;
   }
 
   /// מיפוי גס (חינוכי בלבד, לא נתון הנדסי מדויק) מקידומת קוד ICAO של כלי-הטיס ל-RCS משוער, מ"ר —
