@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python build_web.py",
+  "outputDirectory": "public",
+  "functions": {
+    "api/weather.py": { "maxDuration": 15 },
+    "api/geo.py": { "maxDuration": 25 },
+    "api/flight.py": { "maxDuration": 35 }
+  },
+  "rewrites": [
+    { "source": "/geo_data", "destination": "/api/geo" },
+    { "source": "/uas_notams", "destination": "/api/geo" },
+    { "source": "/weather", "destination": "/api/weather" },
+    { "source": "/elevation", "destination": "/api/weather" },
+    { "source": "/temp_grid", "destination": "/api/weather" },
+    { "source": "/los", "destination": "/api/weather" },
+    { "source": "/heatmap_data", "destination": "/api/weather" },
+    { "source": "/los_radial/:path*", "destination": "/api/weather" },
+    { "source": "/radar_doppler/:path*", "destination": "/api/weather" },
+    { "source": "/stations/:path*", "destination": "/api/weather" },
+    { "source": "/flight_route", "destination": "/api/flight" },
+    { "source": "/flight_search", "destination": "/api/flight" }
+  ]
+}

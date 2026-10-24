@@ -267,6 +267,20 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 
 ---
 
+### 🌐 גרסת Web — פלטפורמה שלישית, שלב 1 (24-25/10/2026, Vercel + map.yechielalaluf.com)
+
+בעבודה כעת: פריסה ציבורית תחת `map.yechielalaluf.com` (GoDaddy→Vercel, GitHub מחובר). תוכנית מלאה ב-`C:\Users\allof\.claude\plans\compiled-gliding-wren.md`. **החלטה מרכזית**: שימוש-חוזר ב-`MAP.py`/Leaflet הקיים (לא Flutter Web — ראה שם לנימוקים: FR24-scraping לא עובד מדפדפן, UI Android מגע-קודם לא מתאים לדסקטופ-web).
+
+כל קוד ה-web מבודד תחת `web/` חדש (`web/api/{geo,flight,weather}.py`, `web/lib/*`, `vercel.json`, `build_web.py`) — **Desktop/Android לא נגעו בכלל**, אומת (`git diff`). `MAP.py::create_map()` קיבל `target`/`api_base`/`output_path` אופציונליים (ברירת-מחדל = התנהגות ישנה בדיוק) — `target='web'` מוסיף 6 בקרות UI חדשות (NOTAM/heatmap-mode/חיפוש-עיר/טיסה/GPS — ממירות widgets שהיום הם Qt-בלבד) + CSS רספונסיבי למובייל.
+
+**מגבלת-שלב-1 מכוונת, לא באג**: job-polling (רדיוס-ראייה/מכ"ם-דופלר) ו"עמדות שמורות" לא אמינים על Vercel serverless עדיין (state-בזיכרון לא מובטח בין invocations; `_STATIONS_FILE`→`/tmp` כש-`VERCEL=1`, מונע קריסה אך לא מתמיד). שלב 2 (עתידי) יחליף ב-Redis (Upstash) + תבנית chunked-per-request. **אושר עם המשתמש**: רשימת עמדות-שמורות נשארת משותפת-לכולם (בלי auth/בידוד per-browser), Vercel Hobby (לא Pro) לשלב ראשון.
+
+נבדק: `py_compile` על כל קובצי web/; `git diff map.html` (ברירת-מחדל desktop) = 3 שורות ריקות בלבד; render חי (QWebEngineView) של `target='web'` — 0 שגיאות JS; הרצה מקומית אמיתית של שלושת `web/api/*.py` — כולן 200 עם תגובות אמיתיות (כולל FR24_TOKEN ו-OpenWeather). **טרם בוצע**: הקמת הפרויקט ב-Vercel בפועל, Upstash, DNS ב-GoDaddy — אלה דורשים גישת-חשבון שאין לי.
+
+ר' `MAPS-GUI_SRS.md` §3.24 (FR-D-216 עד FR-D-220) לפירוט המלא.
+
+---
+
 ### 🧭 מסלול טיסה מותאם — כלי חמישי, מומש (28/09/2026, Desktop+Android)
 
 כלי חדש: המשתמש מזין רשימת נקודות (טקסט חופשי/הדבקה/קליק על המפה) ומקבל מסלול **סגור** מצויר, סמן ממוספר לכל נקודה. אין חישוב פיזיקלי, אין תלות בשרת לציור עצמו — שמירה/טעינה משתמשות ב-`/stations` הגנרי הקיים (`tool='custom_route'`, כמו FR-D-209). Desktop: `MAP.py::CustomRouteControl` (טופס Leaflet חדש, `#14B8A6`). Android: `_CustomRoutePanel`/`RoutePoint`/`ApiService.parseCoordLine` (פורט Dart עצמאי).

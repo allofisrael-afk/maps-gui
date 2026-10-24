@@ -7,20 +7,190 @@ from airport_ctr_zones import AIRPORT_CTR_ZONES  # גבולות CTR קבועים
 
 load_dotenv()
 
-def create_map():
+
+def _build_web_mobile_css():
+    """CSS רספונסיבי לגרסת ה-web בלבד — לא נוגע בכלל בדסקטופ (שם אין target='web').
+    מצמצם גודל-גופן/ריפוד של בקרות ה-Leaflet במסכים צרים, כדי שלא יחפפו/ייחתכו במובייל.
+    לא f-string (אין צורך בהכפלת סוגריים מסולסלים) — טקסט CSS פשוט."""
+    return """
+        @media (max-width: 600px) {
+            .leaflet-control { font-size: 11px !important; }
+            #status { font-size: 11px !important; padding: 5px 8px !important; }
+        }
+    """
+
+
+def _build_web_controls_js(api_base):
+    """
+    בקרות UI נוספות לגרסת ה-web בלבד — ממירות widgets שבדסקטופ הם Qt (main.py, לא קיימים
+    כאן בכלל) לבקרות Leaflet בתוך הדף עצמו: NOTAM toggles, מצב-תצוגה גבהים/טמפרטורה,
+    חיפוש עיר, חיפוש טיסה, GPS. כולן קוראות לפונקציות JS *קיימות* (toggleNotamCategory/
+    setElevMode/setTempMode/drawFlightRoute) ולא כופלות לוגיקה — ר' MAPS-GUI_SRS.md §3.24.
+    כל בקרה מוגבלת ל-max-width יחסי ל-viewport (calc(100vw - 20px)) לתמיכה במובייל.
+    """
+    return f"""
+        // ══════════ בקרות web-בלבד (לא קיימות בדסקטופ — שם אלה widgets של Qt ב-main.py) ══════════
+        var WebNotamControl = L.Control.extend({{
+            options: {{ position: 'topleft' }},
+            onAdd: function() {{
+                var c = L.DomUtil.create('div', 'leaflet-control');
+                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                    + 'font-family:Arial;max-width:min(230px, calc(100vw - 20px));direction:rtl;max-height:150px;overflow-y:auto;';
+                var title = L.DomUtil.create('div', '', c);
+                title.textContent = 'NOTAM רחפנים';
+                title.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
+                NOTAM_CATEGORIES.forEach(function(cat) {{
+                    var row = L.DomUtil.create('label', '', c);
+                    row.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;color:#cdd6f4;padding:1px 0;';
+                    var cb = L.DomUtil.create('input', '', row);
+                    cb.type = 'checkbox';
+                    L.DomEvent.on(cb, 'change', function() {{ toggleNotamCategory(cat.id); }});
+                    var span = L.DomUtil.create('span', '', row);
+                    span.textContent = cat.label;
+                    span.style.color = cat.color;
+                }});
+                L.DomEvent.disableClickPropagation(c);
+                return c;
+            }}
+        }});
+        new WebNotamControl().addTo(map);
+
+        // factory לשתי בקרות-מצב זהות במבנה (גבהים/טמפרטורה) — נמנע משכפול הקוד פעמיים
+        function _webHeatmapControl(title, setModeFn) {{
+            return L.Control.extend({{
+                options: {{ position: 'topleft' }},
+                onAdd: function() {{
+                    var c = L.DomUtil.create('div', 'leaflet-control');
+                    c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                        + 'font-family:Arial;direction:rtl;margin-top:6px;';
+                    var t = L.DomUtil.create('div', '', c);
+                    t.textContent = title;
+                    t.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
+                    var row = L.DomUtil.create('div', '', c);
+                    row.style.cssText = 'display:flex;gap:3px;';
+                    ['heat', 'grid', 'dots'].forEach(function(mode) {{
+                        var b = L.DomUtil.create('a', '', row);
+                        b.href = '#'; b.textContent = mode;
+                        b.style.cssText = 'font-size:9px;padding:2px 5px;background:#313244;color:#cdd6f4;'
+                            + 'border-radius:4px;text-decoration:none;cursor:pointer;';
+                        L.DomEvent.on(b, 'click', function(e) {{
+                            L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                            setModeFn(mode);
+                        }});
+                    }});
+                    L.DomEvent.disableClickPropagation(c);
+                    return c;
+                }}
+            }});
+        }}
+        new (_webHeatmapControl('מצב גבהים', setElevMode))().addTo(map);
+        new (_webHeatmapControl('מצב טמפרטורה', setTempMode))().addTo(map);
+
+        var WebSearchControl = L.Control.extend({{
+            options: {{ position: 'topleft' }},
+            onAdd: function() {{
+                var c = L.DomUtil.create('div', 'leaflet-control');
+                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                    + 'font-family:Arial;direction:rtl;margin-top:6px;width:min(200px, calc(100vw - 20px));';
+
+                var cityRow = L.DomUtil.create('div', '', c);
+                cityRow.style.cssText = 'display:flex;gap:3px;margin-bottom:4px;';
+                var cityInput = L.DomUtil.create('input', '', cityRow);
+                cityInput.type = 'text'; cityInput.placeholder = 'חיפוש עיר/אזור';
+                cityInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;';
+                var cityBtn = L.DomUtil.create('a', '', cityRow);
+                cityBtn.href = '#'; cityBtn.innerHTML = '&#128269;';
+                cityBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
+                function _doCitySearch() {{
+                    var q = cityInput.value.trim();
+                    if (!q) return;
+                    fetch('{api_base}/geo_data?location=' + encodeURIComponent(q))
+                        .then(function(r) {{ return r.json(); }})
+                        .then(function(data) {{
+                            if (data.error) {{ alert(data.error); return; }}
+                            map.setView([data.latitude, data.longitude], 11);
+                        }})
+                        .catch(function() {{ alert('שגיאה בחיפוש מיקום'); }});
+                }}
+                L.DomEvent.on(cityBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doCitySearch(); }});
+                L.DomEvent.on(cityInput, 'keydown', function(e) {{ if (e.key === 'Enter') _doCitySearch(); }});
+
+                var flightRow = L.DomUtil.create('div', '', c);
+                flightRow.style.cssText = 'display:flex;gap:3px;';
+                var flightInput = L.DomUtil.create('input', '', flightRow);
+                flightInput.type = 'text'; flightInput.placeholder = 'מספר טיסה';
+                flightInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;direction:ltr;';
+                var flightBtn = L.DomUtil.create('a', '', flightRow);
+                flightBtn.href = '#'; flightBtn.innerHTML = '&#9992;';
+                flightBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
+                function _doFlightSearch() {{
+                    var q = flightInput.value.trim().toUpperCase();
+                    if (!q) return;
+                    fetch('{api_base}/flight_route?flight=' + encodeURIComponent(q))
+                        .then(function(r) {{ return r.json(); }})
+                        .then(function(data) {{
+                            if (data.error) {{ alert(data.error); return; }}
+                            drawFlightRoute(data);
+                        }})
+                        .catch(function() {{ alert('שגיאה בחיפוש טיסה'); }});
+                }}
+                L.DomEvent.on(flightBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doFlightSearch(); }});
+                L.DomEvent.on(flightInput, 'keydown', function(e) {{ if (e.key === 'Enter') _doFlightSearch(); }});
+
+                L.DomEvent.disableClickPropagation(c);
+                L.DomEvent.disableScrollPropagation(c);
+                return c;
+            }}
+        }});
+        new WebSearchControl().addTo(map);
+
+        var WebGpsControl = L.Control.extend({{
+            options: {{ position: 'topleft' }},
+            onAdd: function() {{
+                var btn = L.DomUtil.create('a', 'leaflet-control leaflet-bar');
+                btn.href = '#'; btn.innerHTML = '&#128205;'; btn.title = 'מיקום עצמי (GPS)';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:30px;height:30px;'
+                    + 'background:rgba(30,30,46,.92);color:#cdd6f4;text-decoration:none;border-radius:8px;'
+                    + 'font-size:15px;margin-top:6px;cursor:pointer;';
+                L.DomEvent.on(btn, 'click', function(e) {{
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    if (!navigator.geolocation) {{ alert('הדפדפן לא תומך באיתור מיקום'); return; }}
+                    navigator.geolocation.getCurrentPosition(function(pos) {{
+                        var p = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                        map.setView(p, 13);
+                        var dot = L.circleMarker(p, {{radius:7,color:'#fff',fillColor:'#89b4fa',fillOpacity:1,weight:2}}).addTo(map);
+                        allMarkers.push(dot);
+                    }}, function(err) {{
+                        alert('שגיאה באיתור מיקום: ' + err.message);
+                    }}, {{enableHighAccuracy: true, timeout: 10000}});
+                }});
+                return btn;
+            }}
+        }});
+        new WebGpsControl().addTo(map);
+    """
+
+
+def create_map(target='desktop', api_base='', output_path=None):
     """
     פונקציה ליצירת קובץ HTML של המפה עם Leaflet.js ו-OpenStreetMap.
     ערכת נושא: CartoDB Dark Matter — חינמי לחלוטין, ללא מפתח API.
     תומך בעברית מובנית לישראל, heatmap, מסלולי טיסה וסמני מזג אוויר.
+
+    target: 'desktop' (ברירת מחדל, התנהגות זהה-ביט למה שהיה תמיד) או 'web' — מוסיף
+        בקרות UI נוספות (ר' _build_web_controls_js) ו-CSS רספונסיבי למובייל, ומחליף את
+        כתובות ה-API הקשיחות (http://localhost:5002/5003) ב-api_base (ר' MAPS-GUI_SRS.md §3.24).
+    api_base: בסיס-URL לקריאות API כש-target='web' (ריק = נתיבים יחסיים לאותו origin).
+    output_path: נתיב קובץ-פלט מפורש (למשל web/public/index.html) — None משתמש בברירת
+        המחדל הקיימת "map.html" בתיקיית העבודה הנוכחית, בדיוק כמו תמיד.
     """
-    map_file = "map.html"  # שם קובץ הפלט
+    map_file = output_path or "map.html"  # שם קובץ הפלט
     # JSON של אזורי התיאום וקטגוריות ה-NOTAM — מוזרקים פעם אחת כליטרלי JS קבועים (לא fetch בזמן ריצה, נתונים סטטיים)
     coord_zones_json = json.dumps(UAS_COORDINATION_ZONES, ensure_ascii=False)
     notam_categories_json = json.dumps(NOTAM_CATEGORIES, ensure_ascii=False)
     airport_ctr_zones_json = json.dumps(AIRPORT_CTR_ZONES, ensure_ascii=False)  # גבולות CTR — ר' airport_ctr_zones.py
 
-    with open(map_file, "w", encoding="utf-8") as f:
-        f.write(f"""<!DOCTYPE html>
+    html_content = f"""<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -111,6 +281,7 @@ def create_map():
         }}
         .leaflet-popup-tip {{ background-color: #1e1e2e; }}
         .leaflet-popup-content {{ margin: 10px 14px; }}
+        {_build_web_mobile_css() if target == 'web' else ''}
     </style>
 </head>
 <body>
@@ -3978,6 +4149,8 @@ def create_map():
             _addCustomRoutePoint(e.latlng.lat, e.latlng.lng, null);
         }});
 
+        {_build_web_controls_js(api_base) if target == 'web' else ''}
+
         // ── הודעת מידע — כלל טיסת VLOS ──
         // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,
         // רק כלל רגולטורי כללי (פמ"ת פנים ארצי, פרק ב'-09, סעיפים 7.ד-7.ה). תמיד מוצג, לא תלוי בשכבה פעילה.
@@ -4017,7 +4190,17 @@ def create_map():
     </script>
 </body>
 </html>
-""")
+"""
+
+    if target == 'web':
+        # מחליף כתובות API קשיחות (http://localhost:5002/5003, קיימות רק כדי לשרת את גרסת-
+        # הדסקטופ) בבסיס-URL הדינמי — ב-web זה בד"כ ריק (api_base='') כי vercel.json מנתב
+        # כל נתיב (/weather, /geo_data וכו') לפונקציה המתאימה מאותו origin, בלי port קשיח.
+        # 21 המופעים כולם בתוך fetch(...) בלבד (לא טקסט-תצוגה) — אומת ב-MAPS-GUI_SRS.md §3.24.
+        html_content = html_content.replace('http://localhost:5002', api_base).replace('http://localhost:5003', api_base)
+
+    with open(map_file, "w", encoding="utf-8") as f:
+        f.write(html_content)
 
     print(f"נוצרה מפה ושמה: {map_file}")
 

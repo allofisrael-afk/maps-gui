@@ -89,6 +89,7 @@
         }
         .leaflet-popup-tip { background-color: #1e1e2e; }
         .leaflet-popup-content { margin: 10px 14px; }
+        
     </style>
 </head>
 <body>
@@ -3955,6 +3956,8 @@
             if (!customRouteActive) return;
             _addCustomRoutePoint(e.latlng.lat, e.latlng.lng, null);
         });
+
+        
 
         // ── הודעת מידע — כלל טיסת VLOS ──
         // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,
