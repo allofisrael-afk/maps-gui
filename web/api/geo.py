@@ -6,20 +6,21 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
 
 import logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig עצמו מוגדר ב-server_common.create_app)
-from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app
+from flask import Blueprint, jsonify, request  # Blueprint — ר' הערה מטה למה לא Flask() נפרד
 import requests  # קריאה ל-Google Geocoding API
 
-from server_common import create_app  # תשתית משותפת — .env/logging/Flask/CORS (גרסת web, ללא /metrics)
 from notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים
 # ports.GEO_PORT לא נדרש כאן — Vercel מנתב לפי שם-קובץ, לא לפי פורט מקומי קבוע
 
-# יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
-app = create_app(__name__)
+# Blueprint, לא Flask(__name__) משלו — Vercel's "Flask framework" preset מצפה ל-app יחיד
+# בכל הפרויקט (נמצא בדיפלוי אמיתי: FLASK_ENTRYPOINT_NOT_FOUND כש-3 קבצים הגדירו app משלהם
+# — ר' MAPS-GUI_SRS.md §3.26). web/app.py הוא נקודת-הכניסה היחידה, מרשם את כל ה-blueprints.
+geo_bp = Blueprint('geo', __name__)
 
 # מפתח ה-API נטען ממשתה סביבה ולא מוטמע בקוד מטעמי אבטחה
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")  # קריאת מפתח Google API מקובץ .env
 
-@app.route("/geo_data", methods=["GET"])
+@geo_bp.route("/geo_data", methods=["GET"])
 def get_geo_data():
     """
     שליחת בקשה ל-API של Google Geocoding לקבלת נתונים גיאוגרפיים של מקום מסוים.
@@ -63,7 +64,7 @@ def get_geo_data():
         logging.error(f"שגיאה בחיבור ל-Google API: {str(e)}")  # רישום שגיאה אם יש בעיה בחיבור
         return jsonify({"error": f"שגיאה בחיבור ל-Google API: {str(e)}"}), 500  # החזרת קוד שגיאה 500 במקרה של שגיאה
 
-@app.route("/uas_notams", methods=["GET"])
+@geo_bp.route("/uas_notams", methods=["GET"])
 def get_uas_notams_route():
     """
     שכבת "אזורי פעילות רחפנים (NOTAM)" — מסונן ל-UAS/UAV בלבד מתוך NOTAM של רשות שדות
@@ -82,8 +83,10 @@ def get_uas_notams_route():
 
 
 if __name__ == "__main__":
-    # הפעלה מקומית לבדיקה בלבד (python web/api/geo.py) — ב-Vercel בפועל לא מגיעים לכאן בכלל,
-    # Vercel מייבא את משתנה app ישירות ומריץ אותו תחת ה-runtime שלו, לא מריץ את הקובץ כסקריפט.
-    # פורט קבוע-לבדיקה שונה מה-GEO_PORT של הדסקטופ (5003) — כדי שאפשר להריץ את שתי הגרסאות
-    # (דסקטופ + בדיקת-web מקומית) בו-זמנית בלי התנגשות פורטים.
-    app.run(port=5013, debug=True, threaded=True)
+    # הפעלה מקומית לבדיקה בלבד (python web/api/geo.py) — ב-Vercel לא מגיעים לכאן בכלל, ושם
+    # geo_bp נרשם על ה-app היחיד ב-web/app.py. כאן בונים app זמני רק בשביל הבדיקה המקומית.
+    # פורט קבוע-לבדיקה שונה מה-GEO_PORT של הדסקטופ (5003), כדי שאפשר להריץ בו-זמנית.
+    from server_common import create_app
+    _app = create_app(__name__)
+    _app.register_blueprint(geo_bp)
+    _app.run(port=5013, debug=True, threaded=True)

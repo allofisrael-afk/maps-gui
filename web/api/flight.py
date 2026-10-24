@@ -6,13 +6,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 import logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig מוגדר ב-server_common.create_app)
 import re        # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד
-from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app
+from flask import Blueprint, jsonify, request  # Blueprint — ר' הערה מטה למה לא Flask() נפרד
 from FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24
 from FlightRadar24.core import Core  # קבועי URL/headers של הספרייה — משמשים ב-_fetch_flight_details_direct
 
-from server_common import create_app  # תשתית משותפת — .env/logging/Flask/CORS (גרסת web, ללא /metrics)
-# create_app כבר קורא ל-load_dotenv() — טוען גם את FR24_USER/FR24_PASS/FR24_TOKEN בהמשך הקובץ
-# ports.FLIGHT_PORT לא נדרש כאן — Vercel מנתב לפי שם-קובץ, לא לפי פורט מקומי קבוע
+# Blueprint, לא Flask(__name__) משלו — Vercel's "Flask framework" preset מצפה ל-app יחיד
+# בכל הפרויקט (נמצא בדיפלוי אמיתי: FLASK_ENTRYPOINT_NOT_FOUND כש-3 קבצים הגדירו app משלהם
+# — ר' MAPS-GUI_SRS.md §3.26). web/app.py הוא נקודת-הכניסה היחידה, קורא ל-create_app()
+# (כולל load_dotenv — טוען את FR24_USER/PASS/TOKEN) *לפני* שהוא מייבא את המודול הזה.
+# ports.FLIGHT_PORT לא נדרש כאן — Vercel מנתב לפי נתיב, לא לפי פורט מקומי קבוע
+flight_bp = Blueprint('flight', __name__)
 
 # מיפוי קוד IATA (2 תווים) → קוד ICAO (3 תווים) לחברות נפוצות.
 # ה-API של FR24 מקבל רק ICAO בפרמטר airline — IATA מחזיר 0 תוצאות.
@@ -94,8 +97,6 @@ def _fetch_flight_details_direct(flight_id):
         return response.get_content()
 
 
-app = create_app(__name__)  # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
-
 fr_api = FlightRadar24API()  # יצירת מופע ה-API
 
 # ── אימות FR24: קודם מנסה token ישיר (עוקף Cloudflare), אחר-כך login רגיל ──
@@ -119,7 +120,7 @@ else:
     logging.info("FlightRadar24: רץ ללא login — trail לא יהיה זמין")  # מצב בסיסי — מיקום נוכחי בלבד
 
 
-@app.route("/flight_route", methods=["GET"])
+@flight_bp.route("/flight_route", methods=["GET"])
 def get_flight_route():
     """
     מחזיר מסלול טיסה (trail) ופרטים לטיסה לפי callsign או מספר טיסה.
@@ -292,7 +293,7 @@ def get_flight_route():
         return jsonify({"error": f"שגיאה פנימית: {str(e)}"}), 500
 
 
-@app.route("/flight_search", methods=["GET"])
+@flight_bp.route("/flight_search", methods=["GET"])
 def search_flights():
     """
     מחזיר רשימת callsigns של טיסות שמתאימות לחיפוש.
@@ -335,4 +336,7 @@ def search_flights():
 if __name__ == "__main__":
     # הפעלה מקומית לבדיקה בלבד — ב-Vercel לא מגיעים לכאן בכלל (ר' הערה מקבילה ב-geo.py).
     # פורט 5014 — נפרד מ-FLIGHT_PORT (5004) של הדסקטופ, כדי לא להתנגש אם שתיהן רצות יחד.
-    app.run(port=5014, debug=True, threaded=True)
+    from server_common import create_app
+    _app = create_app(__name__)
+    _app.register_blueprint(flight_bp)
+    _app.run(port=5014, debug=True, threaded=True)

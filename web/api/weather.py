@@ -8,16 +8,16 @@ import json  # קריאה/כתיבה של קובץ "עמדות שמורות" (sa
 import logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig מוגדר ב-server_common.create_app)
 import math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ
 import time  # השהיות בין ניסיונות חוזרים ובין batches
-from flask import jsonify, request  # פענוח בקשות — Flask() עצמו נוצר ב-server_common.create_app
+from flask import Blueprint, jsonify, request  # Blueprint — ר' הערה מטה למה לא Flask() נפרד
 import requests  # קריאות ל-OpenWeather/Open-Meteo/Google
 import threading  # ריצת חישוב רדיוס-ראייה ברקע (job) — ר' הערת-מגבלה ב-/los_radial/start למטה
 import uuid  # מזהה ייחודי לכל job של רדיוס-ראייה
 
-from server_common import create_app  # תשתית משותפת — .env/logging/Flask/CORS (גרסת web, ללא /metrics)
-# ports.WEATHER_PORT לא נדרש כאן — Vercel מנתב לפי שם-קובץ, לא לפי פורט מקומי קבוע
-
-# יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
-app = create_app(__name__)
+# Blueprint, לא Flask(__name__) משלו — Vercel's "Flask framework" preset מצפה ל-app יחיד
+# בכל הפרויקט (נמצא בדיפלוי אמיתי: FLASK_ENTRYPOINT_NOT_FOUND כש-3 קבצים הגדירו app משלהם
+# — ר' MAPS-GUI_SRS.md §3.26). web/app.py הוא נקודת-הכניסה היחידה, מרשם את כל ה-blueprints.
+# ports.WEATHER_PORT לא נדרש כאן — Vercel מנתב לפי נתיב, לא לפי פורט מקומי קבוע
+weather_bp = Blueprint('weather', __name__)
 
 # מפתח ה-API ל-OpenWeather (מזג אוויר בפועל) — הגיאוקודינג (חיפוש עיר/אזור) עבר ל-Nominatim, חינמי וללא מפתח
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
@@ -88,7 +88,7 @@ def _extract_boundary_rings(geojson):
         pass
     return []
 
-@app.route("/weather", methods=["GET"])
+@weather_bp.route("/weather", methods=["GET"])
 def get_weather():
     region = request.args.get("region")  # חיפוש לפי שם עיר, לדוגמה "תל אביב"
     lat = request.args.get("lat")  # לחלופין: קואורדינטות ישירות
@@ -160,7 +160,7 @@ def get_weather():
         logging.error(error_message)  # רישום שגיאה
         return jsonify({"error": error_message}), 500
 
-@app.route("/heatmap_data", methods=["GET"])
+@weather_bp.route("/heatmap_data", methods=["GET"])
 def get_heatmap_data():
     """
     API להחזרת נתוני שכבת חום.
@@ -199,7 +199,7 @@ def get_heatmap_data():
     return jsonify(data)
 
 
-@app.route("/elevation", methods=["POST"])  # נתיב POST — מקבל רשימת נקודות בגוף הבקשה
+@weather_bp.route("/elevation", methods=["POST"])  # נתיב POST — מקבל רשימת נקודות בגוף הבקשה
 def get_elevation():
     """
     מקבל רשימת נקודות [{latitude, longitude}] ומחזיר גובה לכל נקודה.
@@ -254,7 +254,7 @@ def get_elevation():
             return jsonify({"error": str(e)}), 500
 
 
-@app.route("/temp_grid", methods=["POST"])
+@weather_bp.route("/temp_grid", methods=["POST"])
 def get_temp_grid():
     """
     מקבל {southwest: {lat,lng}, northeast: {lat,lng}} ומחזיר רשת טמפרטורות ברזולוציה של 5 ק"מ.
@@ -491,7 +491,7 @@ def _fetch_elevations(locations):
     return None, {'error': 'נכשל אחרי 3 ניסיונות'}
 
 
-@app.route("/los", methods=["GET"])
+@weather_bp.route("/los", methods=["GET"])
 def line_of_sight():
     """
     חישוב קו ראייה בין שתי נקודות עם תיקון עקמומיות כדור הארץ.
@@ -725,7 +725,7 @@ def _radial_finalize(job):
 from job_store import get_job as _jobstore_get, set_job as _jobstore_set, delete_job as _jobstore_delete
 
 
-@app.route("/los_radial/start", methods=["GET"])
+@weather_bp.route("/los_radial/start", methods=["GET"])
 def start_radial_los():
     """מתחיל job חדש של רדיוס-ראייה רדיאלי — שלב 2 (chunked-per-request, ר' MAPS-GUI_SRS.md
     §3.25): מבצע את שלב-ההכנה (_radial_setup, מהיר) + batch 0 *סינכרונית* כאן, שומר את כל
@@ -823,7 +823,7 @@ def start_radial_los():
     return jsonify({'job_id': job_id})
 
 
-@app.route("/los_radial/status", methods=["GET"])
+@weather_bp.route("/los_radial/status", methods=["GET"])
 def radial_los_status():
     """מחזיר את מצב ה-job הנוכחי, ותוך כדי כך **מבצע את ה-batch הבא** אם עדיין רץ (chunked-
     per-request, ר' MAPS-GUI_SRS.md §3.25) — status/batches_done/batches_total/result."""
@@ -846,7 +846,7 @@ def radial_los_status():
     })
 
 
-@app.route("/los_radial/cancel", methods=["POST"])
+@weather_bp.route("/los_radial/cancel", methods=["POST"])
 def cancel_radial_los():
     """מוחק את ה-job מ-Redis — אין thread-רקע לעצור (chunked-per-request, ר' MAPS-GUI_SRS.md
     §3.25): כל /status הבא על job_id שנמחק פשוט יחזיר 404, מה שעוצר את ה-polling בצד הלקוח."""
@@ -1220,7 +1220,7 @@ def _parse_radar_common_params(args):
     }
 
 
-@app.route("/radar_doppler/start", methods=["GET"])
+@weather_bp.route("/radar_doppler/start", methods=["GET"])
 def start_radar_doppler():
     """מתחיל job חדש של תצפית מכ"ם דופלר ברקע, מחזיר job_id מיידית — אותו דפוס בדיוק
     כמו /los_radial/start. קולט את כל הפרמטרים, וכל אחד נצמד (clamp) לטווח מותר, לא נדחה."""
@@ -1282,7 +1282,7 @@ def start_radar_doppler():
     return jsonify({'job_id': job_id})
 
 
-@app.route("/radar_doppler/status", methods=["GET"])
+@weather_bp.route("/radar_doppler/status", methods=["GET"])
 def radar_doppler_status():
     """מחזיר את מצב ה-job הנוכחי, ותוך כדי מבצע את ה-batch הבא אם עדיין רץ — אותו דפוס
     chunked-per-request בדיוק כמו /los_radial/status (ר' MAPS-GUI_SRS.md §3.25)."""
@@ -1305,7 +1305,7 @@ def radar_doppler_status():
     })
 
 
-@app.route("/radar_doppler/cancel", methods=["POST"])
+@weather_bp.route("/radar_doppler/cancel", methods=["POST"])
 def cancel_radar_doppler():
     """מוחק את ה-job מ-Redis — אותו דפוס בדיוק כמו /los_radial/cancel (אין thread-רקע לעצור)."""
     job_id = request.args.get('job_id')
@@ -1315,7 +1315,7 @@ def cancel_radar_doppler():
         pass
 
 
-@app.route("/radar_doppler/profile", methods=["GET"])
+@weather_bp.route("/radar_doppler/profile", methods=["GET"])
 def radar_doppler_profile():
     """חתך-צד (פרופיל שטח) לקרן בודדת מתוך תוצאת מכ"ם-דופלר — נקרא בלחיצה על חישור ספציפי
     בממשק. מחשב סינכרונית (לא job/polling — קרן אחת, מהיר כמו /los), ומחזיר את כל נקודות
@@ -1609,7 +1609,7 @@ def _radar_route_eval_worker(job_id, obs_lat, obs_lon, p, trail):
             _radar_jobs[job_id]['error'] = str(e)
 
 
-@app.route("/radar_doppler/evaluate_route/start", methods=["POST"])
+@weather_bp.route("/radar_doppler/evaluate_route/start", methods=["POST"])
 def start_radar_route_eval():
     """מתחיל job חדש של הערכת מסלול טיסה מול תצורת מכ"ם-דופלר — אותו דפוס job+polling
     בדיוק כמו /radar_doppler/start, אבל עם JSON body (לא query string) כי ה-payload כולל
@@ -1661,7 +1661,7 @@ _STATIONS_VALID_TOOLS = (
 )  # מפתחות תקינים — שם JS מזהה כל כלי
 
 
-@app.route("/stations/list", methods=["GET"])
+@weather_bp.route("/stations/list", methods=["GET"])
 def list_stations():
     """מחזיר את כל העמדות השמורות לכלי מסוים — [{name, params}, ...], ריק אם אין עדיין."""
     tool = request.args.get('tool')
@@ -1673,7 +1673,7 @@ def list_stations():
         return jsonify({'error': str(e), 'stations': []}), 503
 
 
-@app.route("/stations/save", methods=["POST"])
+@weather_bp.route("/stations/save", methods=["POST"])
 def save_station():
     """שומר/מעדכן עמדה תחת שם — אם כבר קיימת עמדה באותו שם לאותו כלי, מוחלפת (לא נוצרת כפולה)."""
     body = request.json or {}
@@ -1693,7 +1693,7 @@ def save_station():
     return jsonify({'ok': True})
 
 
-@app.route("/stations/delete", methods=["POST"])
+@weather_bp.route("/stations/delete", methods=["POST"])
 def delete_station():
     """מוחק עמדה שמורה לפי שם — מתעלם בשקט אם השם/הכלי לא נמצאו."""
     body = request.json or {}
@@ -1711,4 +1711,7 @@ def delete_station():
 if __name__ == "__main__":
     # הפעלה מקומית לבדיקה בלבד — ב-Vercel לא מגיעים לכאן בכלל (ר' הערה מקבילה ב-geo.py).
     # פורט 5012 — נפרד מ-WEATHER_PORT (5002) של הדסקטופ, כדי לא להתנגש אם שתיהן רצות יחד.
-    app.run(port=5012, debug=True, threaded=True)
+    from server_common import create_app
+    _app = create_app(__name__)
+    _app.register_blueprint(weather_bp)
+    _app.run(port=5012, debug=True, threaded=True)
