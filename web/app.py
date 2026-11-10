@@ -32,10 +32,12 @@ app = create_app(__name__)  # טוען .env (כולל מפתחות/טוקן FR24
 from geo import geo_bp  # noqa: E402
 from weather import weather_bp  # noqa: E402
 from flight import flight_bp  # noqa: E402
+from ballistics import ballistics_bp  # noqa: E402 — כלי מסלול בליסטי (MPM), Stage 2 (FR-D-234)
 
 app.register_blueprint(geo_bp)
 app.register_blueprint(weather_bp)
 app.register_blueprint(flight_bp)
+app.register_blueprint(ballistics_bp)
 
 
 @app.route('/')

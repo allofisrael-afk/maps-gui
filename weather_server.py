@@ -10,6 +10,9 @@ import uuid  # מזהה ייחודי לכל job של רדיוס-ראייה
 
 from server_common import create_app  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics
 from ports import WEATHER_PORT
+import sys  # הוספת שורש-הפרויקט ל-sys.path כדי לייבא את mpm_api (כלי המסלול הבליסטי, Stage 2)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402 — weather_server.py כבר בשורש, אבל מפורש לבטיחות
+import mpm_api  # noqa: E402 — שכבת ה-API של כלי המסלול הבליסטי (MPM) — ר' MAPS-GUI_SRS.md §3.27
 
 # יצירת מופע Flask (טעינת .env, logging, CORS, ו-/metrics כבר מוכנים בתוך create_app)
 app = create_app(__name__)
@@ -1700,6 +1703,225 @@ def delete_station():
         tool_list[:] = [s for s in tool_list if s.get('name') != name]
         _save_stations(data)
     return jsonify({'ok': True})
+
+
+# ============================================================================
+# כלי מסלול בליסטי (MPM) — Stage 2 (FR-D-234, ר' MAPS-GUI_SRS.md §3.27). מנוע עצמאי ב-mpm/ +
+# שכבת-API משותפת ב-mpm_api.py (גם Desktop וגם Web/Chaquopy קוראים לה) — הקוד כאן הוא רק
+# חשיפת HTTP + הרחבת-המטאו-לשכבות-גובה (decision ב) שדורשת גישת-רשת, לכן חייבת לחיות בשרת.
+# ============================================================================
+
+_BALLISTICS_PRESSURE_LEVELS_HPA = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 70, 50, 30]
+# רשימת-שכבות-הלחץ שOpen-Meteo מספק (עד כ-24 ק"מ) — זהה לרשימה ב-mpm_ballistics/mpm/met_sources.py
+# המקורי, אך נקראת כאן ב-requests+retry/backoff של weather_server.py, לא ב-urllib גולמי של met_sources —
+# met_sources.py עצמו לא עבר (ר' FR-D-230/231), רק הפורמט של הבקשה/תשובה שלו משוכפל בכוונה.
+
+
+def _fetch_met_profile_live(lat, lon, alt_m, when_iso=None):
+    """
+    שולף פרופיל-מטאו חי מ-Open-Meteo **בשכבות-גובה/לחץ** (decision ב, FR-D-231) — לא רק קרקע
+    כמו /weather,/temp_grid הקיימים. מחזיר (surface, levels, meta) בפורמט שmpm_api._build_atmosphere
+    (מצב "inline") מצפה לו, או (None, None, error_dict) בכשל. 3 ניסיונות עם backoff 2s/4s —
+    אותה מוסכמה בדיוק כמו /temp_grid למעלה.
+    """
+    hourly = ["temperature_2m", "surface_pressure", "wind_speed_10m", "wind_direction_10m"]  # שדות-קרקע
+    for p in _BALLISTICS_PRESSURE_LEVELS_HPA:  # שדות לכל שכבת-לחץ — טמפ'/רוח/גובה-גיאופוטנציאלי
+        hourly += [f"temperature_{p}hPa", f"wind_speed_{p}hPa", f"wind_direction_{p}hPa", f"geopotential_height_{p}hPa"]
+    params = {"latitude": f"{lat:.5f}", "longitude": f"{lon:.5f}", "hourly": ",".join(hourly),
+              "wind_speed_unit": "ms", "timezone": "UTC"}
+    if when_iso:  # שעת-תחזית מבוקשת (UTC, ISO) — ברירת-מחדל (לא מועבר) = Open-Meteo יחזיר קרוב-לעכשיו
+        params["start_hour"] = when_iso
+        params["end_hour"] = when_iso
+    for attempt in range(3):  # 3 ניסיונות, כמו /temp_grid
+        try:
+            r = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=30)
+            if r.status_code == 429:  # מכסת-בקשות — לא retry, כמו בשאר הכלים
+                reason = r.json().get("reason", "מכסת בקשות Open-Meteo הגיעה למגבלה")
+                return None, None, {"error": reason, "rate_limited": True}
+            r.raise_for_status()
+            d = r.json()
+            break
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
+            if attempt < 2:
+                time.sleep(2.0 * (attempt + 1))  # 2s/4s backoff, כמו /temp_grid
+            else:
+                return None, None, {"error": str(e)}
+        except Exception as e:
+            return None, None, {"error": str(e)}
+    H = d.get("hourly") or {}
+    times = H.get("time") or []
+    if not times:
+        return None, None, {"error": "לא התקבלו נתוני מטאו לשעה המבוקשת"}
+    i = 0  # השעה הראשונה שהוחזרה — תמיד תואמת ל-start_hour/end_hour שביקשנו (או השעה הנוכחית אם לא ביקשנו)
+
+    def val(key):  # שולף שדה-שעתי בודד; None אם חסר (Open-Meteo יכול להחזיר None לשכבה לא-נתמכת)
+        v = H.get(key)
+        return None if v is None else v[i]
+
+    elev = float(d.get("elevation") or 0.0)  # גובה-המודל של Open-Meteo במיקום הזה — לא בהכרח = גובה-הלוע
+    surface = {"alt_m": elev, "temp_c": val("temperature_2m"), "pressure_hpa": val("surface_pressure"),
+               "wind_speed_mps": val("wind_speed_10m") or 0.0, "wind_dir_deg": val("wind_direction_10m") or 0.0}
+    if surface["temp_c"] is None or surface["pressure_hpa"] is None:
+        return None, None, {"error": "חסרים נתוני-קרקע בתחזית"}
+    levels = []
+    for p in _BALLISTICS_PRESSURE_LEVELS_HPA:
+        h, t = val(f"geopotential_height_{p}hPa"), val(f"temperature_{p}hPa")
+        ws, wd = val(f"wind_speed_{p}hPa"), val(f"wind_direction_{p}hPa")
+        if None in (h, t) or h <= elev + 10:  # שכבה חסרה, או מתחת לפני-הקרקע במודל — מדלגים
+            continue
+        levels.append({"height_m": h, "temp_c": t, "wind_speed_mps": ws or 0.0, "wind_dir_deg": wd or 0.0})
+    if alt_m is not None and abs(float(alt_m) - elev) > 1.0:
+        # התאמת-הקרקע לגובה-הלוע האמיתי (לחץ לפי הידרוסטטיקה, טמפ' לפי קצב-סטנדרטי) — זהה
+        # ל-met_sources.py::profile_from_open_meteo המקורי, שלא עבר בעצמו (ר' FR-D-230/231)
+        dz = float(alt_m) - elev
+        T = surface["temp_c"] + 273.15
+        surface["pressure_hpa"] = surface["pressure_hpa"] * math.exp(-9.80665 * dz / (287.05 * (T - 0.00325 * dz)))
+        surface["temp_c"] = surface["temp_c"] - 0.0065 * dz
+        surface["alt_m"] = float(alt_m)
+    meta = {"source": "open-meteo", "valid_time_utc": times[0], "levels": len(levels)}
+    return surface, levels, meta
+
+
+def _resolve_ballistics_met(met, gun):
+    """
+    ממיר met שהגיע מהבקשה ל-dict ש-mpm_api._build_atmosphere יודע לקרוא (רק "standard"/"inline").
+    אם met.source=="live" — שולף מ-Open-Meteo *כאן* (ברשת, ר' _fetch_met_profile_live) ובונה "inline";
+    "standard"/"inline" עוברים ללא שינוי. מחזיר (met_resolved, error_jsonify_or_None).
+    """
+    met = met or {"source": "standard"}  # ברירת-מחדל זהה לזו של mpm_api/gui.py המקורי
+    if (met.get("source") or "").lower() not in ("live", "open-meteo", "openmeteo"):
+        return met, None  # standard/inline — אין צורך ברשת, מועבר כמו שהוא
+    # surface=None הוא הדרך היחידה להבדיל כשל מהצלחה — בשתי המקרים הערך השלישי הוא dict לא-ריק
+    # (meta בהצלחה, error בכשל), ולכן בדיקת-אמת על "has_error" לא עובדת, רק on "surface is None"
+    surface, levels, meta_or_err = _fetch_met_profile_live(float(gun["lat"]), float(gun["lon"]), gun.get("alt_m"),
+                                                           met.get("time_utc"))
+    if surface is None:
+        return None, meta_or_err  # כשל — meta_or_err הוא ה-error dict
+    return {"source": "inline", "surface": surface, "levels": levels, "time_utc": meta_or_err.get("valid_time_utc"),
+            "description": f"Open-Meteo {meta_or_err.get('valid_time_utc', '')} UTC"}, None
+
+
+def _ballistics_batch_pause():
+    """פונקציית-השהיה שמוזרקת ל-mpm_api.terrain_check בין batches של שליפת-גובה — זהה ל-_RADIAL_BATCH_PAUSE_SEC."""
+    time.sleep(_RADIAL_BATCH_PAUSE_SEC)
+
+
+@app.route("/ballistics/trajectory", methods=["POST"])
+def ballistics_trajectory():
+    """עטיפת-HTTP ל-mpm_api.trajectory — כל הפרמטרים מגיעים כגוף-JSON (מבנה מורכב, כמו /temp_grid)."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.trajectory(body["gun"], body["qe"], body["azimuth"], body["mv"], met=met,
+                                 target_alt=body.get("target_alt"), fitting=body.get("fitting"),
+                                 angle_unit=body.get("angle_unit", "mils"), coriolis=body.get("coriolis", True),
+                                 earth_curvature=body.get("earth_curvature", True), dt=body.get("dt", 0.02),
+                                 include_path=body.get("include_path", True), path_step=body.get("path_step", 10))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/solve", methods=["POST"])
+def ballistics_solve():
+    """עטיפת-HTTP ל-mpm_api.solve."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.solve(body["gun"], body["target"], body["mv"], met=met, fitting=body.get("fitting"),
+                            angle_unit=body.get("angle_unit", "mils"), coriolis=body.get("coriolis", True),
+                            earth_curvature=body.get("earth_curvature", True), dt=body.get("dt", 0.02),
+                            group=body.get("group", "low"), qe_min=body.get("qe_min"), qe_max=body.get("qe_max"),
+                            include_path=body.get("include_path", True), path_step=body.get("path_step", 10))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/solve_mv", methods=["POST"])
+def ballistics_solve_mv():
+    """עטיפת-HTTP ל-mpm_api.solve_mv."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.solve_mv(body["gun"], body["target"], body["qe"], body["mv_min"], body["mv_max"],
+                               met=met, fitting=body.get("fitting"), angle_unit=body.get("angle_unit", "mils"),
+                               coriolis=body.get("coriolis", True), earth_curvature=body.get("earth_curvature", True),
+                               dt=body.get("dt", 0.02), include_path=body.get("include_path", True),
+                               path_step=body.get("path_step", 10))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/table", methods=["POST"])
+def ballistics_table():
+    """עטיפת-HTTP ל-mpm_api.table."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.table(body["gun"], body["azimuth"], body["qe_start"], body["qe_end"], body["qe_step"],
+                            body["mv"], met=met, fitting=body.get("fitting"), angle_unit=body.get("angle_unit", "mils"),
+                            coriolis=body.get("coriolis", True), earth_curvature=body.get("earth_curvature", True),
+                            dt=body.get("dt", 0.02))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/calibrate", methods=["POST"])
+def ballistics_calibrate():
+    """עטיפת-HTTP ל-mpm_api.calibrate."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.calibrate(body["gun"], body["mv"], body["points"], met=met, fitting=body.get("fitting"),
+                                angle_unit=body.get("angle_unit", "mils"), coriolis=body.get("coriolis", True),
+                                earth_curvature=body.get("earth_curvature", True), dt=body.get("dt", 0.02))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/terrain_check", methods=["POST"])
+def ballistics_terrain_check():
+    """עטיפת-HTTP ל-mpm_api.terrain_check — מזריקה את _fetch_elevations/_ballistics_batch_pause הקיימים."""
+    body = request.get_json() or {}
+    try:
+        out = mpm_api.terrain_check(body["path"], _fetch_elevations, safety_margin_m=body.get("safety_margin_m", 0.0),
+                                    resolution_m=body.get("resolution_m", 75.0), batch_pause_fn=_ballistics_batch_pause)
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/min_qe_for_crest", methods=["POST"])
+def ballistics_min_qe_for_crest():
+    """עטיפת-HTTP ל-mpm_api.min_qe_for_crest — אותה הזרקת-תלות כמו terrain_check."""
+    body = request.get_json() or {}
+    try:
+        met, err = _resolve_ballistics_met(body.get("met"), body["gun"])
+        if err:
+            return jsonify(err), 502
+        out = mpm_api.min_qe_for_crest(body["gun"], body["target"], body["mv"], _fetch_elevations, met=met,
+                                       fitting=body.get("fitting"), angle_unit=body.get("angle_unit", "mils"),
+                                       coriolis=body.get("coriolis", True),
+                                       earth_curvature=body.get("earth_curvature", True),
+                                       safety_margin_m=body.get("safety_margin_m", 0.0),
+                                       resolution_m=body.get("resolution_m", 100.0))
+        return jsonify(out)
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
 
 
 if __name__ == "__main__":

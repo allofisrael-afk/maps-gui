@@ -90,6 +90,11 @@
         .leaflet-popup-tip { background-color: #1e1e2e; }
         .leaflet-popup-content { margin: 10px 14px; }
         
+        @media (max-width: 600px) {
+            .leaflet-control { font-size: 11px !important; }
+            #status { font-size: 11px !important; padding: 5px 8px !important; }
+        }
+    
     </style>
 </head>
 <body>
@@ -377,6 +382,35 @@
         var _radialMarginInput   = null; // שדה קלט מרווח רכס (מעלות)
         var _radialVCenterInput  = null; // שדה קלט מרכז שדה-הראייה האנכי (מעלות) — נחשף לפי בקשת המשתמש (היה קבוע)
         var _radialVWidthInput   = null; // שדה קלט רוחב שדה-הראייה האנכי הכולל (מעלות)
+
+        // ── כלי מסלול בליסטי (MPM) — כלי שישי, Stage 3 (FR-D-234/235) — gun+target+5 טאבים ──
+        var ballisticsActive   = false; // האם מצב-הצבה פעיל (cursor crosshair) — דומה ל-radarActive וכו'
+        var ballisticsEditing  = 'gun'; // 'gun'|'target' — איזו נקודה הלחיצה הבאה על המפה קובעת
+        var ballisticsGun      = null;  // {lat,lng,alt} — נקודת התותח; alt מתמלא אוטומטית מהגובה בשרת
+        var ballisticsTarget   = null;  // {lat,lng,alt} — נקודת המטרה
+        var ballisticsGunMk    = null;  // סמן התותח על המפה (ניתן לגרירה)
+        var ballisticsTgtMk    = null;  // סמן המטרה על המפה (ניתן לגרירה)
+        var ballisticsPathLn   = null;  // L.polyline — המסלול המחושב האחרון (קו-על-קרקע, לא תלת-ממדי)
+        var ballisticsImpactMk = null;  // סמן נקודת-הפגיעה
+        var ballisticsApexMk   = null;  // סמן הקודקוד (הנקודה הגבוהה ביותר במסלול)
+        var ballisticsCollMk   = null;  // סמן נקודת-התנגשות-בקרקע (אם terrain_check מזהה חסימה), null אם אין
+        var ballisticsLoading  = false; // חישוב רץ כרגע (fetch) — מונע הפעלה כפולה
+        var ballisticsLastPath = null;  // path מהחישוב האחרון — נצרך ע"י terrain_check/min_qe_for_crest בלי לחשב מסלול מחדש
+        var ballisticsInfoEl   = null;  // תיבת-הטקסט בתוך ה-Control (תוצאות/שגיאות/טעינה)
+        var ballisticsProfileCanvas = null; // קנבס פרופיל-צד (גובה-קרקע מתחת למסלול), בתוך הפאנל
+        var ballisticsPanelBodyEl  = null;  // גוף הפאנל — מוסתר עד בחירת הכלי (כמו שאר הכלים)
+        var _ballisticsBtnEl       = null;  // הפניה לכפתור 💥 לצורך שינוי-צבע
+        // "גשרים" בין onAdd (שמגדיר אותם) לפונקציות הטאבים (שנקראות ממנו, אבל גם מ-event handlers
+        // חוץ ל-onAdd, למשל כפתורי-חישוב) — מוצהרים כאן כ-var כדי שלא יהיו global משתמע (sloppy-mode)
+        var _ballisticsSyncFields = function() {};      // מעדכן שדות lat/lon/alt מהמצב הפנימי
+        var _ballisticsGetCommonParams = function() {}; // אוסף mv/met/fitting/units/coriolis/curvature
+        var _ballisticsGetGunTarget = function() {};    // {gun,target} בפורמט ל-fetch
+        var _ballisticsSelectTab = function() {};       // מחליף טאב פעיל
+        var _ballisticsTabBodies = {};                  // key->DOM element של כל טאב
+        var _ballisticsMkField = null, _ballisticsMkSelect = null, _ballisticsMkHeader = null;  // "מפעל" רכיבים, משותף לכל הטאבים
+        var _ballisticsMetStatusEl = null;  // תווית סטטוס-מטאו בפאנל הראשי (לא בתוך טאב)
+        var _ballisticsMetTabStatusEl = null;  // תווית סטטוס-מטאו בתוך טאב "מטאו" עצמו
+        var _ballisticsSolveSetQeMin = function() {};  // מציב qe_min בטאב "פתרון ירי" מתוך תוצאת min_qe_for_crest
 
         // ── מצב כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד מרדיוס-הראייה ──
         // אותו רעיון בדיוק (משקיף, כל הכיוונים, תצוגה מקדימה+ידיות גרירה, job+polling+ביטול),
@@ -1101,7 +1135,7 @@
         function toggleNotamCategory(catId) {
             if (!uasNotamLoaded) {
                 document.title = '__uas_notam_loading__';  // איתות ל-Python (main.py) שהטעינה החלה — נתפס ב-_on_title_changed
-                fetch('http://localhost:5003/uas_notams')
+                fetch('/uas_notams')
                     .then(function(r) {
                         if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
                         return r.json();
@@ -1574,7 +1608,7 @@
             }
 
             // שליחת בקשה לשרת המקומי שמעביר ל-Open-Meteo
-            fetch('http://localhost:5002/elevation', {
+            fetch('/elevation', {
                 method:  'POST',                                    // POST — הנקודות בגוף הבקשה
                 headers: {'Content-Type': 'application/json'},    // הצהרת סוג תוכן
                 body:    JSON.stringify({locations: locations})    // המרת הנקודות ל-JSON
@@ -1624,7 +1658,13 @@
         }
 
         var heatmapPickerActive = false;  // מצב בחירת נקודות חום ידנית
-        var serversRunning = false;       // מסונכרן מ-Python — מונע שליפת מזג אוויר כשהשרתים כבויים
+        // Desktop: false בהתחלה, מסונכרן מ-main.py (start_servers/stop_servers קוראים ל-_setServersRunning)
+        // כי שלושת שרתי ה-Flask המקומיים צריכים להיות מופעלים-בפועל לפני שהכלים התלויים בהם (LOS/
+        // רדיוס-ראייה/מכ"ם-דופלר/בליסטי) פעילים. Web: תמיד true מההתחלה — אין main.py שמפעיל/מכבה
+        // שרת מקומי, ה-backend (Vercel) כבר פעיל תמיד; בלי זה כל הכפתורים האלה נשארים מנוטרלים-לנצח
+        // (opacity:0.4;pointer-events:none) ב-Web, כי שום דבר לעולם לא קורא ל-_setServersRunning(true)
+        // שם — נמצא בדיווח אמיתי של המשתמש ("אין יכולת להפעיל שרתים וכל התפריט... לא קיים").
+        var serversRunning = true;
 
         function toggleHeatmap() {
             if (tempHeatLayer || tempSelecting) {
@@ -1692,7 +1732,7 @@
             var ne = bounds.getNorthEast();
             document.title = '__heatmap_computing__';
 
-            fetch('http://localhost:5002/temp_grid', {
+            fetch('/temp_grid', {
                 method:  'POST',
                 headers: {'Content-Type': 'application/json'},
                 body:    JSON.stringify({
@@ -1889,7 +1929,7 @@
 
         function loadHeatmapData() {
             // שליפת נתוני מפת החום משרת מזג האוויר המקומי
-            const url = "http://localhost:5002/heatmap_data";
+            const url = "/heatmap_data";
 
             fetch(url)
                 .then(response => {
@@ -1923,13 +1963,13 @@
 
         function fetchWeather(lat, lon) {
             // שליפת מזג אוויר וגובה במקביל — Promise.all מבטיח תצוגה אחת לאחר שתי התשובות
-            var weatherPromise = fetch(`http://localhost:5002/weather?lat=${lat}&lon=${lon}`)
+            var weatherPromise = fetch(`/weather?lat=${lat}&lon=${lon}`)
                 .then(function(r) {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();
                 });
 
-            var elevationPromise = fetch('http://localhost:5002/elevation', {
+            var elevationPromise = fetch('/elevation', {
                 method:  'POST',
                 headers: {'Content-Type': 'application/json'},
                 body:    JSON.stringify({locations: [{latitude: parseFloat(lat), longitude: parseFloat(lon)}]})
@@ -2047,7 +2087,7 @@
         function _runLos(obs, tgt, session) {
             document.title = '__los_loading__';  // איתות ל-Python: חישוב החל
             // בניית URL עם קואורדינטות שתי הנקודות וגבהי הצופה/היעד שנשמרו על הסשן ביצירתו
-            var url = 'http://localhost:5002/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
+            var url = '/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
                       '&lat2=' + tgt.lat + '&lon2=' + tgt.lng +
                       '&obs_h=' + (session.obsH != null ? session.obsH : 11) +
                       '&tgt_h=' + (session.tgtH != null ? session.tgtH : 0);
@@ -2315,7 +2355,7 @@
             delBtn.innerHTML = '&#128465;';  // 🗑
 
             function _refreshList() {
-                fetch('http://localhost:5002/stations/list?tool=' + toolKey)
+                fetch('/stations/list?tool=' + toolKey)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     var stations = data.stations || [];
@@ -2346,7 +2386,7 @@
                 });
                 var obs = getObsFn ? getObsFn() : null;
                 if (obs) { params.lat = obs.lat; params.lon = obs.lng; }
-                fetch('http://localhost:5002/stations/save', {
+                fetch('/stations/save', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({tool: toolKey, name: name, params: params})
                 })
@@ -2388,7 +2428,7 @@
                 var name = stationSelect.value;
                 if (!name) return;
                 if (!confirm('למחוק את העמדה "' + name + '"?')) return;
-                fetch('http://localhost:5002/stations/delete', {
+                fetch('/stations/delete', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({tool: toolKey, name: name})
                 })
@@ -2573,7 +2613,7 @@
             document.title = '__radial_los_loading__';  // איתות ל-Python — שורת לוג
             if (radialLosInfoEl) radialLosInfoEl.textContent = 'מתחיל חישוב…';
             if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'block';  // מציג את כפתור הביטול רק בזמן ריצה
-            var url = 'http://localhost:5002/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
+            var url = '/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
                       '&obs_h=' + obsH + '&tgt_h=' + tgtH + '&ridge_margin_deg=' + marginDeg +
@@ -2597,7 +2637,7 @@
         function _pollRadialLosStatus() {
             // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
             if (!radialLosJobId) return;
-            fetch('http://localhost:5002/los_radial/status?job_id=' + radialLosJobId)
+            fetch('/los_radial/status?job_id=' + radialLosJobId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.status === 'running') {
@@ -2694,7 +2734,7 @@
             // כפתור "בטל" — עוצר מיד בצד הלקוח (בלי לחכות לתשובת השרת), ומודיע גם לשרת שיפסיק
             if (radialLosPollTimer) { clearInterval(radialLosPollTimer); radialLosPollTimer = null; }
             if (radialLosJobId) {
-                fetch('http://localhost:5002/los_radial/cancel?job_id=' + radialLosJobId, {method:'POST'});
+                fetch('/los_radial/cancel?job_id=' + radialLosJobId, {method:'POST'});
             }
             radialLosJobId = null;
             radialLosLoading = false;
@@ -2944,7 +2984,7 @@
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
             if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
-            var url = 'http://localhost:5002/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+            var url = '/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
                       '&h_antenna=' + hAnt + '&ridge_margin_deg=' + marginDeg +
@@ -2974,7 +3014,7 @@
         function _pollRadarDopplerStatus() {
             // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
             if (!radarJobId) return;
-            fetch('http://localhost:5002/radar_doppler/status?job_id=' + radarJobId)
+            fetch('/radar_doppler/status?job_id=' + radarJobId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.status === 'running') {
@@ -3085,7 +3125,7 @@
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג, אותו איתות כמו סריקה רגילה
             if (radarInfoEl) radarInfoEl.textContent = 'מעריך מסלול טיסה מול המכ"ם…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
-            fetch('http://localhost:5002/radar_doppler/evaluate_route/start', {
+            fetch('/radar_doppler/evaluate_route/start', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
             })
             .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -3226,7 +3266,7 @@
             // ומבקש מ-/radar_doppler/profile את כל נקודות הדגימה לאורך הקרן (לא רק את הסיכום)
             if (!radarObs) return;
             function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }
-            var url = 'http://localhost:5002/radar_doppler/profile?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+            var url = '/radar_doppler/profile?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
                       '&bearing_deg=' + ray.bearing_deg +
                       '&range_km=' + num(_radarRangeInput, 50) + '&min_range_km=' + num(_radarMinRangeInput, 1) +
                       '&h_antenna=' + num(_radarHAntInput, 15) + '&ridge_margin_deg=' + num(_radarMarginInput, 0) +
@@ -3279,7 +3319,7 @@
             // כפתור "בטל" — עוצר מיד בצד הלקוח, ומודיע גם לשרת שיפסיק
             if (radarPollTimer) { clearInterval(radarPollTimer); radarPollTimer = null; }
             if (radarJobId) {
-                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + radarJobId, {method:'POST'});
+                fetch('/radar_doppler/cancel?job_id=' + radarJobId, {method:'POST'});
             }
             radarJobId = null;
             radarLoading = false;
@@ -3506,7 +3546,12 @@
         // גם כשהמפה נטענת, גם כש-Python מדווח על הפעלה/כיבוי שרתים (ר' _setServersRunning).
         function _updateToolButtonsEnabled() {
             var enabled = _mapReady && serversRunning;
-            [_losBtnEl, _radialLosBtnEl, _radarBtnEl].forEach(function(btn) {
+            // _ballisticsBtnEl נוסף כאן (FR-D-235 תיקון) — הכלי הבליסטי גם הוא תלוי ב-weather_server.py
+            // (/ballistics/*), אבל נבנה עם opacity:0.4;pointer-events:none כברירת-מחדל (כמו שלושת האלה)
+            // בלי שנרשם כאן — לכן נשאר "תקוע" מנוטרל לנצח ל-לחיצת-עכבר אמיתית (נמצא ע"י המשתמש בפועל:
+            // בדיקה אוטומטית עם element.click() לא תפסה את זה, כי pointer-events:none לא חוסם .click()
+            // פרוגרמטי, רק קלט-עכבר/מגע אמיתי — ר' MAPS-GUI_SRS.md §3.27)
+            [_losBtnEl, _radialLosBtnEl, _radarBtnEl, _ballisticsBtnEl].forEach(function(btn) {
                 if (!btn) return;
                 btn.style.opacity = enabled ? '1' : '0.4';
                 btn.style.pointerEvents = enabled ? 'auto' : 'none';
@@ -3751,7 +3796,7 @@
 
         // מרענן את רשימת "המסלולים השמורים" בפאנל — GET גנרי, tool='custom_route'
         function _refreshCustomRouteList() {
-            fetch('http://localhost:5002/stations/list?tool=custom_route')
+            fetch('/stations/list?tool=custom_route')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var routes = data.stations || [];
@@ -3894,7 +3939,7 @@
                     var name = nameInput.value.trim();
                     if (!name) { alert('הזן שם למסלול'); return; }
                     if (customRoutePoints.length < 2) { alert('נדרשות לפחות 2 נקודות במסלול כדי לשמור'); return; }
-                    fetch('http://localhost:5002/stations/save', {
+                    fetch('/stations/save', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({tool: 'custom_route', name: name, params: {points: customRoutePoints}})
                     })
@@ -3934,7 +3979,7 @@
                     var name = routeSelect.value;
                     if (!name) return;
                     if (!confirm('למחוק את המסלול "' + name + '"?')) return;
-                    fetch('http://localhost:5002/stations/delete', {
+                    fetch('/stations/delete', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({tool: 'custom_route', name: name})
                     })
@@ -3957,7 +4002,922 @@
             _addCustomRoutePoint(e.latlng.lat, e.latlng.lng, null);
         });
 
+        // ══════════════════════════════════════════════════════════════════
+        // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-235). עזרים: הצבת תותח/מטרה,
+        // קריאות ל-/ballistics/* (mpm_api.py דרך weather_server.py), ציור פרופיל.
+        // ══════════════════════════════════════════════════════════════════
+
+        function _ballisticsMarkerIcon(color) {
+            // אייקון סמן — עיגול מלא בצבע נתון, אותו דפוס בדיוק כמו _radialLosMarkerIcon
+            return L.divIcon({
+                html: '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:2px solid #333;"></div>',
+                className: '', iconSize: [16,16], iconAnchor: [8,8]
+            });
+        }
+
+        function _ballisticsFetchAlt(which) {
+            // משלים גובה-קרקע אוטומטית מ-/elevation הקיים (לא ballistics-ספציפי) — "נמשך אוטומטית
+            // ממקור הגובה הקיים, וניתן לעריכה ידנית" לפי בקשת שלב 3
+            var pt = which === 'gun' ? ballisticsGun : ballisticsTarget;
+            if (!pt) return;
+            fetch('/elevation', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({locations: [{latitude: pt.lat, longitude: pt.lng}]})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var e = d && d.results && d.results[0] ? d.results[0].elevation : null;
+                if (e === null || e === undefined) return;
+                if (which === 'gun') { ballisticsGun.alt = e; } else { ballisticsTarget.alt = e; }
+                _ballisticsSyncFields();
+            })
+            .catch(function() { /* כשל-רשת בשליפת-גובה — לא קריטי, המשתמש יכול למלא ידנית */ });
+        }
+
+        function _placeBallisticsPoint(latlng) {
+            // ממקם לפי ballisticsEditing ('gun'/'target') — נקרא מלחיצה-על-מפה או מ"עריכה ידנית"
+            var which = ballisticsEditing;
+            var icon = which === 'gun' ? '#f9e2af' : '#cba6f7';  // תותח=צהוב (כמו רדיוס-ראייה), מטרה=סגול (כמו הערכת-מסלול)
+            var tip  = which === 'gun' ? 'תותח' : 'מטרה';
+            if (which === 'gun') {
+                if (ballisticsGunMk) map.removeLayer(ballisticsGunMk);
+                ballisticsGun = {lat: latlng.lat, lng: latlng.lng, alt: null};
+                ballisticsGunMk = L.marker(latlng, {icon: _ballisticsMarkerIcon(icon), draggable: true}).addTo(map);
+                ballisticsGunMk.bindTooltip(tip, {permanent:false, direction:'top'});
+                ballisticsGunMk.on('dragend', function() {
+                    var p = ballisticsGunMk.getLatLng();
+                    ballisticsGun.lat = p.lat; ballisticsGun.lng = p.lng;
+                    _ballisticsFetchAlt('gun'); _ballisticsSyncFields();
+                });
+                _ballisticsFetchAlt('gun');
+                if (!ballisticsTarget) ballisticsEditing = 'target';  // לחיצה ראשונה=תותח, הבאה=מטרה (ברירת מחדל)
+            } else {
+                if (ballisticsTgtMk) map.removeLayer(ballisticsTgtMk);
+                ballisticsTarget = {lat: latlng.lat, lng: latlng.lng, alt: null};
+                ballisticsTgtMk = L.marker(latlng, {icon: _ballisticsMarkerIcon(icon), draggable: true}).addTo(map);
+                ballisticsTgtMk.bindTooltip(tip, {permanent:false, direction:'top'});
+                ballisticsTgtMk.on('dragend', function() {
+                    var p = ballisticsTgtMk.getLatLng();
+                    ballisticsTarget.lat = p.lat; ballisticsTarget.lng = p.lng;
+                    _ballisticsFetchAlt('target'); _ballisticsSyncFields();
+                });
+                _ballisticsFetchAlt('target');
+            }
+            _ballisticsSyncFields();
+        }
+
+        function _ballisticsClearResult() {
+            // מנקה תוצאה-חזותית קודמת (מסלול/פגיעה/קודקוד/התנגשות) — לפני חישוב חדש
+            if (ballisticsPathLn)   { map.removeLayer(ballisticsPathLn);   ballisticsPathLn   = null; }
+            if (ballisticsImpactMk) { map.removeLayer(ballisticsImpactMk); ballisticsImpactMk = null; }
+            if (ballisticsApexMk)   { map.removeLayer(ballisticsApexMk);   ballisticsApexMk   = null; }
+            if (ballisticsCollMk)   { map.removeLayer(ballisticsCollMk);   ballisticsCollMk   = null; }
+            ballisticsLastPath = null;
+        }
+
+        function _ballisticsDrawPath(path, impact) {
+            // מצייר את המסלול (קו + סמני פגיעה/קודקוד) על המפה — נקרא אחרי trajectory/solve מוצלח
+            _ballisticsClearResult();
+            if (!path || path.length < 2) return;
+            ballisticsLastPath = path;
+            var latlngs = path.map(function(p) { return [p.lat, p.lon]; });
+            ballisticsPathLn = L.polyline(latlngs, {color: '#fab387', weight: 3}).addTo(map);
+            var last = path[path.length - 1];
+            ballisticsImpactMk = L.marker([last.lat, last.lon], {icon: _ballisticsMarkerIcon('#f38ba8')})
+                .bindTooltip('פגיעה', {permanent:false, direction:'top'}).addTo(map);
+            if (impact && impact.apex_range_m !== undefined) {
+                // מאתר את נקודת-המסלול הקרובה ביותר למרחק-הקודקוד שדווח, לסימון על המפה
+                var apexDist = impact.apex_range_m;
+                var best = path[0], bestDiff = Infinity;
+                path.forEach(function(p) {
+                    var diff = Math.abs(p.ground_dist - apexDist);
+                    if (diff < bestDiff) { bestDiff = diff; best = p; }
+                });
+                ballisticsApexMk = L.marker([best.lat, best.lon], {icon: _ballisticsMarkerIcon('#89b4fa')})
+                    .bindTooltip('קודקוד (' + Math.round(impact.apex_height_m) + ' מ\' מעל הלוע)', {permanent:false, direction:'top'}).addTo(map);
+            }
+        }
+
+        function _ballisticsShowCollision(coll) {
+            // מסמן נקודת-התנגשות-בקרקע (מ-terrain_check) — אדום בולט, שונה מסמן-הפגיעה הרגיל
+            if (ballisticsCollMk) { map.removeLayer(ballisticsCollMk); ballisticsCollMk = null; }
+            if (!coll) return;
+            ballisticsCollMk = L.marker([coll.lat, coll.lon], {
+                icon: L.divIcon({html: '<div style="width:18px;height:18px;border-radius:50%;background:#f38ba8;' +
+                    'border:3px solid #fff;box-shadow:0 0 4px #f38ba8;"></div>', className:'', iconSize:[18,18], iconAnchor:[9,9]})
+            }).bindTooltip('התנגשות בקרקע — ' + Math.round(coll.ground_dist) + ' מ\'', {permanent:false, direction:'top'}).addTo(map);
+        }
+
+        // ציור פרופיל-צד: גובה-קרקע + גובה-מסלול לפי מרחק — אותו דפוס בדיוק כמו _drawProfileSingle (קו-ראייה)
+        function _drawBallisticsProfile(canvas, path, terrainProfile) {
+            if (!canvas || !path || path.length < 2) return;
+            canvas.width = canvas.offsetWidth || 260; canvas.height = canvas.offsetHeight || 110;
+            var ctx = canvas.getContext('2d');
+            var W = canvas.width, H = canvas.height;
+            var PAD = {l:40, r:6, t:6, b:18};
+            var cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
+            var maxDist = path[path.length - 1].ground_dist || 1;
+            var minE = Infinity, maxE = -Infinity;
+            path.forEach(function(p) { if (p.alt_msl < minE) minE = p.alt_msl; if (p.alt_msl > maxE) maxE = p.alt_msl; });
+            if (terrainProfile) terrainProfile.forEach(function(p) {
+                if (p.ground_alt_msl < minE) minE = p.ground_alt_msl; if (p.ground_alt_msl > maxE) maxE = p.ground_alt_msl;
+            });
+            var eRange = (maxE - minE) || 1;
+            function xOf(d) { return PAD.l + (d / maxDist) * cW; }
+            function yOf(v) { return PAD.t + cH - (v - minE) / eRange * cH; }
+            ctx.fillStyle = '#1e1e2e'; ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = '#666'; ctx.font = '9px Arial'; ctx.textAlign = 'right';
+            for (var s = 0; s <= 2; s++) {
+                var val = minE + eRange * s / 2, y = yOf(val);
+                ctx.fillText(Math.round(val) + 'מ', PAD.l - 3, y + 3);
+                ctx.strokeStyle = '#2a2a3e'; ctx.lineWidth = 0.5;
+                ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + cW, y); ctx.stroke();
+            }
+            if (terrainProfile && terrainProfile.length) {
+                ctx.beginPath(); ctx.strokeStyle = '#a6adc8'; ctx.fillStyle = 'rgba(166,173,200,0.15)'; ctx.lineWidth = 1.5;
+                terrainProfile.forEach(function(p, i) {
+                    var x = xOf(p.ground_dist), y = yOf(p.ground_alt_msl);
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+                ctx.lineTo(xOf(terrainProfile[terrainProfile.length - 1].ground_dist), PAD.t + cH);
+                ctx.lineTo(xOf(terrainProfile[0].ground_dist), PAD.t + cH); ctx.closePath(); ctx.fill();
+            }
+            ctx.beginPath(); ctx.strokeStyle = '#fab387'; ctx.lineWidth = 2;
+            path.forEach(function(p, i) {
+                var x = xOf(p.ground_dist), y = yOf(p.alt_msl);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        function _ballisticsFmtAngle(a) {
+            // מציג זווית בשתי היחידות — אותו רעיון כמו fmt_angle ב-gui.py המקורי
+            if (!a) return '-';
+            return a.mils.toFixed(1) + ' מיל (' + a.deg.toFixed(3) + '°)';
+        }
+
+        function _ballisticsImpactLines(imp) {
+            // אותו תוכן/סדר/ניסוח בדיוק כמו _impact_lines ב-gui.py המקורי (לפי בקשת שלב 3)
+            var lines = [];
+            lines.push('טווח אופקי: ' + imp.ground_range_m.toLocaleString() + ' מ\'');
+            lines.push('סטייה צידית: ' + Math.abs(imp.drift_z_m).toFixed(1) + ' מ\' ' +
+                (imp.drift_z_m >= 0 ? 'ימינה' : 'שמאלה') + ' = ' + _ballisticsFmtAngle(imp.deviation));
+            lines.push('זמן מעוף: ' + imp.time_of_flight_s.toFixed(2) + ' ש\'');
+            lines.push('קודקוד: ' + Math.round(imp.apex_height_m) + ' מ\' מעל הלוע (' + Math.round(imp.max_ordinate_msl_m) + ' מ\' מעל פני הים)');
+            lines.push('מהירות פגיעה: ' + imp.impact_velocity_mps.toFixed(1) + ' מ\'/ש\' (מאך ' + imp.impact_mach.toFixed(2) + ')');
+            lines.push('זווית נפילה: ' + _ballisticsFmtAngle(imp.angle_of_fall));
+            lines.push('ספין: ' + Math.round(imp.spin_muzzle_rps) + ' ← ' + Math.round(imp.spin_impact_rps) + ' סל\'/ש\'');
+            lines.push('Sg בלוע: ' + imp.sg_muzzle.toFixed(2) + '  |  Sg מינימלי: ' + imp.sg_min.toFixed(2));
+            lines.push('זווית מנוחה מרבית: ' + _ballisticsFmtAngle(imp.max_yaw_repose));
+            return lines;
+        }
+
+        function _ballisticsRunTerrainCheck(path, infoEl, onDone) {
+            // מריץ terrain_check על מסלול קיים ומציג שורת-סטטוס — נקרא אוטומטית אחרי כל trajectory/solve מוצלח
+            fetch('/ballistics/terrain_check', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: path, safety_margin_m: 10.0, resolution_m: 75.0})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.ok) { if (onDone) onDone(null); return; }
+                _ballisticsShowCollision(d.clear ? null : d.first_collision);
+                if (onDone) onDone(d);
+            })
+            .catch(function() { if (onDone) onDone(null); });
+        }
+
+        function _ballisticsBuildTrajTab(body) {
+            var top = L.DomUtil.create('div', '', body);
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+            var azInput   = _ballisticsMkField('אזימוט ירי', 600, 1, 0, 6400, '', top, null);
+            var taltInput = _ballisticsMkField('גובה פגיעה [מ\'] (ריק=גובה התותח)', '', 1, null, null, '', top, null);
+
+            // ---- הגבהה: שדה-מספר + סליידר מסונכרנים + כפתורי-צעד ±1/±10 מיל (לפי בקשת שלב 3) ----
+            var qeRow = L.DomUtil.create('div', '', top);
+            qeRow.style.cssText = 'display:flex;align-items:center;gap:3px;';
+            var qeLabel = L.DomUtil.create('span', '', qeRow); qeLabel.textContent = 'הגבהה'; qeLabel.style.cssText = 'font-size:9px;color:#666;';
+            var qeNum = L.DomUtil.create('input', '', qeRow);
+            qeNum.type = 'number'; qeNum.value = 450; qeNum.style.cssText = 'width:52px;font-size:11px;padding:1px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
+            var qeSlider = L.DomUtil.create('input', '', top);
+            qeSlider.type = 'range'; qeSlider.min = 5; qeSlider.max = 1350; qeSlider.step = 1; qeSlider.value = 450;
+            qeSlider.style.cssText = 'width:100%;';
+            var qeStepRow = L.DomUtil.create('div', '', top);
+            qeStepRow.style.cssText = 'display:flex;gap:2px;';
+            [['-10', -10], ['-1', -1], ['+1', 1], ['+10', 10]].forEach(function(s) {
+                var b = L.DomUtil.create('button', '', qeStepRow);
+                b.textContent = s[0]; b.style.cssText = 'flex:1;font-size:9px;padding:1px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+                L.DomEvent.on(b, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    var v = (parseFloat(qeNum.value) || 0) + s[1];
+                    qeNum.value = v; qeSlider.value = Math.max(5, Math.min(1350, v));
+                });
+            });
+            L.DomEvent.on(qeNum, 'input', function() { qeSlider.value = Math.max(5, Math.min(1350, parseFloat(qeNum.value) || 0)); });
+            L.DomEvent.on(qeSlider, 'input', function() { qeNum.value = qeSlider.value; });
+
+            var runBtn = L.DomUtil.create('button', '', top);
+            runBtn.textContent = 'חשב מסלול'; runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
+            var crestBtn = L.DomUtil.create('button', '', top);
+            crestBtn.textContent = 'הגבהה מינימלית לכיסוי שטח'; crestBtn.title = 'דורש תותח+מטרה מוצבים — מחשב ומציב כ-qe_min בטאב פתרון-ירי';
+            crestBtn.style.cssText = 'font-size:10px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#cba6f7;cursor:pointer;';
+
+            var info = L.DomUtil.create('div', '', top);
+            info.style.cssText = 'font-size:9.5px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;max-height:140px;overflow-y:auto;';
+            var canvas = document.createElement('canvas');
+            // נמצא בבדיקה חיה אמיתית (לא בבדיקה אוטומטית): "הגרף נחתך" — הסיבה האמיתית הייתה
+            // ש-width:100% על canvas בתוך עמודת-flex (top) בלי רוחב-מוחלט לאף אב בשרשרת (panelBody/
+            // tabsHolder/body גם הם ללא width מפורש, רק max-width על ה-container החיצוני) מתכנס
+            // ל-0 בפועל — canvas הוא replaced-element, ו-% על replaced-element בלי רוחב-אב-מוחלט
+            // לא מתפתר כמו ב-div רגיל. אומת ישירות: getBoundingClientRect() החזיר {w:0,h:0} ממש.
+            // תוקן ברוחב-פיקסלים מוחלט (לא %) — עוקף את כל הבעיה, לא רק מטפל בתזמון
+            canvas.style.cssText = 'width:250px;height:90px;display:block;margin-top:3px;';
+            top.appendChild(canvas);
+
+            function _runTraj() {
+                if (!ballisticsGun) { alert('הצב תותח על המפה קודם'); return; }
+                if (ballisticsLoading) return;
+                ballisticsLoading = true; info.textContent = 'מחשב...';
+                var common = _ballisticsGetCommonParams();
+                var gt = _ballisticsGetGunTarget();
+                fetch('/ballistics/trajectory', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(Object.assign({}, common, {
+                        gun: gt.gun, qe: parseFloat(qeNum.value), azimuth: parseFloat(azInput.value),
+                        target_alt: taltInput.value === '' ? null : parseFloat(taltInput.value),
+                        include_path: true, path_step: 5,
+                    })),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    ballisticsLoading = false;
+                    if (_ballisticsMetStatusEl && d.met_used) {
+                        var metTxt = 'מטאו: ' + (d.met_used.description || d.met_used.source || '');
+                        _ballisticsMetStatusEl.textContent = metTxt;
+                        if (_ballisticsMetTabStatusEl) _ballisticsMetTabStatusEl.textContent = metTxt;  // גם בטאב "מטאו" עצמו
+                    }
+                    if (!d.ok) { info.textContent = d.message || d.error || 'שגיאה'; return; }
+                    var lines = ['הגבהה ' + _ballisticsFmtAngle(d.qe) + ' | אזימוט ' + _ballisticsFmtAngle(d.fire_azimuth)];
+                    lines = lines.concat(_ballisticsImpactLines(d.impact));
+                    (d.warnings || []).forEach(function(w) { lines.push('⚠ ' + w); });
+                    info.textContent = lines.join('\n');
+                    _ballisticsDrawPath(d.path, d.impact);
+                    if (d.path) {
+                        _ballisticsRunTerrainCheck(d.path, info, function(tc) {
+                            _drawBallisticsProfile(canvas, d.path, tc ? tc.profile : null);
+                            if (tc && !tc.clear) info.textContent += '\n\n⚠ המסלול חוסם ע"י השטח (מרווח מינימלי ' + tc.min_margin_m + ' מ\')';
+                        });
+                    }
+                })
+                .catch(function(e) { ballisticsLoading = false; info.textContent = 'שגיאת רשת: ' + e.message; });
+            }
+            L.DomEvent.on(runBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _runTraj(); });
+
+            L.DomEvent.on(crestBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                if (!ballisticsGun || !ballisticsTarget) { alert('הצב תותח ומטרה קודם'); return; }
+                var common = _ballisticsGetCommonParams();
+                var gt = _ballisticsGetGunTarget();
+                info.textContent = 'מחשב הגבהה-מינימלית...';
+                fetch('/ballistics/min_qe_for_crest', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target})),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.ok) { info.textContent = d.error || 'לא נמצאה הגבהה מתאימה'; return; }
+                    if (_ballisticsSolveSetQeMin) _ballisticsSolveSetQeMin(d.qe_min);
+                    info.textContent = 'הגבהה מינימלית לכיסוי שטח: ' + _ballisticsFmtAngle(d.qe_min) + ' — הוצבה כ-qe_min בטאב "פתרון ירי"';
+                })
+                .catch(function(e) { info.textContent = 'שגיאת רשת: ' + e.message; });
+            });
+        }
+
+        function _ballisticsBuildSolveTab(body) {
+            var top = L.DomUtil.create('div', '', body);
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+            var note = L.DomUtil.create('div', '', top);
+            note.style.cssText = 'font-size:8.5px;color:#888;';
+            note.textContent = 'משתמש במיקום המטרה שהוצב על המפה (לחצן "✏️ מטרה")';
+
+            var modeRow = L.DomUtil.create('div', '', top);
+            modeRow.style.cssText = 'display:flex;gap:4px;font-size:9px;';
+            var groupSel = _ballisticsMkSelect('קבוצת זוויות', [['נמוכה', 'low'], ['גבוהה', 'high'], ['שתיהן', 'both']], 0, '', top);
+
+            var qeMinInput = _ballisticsMkField('הגבהה מינימלית מותרת (ריק=אין)', '', 1, null, null, '', top, null);
+            var qeMaxInput = _ballisticsMkField('הגבהה מקסימלית מותרת (ריק=אין)', '', 1, null, null, '', top, null);
+            _ballisticsSolveSetQeMin = function(qeBoth) { qeMinInput.value = qeBoth.mils.toFixed(1); };
+
+            var fixedWrap = L.DomUtil.create('label', '', top);
+            fixedWrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+            var fixedSpan = L.DomUtil.create('span', '', fixedWrap); fixedSpan.textContent = 'הגבהה קבועה, V0 מחושב';
+            fixedSpan.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';  // ר' הערה ב-_mkField למעלה — מונע חריגת-רוחב של הפאנל
+            var fixedChk = L.DomUtil.create('input', '', fixedWrap); fixedChk.type = 'checkbox'; fixedChk.style.flexShrink = '0';
+            var fixedQeInput = _ballisticsMkField('הגבהה קבועה', 450, 1, 5, 1350, '', top, null);
+            var mvMinInput = _ballisticsMkField('מהירות-לוע מינ\' [מ\'/ש\']', 400, 1, 1, null, '', top, null);
+            var mvMaxInput = _ballisticsMkField('מהירות-לוע מקס\' [מ\'/ש\']', 900, 1, 1, null, '', top, null);
+            var fixedRowEls = [fixedQeInput.parentElement, mvMinInput.parentElement, mvMaxInput.parentElement];
+            function _syncFixedMode() {
+                fixedRowEls.forEach(function(e) { e.style.display = fixedChk.checked ? 'flex' : 'none'; });
+                groupSel.parentElement.style.display = fixedChk.checked ? 'none' : 'flex';
+                qeMinInput.parentElement.style.display = fixedChk.checked ? 'none' : 'flex';
+                qeMaxInput.parentElement.style.display = fixedChk.checked ? 'none' : 'flex';
+            }
+            L.DomEvent.on(fixedChk, 'change', _syncFixedMode); _syncFixedMode();
+
+            var runBtn = L.DomUtil.create('button', '', top);
+            runBtn.textContent = 'חשב פתרון ירי'; runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
+            var info = L.DomUtil.create('div', '', top);
+            info.style.cssText = 'font-size:9.5px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;max-height:160px;overflow-y:auto;';
+
+            function _showOne(r, titlePrefix) {
+                if (!r || !r.ok) return [titlePrefix + ': ' + (r ? r.error : 'שגיאה')];
+                var lines = [titlePrefix, 'הגבהה: ' + _ballisticsFmtAngle(r.qe), 'אזימוט ירי: ' + _ballisticsFmtAngle(r.fire_azimuth)];
+                if (r.target_azimuth) lines.push('אזימוט למטרה: ' + _ballisticsFmtAngle(r.target_azimuth));
+                if (r.deflection_correction) lines.push('תיקון כיוון: ' + _ballisticsFmtAngle(r.deflection_correction) + ' (שלילי=שמאלה)');
+                if (r.muzzle_velocity_mps !== undefined) lines.push('מהירות לוע נדרשת: ' + r.muzzle_velocity_mps.toFixed(1) + ' מ\'/ש\'');
+                lines.push('טווח למטרה: ' + r.target_range_m.toLocaleString() + ' מ\' | שארית: ' + r.residual_range_error_m + ' מ\'');
+                lines = lines.concat(_ballisticsImpactLines(r.impact));
+                (r.warnings || []).forEach(function(w) { lines.push('⚠ ' + w); });
+                return lines;
+            }
+
+            L.DomEvent.on(runBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                if (!ballisticsGun || !ballisticsTarget) { alert('הצב תותח ומטרה קודם'); return; }
+                if (ballisticsLoading) return;
+                ballisticsLoading = true; info.textContent = 'מחשב...';
+                var common = _ballisticsGetCommonParams();
+                var gt = _ballisticsGetGunTarget();
+                var path = fixedChk.checked
+                    ? fetch('/ballistics/solve_mv', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target,
+                            qe: parseFloat(fixedQeInput.value), mv_min: parseFloat(mvMinInput.value), mv_max: parseFloat(mvMaxInput.value),
+                            include_path: true, path_step: 5})),
+                    })
+                    : fetch('/ballistics/solve', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target, group: groupSel.value,
+                            qe_min: qeMinInput.value === '' ? null : parseFloat(qeMinInput.value),
+                            qe_max: qeMaxInput.value === '' ? null : parseFloat(qeMaxInput.value),
+                            include_path: true, path_step: 5})),
+                    });
+                path.then(function(r) { return r.json(); })
+                .then(function(d) {
+                    ballisticsLoading = false;
+                    if (_ballisticsMetStatusEl && d.met_used) {
+                        var metTxt = 'מטאו: ' + (d.met_used.description || d.met_used.source || '');
+                        _ballisticsMetStatusEl.textContent = metTxt;
+                        if (_ballisticsMetTabStatusEl) _ballisticsMetTabStatusEl.textContent = metTxt;  // גם בטאב "מטאו" עצמו
+                    }
+                    if (groupSel.value === 'both' && !fixedChk.checked) {
+                        var lines = _showOne(d.low, 'זווית נמוכה').concat(['']).concat(_showOne(d.high, 'זווית גבוהה'));
+                        info.textContent = lines.join('\n');
+                        var best = (d.low && d.low.ok) ? d.low : d.high;
+                        if (best && best.ok && best.path) { _ballisticsDrawPath(best.path, best.impact); _ballisticsRunTerrainCheck(best.path, info); }
+                    } else {
+                        info.textContent = _showOne(d, 'פתרון ירי').join('\n');
+                        if (d.ok && d.path) { _ballisticsDrawPath(d.path, d.impact); _ballisticsRunTerrainCheck(d.path, info); }
+                    }
+                })
+                .catch(function(e) { ballisticsLoading = false; info.textContent = 'שגיאת רשת: ' + e.message; });
+            });
+        }
+
+        function _ballisticsBuildTableTab(body) {
+            var top = L.DomUtil.create('div', '', body);
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+            var azInput = _ballisticsMkField('אזימוט ירי', 0, 1, 0, 6400, '', top, null);
+            var startInput = _ballisticsMkField('הגבהה מ-', 100, 1, 5, 1350, '', top, null);
+            var endInput   = _ballisticsMkField('עד', 1200, 1, 5, 1350, '', top, null);
+            var stepInput  = _ballisticsMkField('צעד', 50, 1, 1, null, '', top, null);
+            var btnRow = L.DomUtil.create('div', '', top); btnRow.style.cssText = 'display:flex;gap:3px;';
+            var runBtn = L.DomUtil.create('button', '', btnRow);
+            runBtn.textContent = 'חשב טבלה'; runBtn.style.cssText = 'flex:1;font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
+            var expBtn = L.DomUtil.create('button', '', btnRow);
+            expBtn.textContent = 'ייצוא CSV'; expBtn.style.cssText = 'flex:1;font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+            var warnEl = L.DomUtil.create('div', '', top); warnEl.style.cssText = 'font-size:9px;color:#b00020;white-space:pre-wrap;';
+            var tableWrap = L.DomUtil.create('div', '', top); tableWrap.style.cssText = 'max-height:160px;overflow:auto;';
+            var lastRows = null;
+            var heads = {qe_mils:'הגבהה [מיל]', qe_deg:'הגבהה [°]', range_m:'טווח [מ\']', drift_mils:'סחיפה [מיל]',
+                drift_m:'סחיפה [מ\']', tof_s:'זמן מעוף [ש\']', apex_m:'קודקוד [מ\']', impact_vel_mps:'מהירות פגיעה',
+                fall_angle_mils:'זווית נפילה [מיל]', fall_angle_deg:'זווית נפילה [°]', sg_min:'Sg מינ\''};
+            L.DomEvent.on(runBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                if (!ballisticsGun) { alert('הצב תותח קודם'); return; }
+                var common = _ballisticsGetCommonParams();
+                var gt = _ballisticsGetGunTarget();
+                fetch('/ballistics/table', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, azimuth: parseFloat(azInput.value),
+                        qe_start: parseFloat(startInput.value), qe_end: parseFloat(endInput.value), qe_step: parseFloat(stepInput.value)})),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.ok) { warnEl.textContent = d.error || 'שגיאה'; return; }
+                    lastRows = d.rows;
+                    warnEl.textContent = (d.warnings || []).slice(0, 6).join('\n');
+                    var html = '<table style="font-size:8.5px;border-collapse:collapse;width:100%;"><tr>';
+                    d.columns.forEach(function(c) { html += '<th style="border:1px solid #ddd;padding:1px;">' + heads[c] + '</th>'; });
+                    html += '</tr>';
+                    d.rows.forEach(function(r) {
+                        html += '<tr>';
+                        d.columns.forEach(function(c) { html += '<td style="border:1px solid #ddd;padding:1px;text-align:center;">' + (r[c] !== undefined ? r[c] : (r.error || '')) + '</td>'; });
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    tableWrap.innerHTML = html;
+                })
+                .catch(function(e) { warnEl.textContent = 'שגיאת רשת: ' + e.message; });
+            });
+            L.DomEvent.on(expBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                if (!lastRows) { alert('חשב טבלה קודם'); return; }
+                var cols = Object.keys(heads);
+                var csv = cols.join(',') + '\n' + lastRows.map(function(r) { return cols.map(function(c) { return r[c] !== undefined ? r[c] : ''; }).join(','); }).join('\n');
+                var blob = new Blob([csv], {type: 'text/csv'});
+                var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'firing_table.csv';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            });
+        }
+
+        function _ballisticsBuildCalTab(body) {
+            var top = L.DomUtil.create('div', '', body);
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+            var explain = L.DomUtil.create('div', '', top);
+            explain.style.cssText = 'font-size:8.5px;color:#666;';
+            explain.textContent = 'הזן נקודות פגיעה שנמדדו בירי אמיתי. מחשב fD (גרר, לפי טווח) ו-fL (עילוי, לפי סחיפה).';
+            var qeInput = _ballisticsMkField('הגבהה', 300, 1, 5, 1350, '', top, null);
+            var azInput = _ballisticsMkField('אזימוט', 1600, 1, 0, 6400, '', top, null);
+            var rngInput = _ballisticsMkField('טווח שנמדד [מ\']', '', 1, null, null, '', top, null);
+            var drInput = _ballisticsMkField('סחיפה שנמדדה (ריק=אין)', '', 0.1, null, null, '', top, null);
+            var addBtn = L.DomUtil.create('button', '', top);
+            addBtn.textContent = 'הוסף נקודה'; addBtn.style.cssText = 'font-size:10px;padding:2px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+            var tableWrap = L.DomUtil.create('div', '', top); tableWrap.style.cssText = 'max-height:100px;overflow:auto;font-size:8.5px;';
+            var pts = [];
+            function _renderPts() {
+                var html = '<table style="border-collapse:collapse;width:100%;"><tr><th>הגבהה</th><th>אזימוט</th><th>טווח</th><th>סחיפה</th><th></th></tr>';
+                pts.forEach(function(p, i) {
+                    html += '<tr><td>' + p.qe + '</td><td>' + p.azimuth + '</td><td>' + p.range_m + '</td><td>' + (p.drift === null ? '-' : p.drift) +
+                        '</td><td><a href="#" data-i="' + i + '" class="bcal-del" style="color:#b00020;">✕</a></td></tr>';
+                });
+                html += '</table>';
+                tableWrap.innerHTML = html;
+                tableWrap.querySelectorAll('.bcal-del').forEach(function(a) {
+                    L.DomEvent.on(a, 'click', function(e) { L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); pts.splice(parseInt(a.dataset.i), 1); _renderPts(); });
+                });
+            }
+            L.DomEvent.on(addBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                var rng = parseFloat(rngInput.value);
+                if (isNaN(rng)) { alert('הזן טווח שנמדד'); return; }
+                pts.push({qe: parseFloat(qeInput.value), azimuth: parseFloat(azInput.value), range_m: rng,
+                    drift: drInput.value === '' ? null : parseFloat(drInput.value)});
+                rngInput.value = ''; drInput.value = ''; _renderPts();
+            });
+            var calBtn = L.DomUtil.create('button', '', top);
+            calBtn.textContent = 'כייל'; calBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
+            var resultEl = L.DomUtil.create('div', '', top); resultEl.style.cssText = 'font-size:9.5px;font-weight:bold;color:#333;';
+            L.DomEvent.on(calBtn, 'click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                if (!ballisticsGun) { alert('הצב תותח קודם'); return; }
+                if (!pts.length) { alert('הוסף לפחות נקודה אחת'); return; }
+                var common = _ballisticsGetCommonParams();
+                var gt = _ballisticsGetGunTarget();
+                fetch('/ballistics/calibrate', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, points: pts})),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.drag_factor) { resultEl.textContent = d.error || 'שגיאה'; return; }
+                    resultEl.textContent = 'fD = ' + d.drag_factor + '   fL = ' + d.lift_factor + '   RMS שגיאת טווח: ' + d.rms_range_error_m + ' מ\'';
+                })
+                .catch(function(e) { resultEl.textContent = 'שגיאת רשת: ' + e.message; });
+            });
+        }
+
+        function _ballisticsBuildMetTab(body) {
+            var top = L.DomUtil.create('div', '', body);
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+            var note = L.DomUtil.create('div', '', top);
+            note.style.cssText = 'font-size:8.5px;color:#888;';
+            note.textContent = 'מוצג אוטומטית אחרי חישוב מסלול/פתרון-ירי ראשון. גרף שכבות-גובה — בתוספת עתידית.';
+            var statusEl = L.DomUtil.create('div', '', top); statusEl.style.cssText = 'font-size:9.5px;white-space:pre-wrap;';
+            _ballisticsMetTabStatusEl = statusEl;
+        }
+
+        var BallisticsControl = L.Control.extend({
+            options: { position: 'topright' },
+            onAdd: function() {
+                var container = L.DomUtil.create('div', 'leaflet-control');
+                container.style.cssText = 'display:flex;flex-direction:column;gap:3px;background:white;' +
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:4px 6px;font-family:Arial;max-width:270px;';
+
+                var row1 = L.DomUtil.create('div', '', container);
+                row1.style.cssText = 'display:flex;align-items:center;gap:5px;';
+                var btn = L.DomUtil.create('a', '', row1);
+                btn.href = '#'; btn.title = 'מסלול בליסטי (MPM)';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:26px;height:26px;' +
+                    'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
+                    'opacity:0.4;pointer-events:none;';
+                btn.innerHTML = '&#128165;';  // 💥 — לא חופף לאייקוני הכלים האחרים (👁📡🎯🧭)
+                _ballisticsBtnEl = btn;
+                L.DomEvent.on(btn, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    if (!_mapReady || !serversRunning) return;
+                    ballisticsActive = !ballisticsActive;
+                    btn.style.background = ballisticsActive ? '#fab387' : 'white';
+                    ballisticsPanelBodyEl.style.display = ballisticsActive ? 'flex' : 'none';
+                    map.getContainer().style.cursor = ballisticsActive ? 'crosshair' : '';
+                });
+
+                var panelBody = L.DomUtil.create('div', '', container);
+                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:75vh;overflow-y:auto;';
+                ballisticsPanelBodyEl = panelBody;
+
+                function _mkHeader(text) {
+                    var h = L.DomUtil.create('div', '', panelBody);
+                    h.textContent = text;
+                    h.style.cssText = 'font-size:9px;font-weight:bold;color:#888;margin-top:3px;border-top:1px solid #eee;padding-top:2px;';
+                    return h;
+                }
+                function _mkField(labelText, defaultVal, step, minV, maxV, tip, parentEl, onInput) {
+                    // min-width:0 הוא הדבר הקריטי כאן — נמצא בבדיקה חיה אמיתית: "הפאנל רחב מדי,
+                    // חורג מהמסך". שורש-הבעיה: flex-item ברירת-מחדל הוא min-width:auto (לא 0!),
+                    // כלומר לא מתכווץ מתחת לרוחב-התוכן הטבעי שלו — תווית ארוכה (כמו "גובה לוע
+                    // מעל פני הים [מ']") הרחיבה את כל השורה, ולכן את כל הפאנל (max-width לא עוזר
+                    // כשתוכן-בפועל חורג ממנו), מעבר לקצה-המסך בפועל. עם min-width:0+ellipsis
+                    // התווית מתקצרת בנקודות במקום לדחוף את הפאנל לרוחב — ר' MAPS-GUI_SRS.md §3.27
+                    var wrap = L.DomUtil.create('label', '', parentEl || panelBody);
+                    wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                    wrap.title = tip || '';
+                    var span = L.DomUtil.create('span', '', wrap); span.textContent = labelText;
+                    span.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    var inp = L.DomUtil.create('input', '', wrap);
+                    inp.type = 'number'; inp.value = defaultVal; inp.step = step;
+                    if (minV !== null) inp.min = minV; if (maxV !== null) inp.max = maxV;
+                    inp.style.cssText = 'width:58px;flex-shrink:0;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;';
+                    if (onInput) L.DomEvent.on(inp, 'input', onInput);
+                    _attachFieldUndo(inp, 'מסלול בליסטי: ' + labelText, onInput || function() {});
+                    return inp;
+                }
+                function _mkSelect(labelText, options, defaultIdx, tip, parentEl) {
+                    var wrap = L.DomUtil.create('label', '', parentEl || panelBody);
+                    wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                    wrap.title = tip || '';
+                    var span = L.DomUtil.create('span', '', wrap); span.textContent = labelText;
+                    span.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';  // ר' הערה ב-_mkField למעלה
+                    var sel = L.DomUtil.create('select', '', wrap);
+                    sel.style.cssText = 'width:110px;flex-shrink:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';
+                    options.forEach(function(opt, i) {
+                        var o = L.DomUtil.create('option', '', sel); o.value = opt[1]; o.textContent = opt[0];
+                        if (i === defaultIdx) o.selected = true;
+                    });
+                    _attachSelectUndo(sel, 'מסלול בליסטי: ' + labelText);
+                    return sel;
+                }
+
+                // ---- מיקום התותח/המטרה ----
+                _mkHeader('מיקום התותח והמטרה');
+                var editRow = L.DomUtil.create('div', '', panelBody);
+                editRow.style.cssText = 'display:flex;gap:3px;font-size:9px;';
+                var editGunBtn = L.DomUtil.create('button', '', editRow);
+                editGunBtn.textContent = '✏️ תותח'; editGunBtn.style.cssText = 'flex:1;font-size:9px;padding:2px;border-radius:3px;border:1px solid #f9e2af;background:#fff8e1;cursor:pointer;';
+                var editTgtBtn = L.DomUtil.create('button', '', editRow);
+                editTgtBtn.textContent = '✏️ מטרה'; editTgtBtn.style.cssText = 'flex:1;font-size:9px;padding:2px;border-radius:3px;border:1px solid #cba6f7;background:#f3e8ff;cursor:pointer;';
+                function _refreshEditButtons() {
+                    editGunBtn.style.fontWeight = ballisticsEditing === 'gun' ? 'bold' : 'normal';
+                    editTgtBtn.style.fontWeight = ballisticsEditing === 'target' ? 'bold' : 'normal';
+                }
+                L.DomEvent.on(editGunBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); ballisticsEditing = 'gun'; _refreshEditButtons(); });
+                L.DomEvent.on(editTgtBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); ballisticsEditing = 'target'; _refreshEditButtons(); });
+                _refreshEditButtons();
+
+                var gpsBtn = L.DomUtil.create('button', '', panelBody);
+                gpsBtn.textContent = '📍 GPS לתותח'; gpsBtn.style.cssText = 'font-size:9px;padding:2px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+                L.DomEvent.on(gpsBtn, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    if (!navigator.geolocation) { alert('GPS לא נתמך בדפדפן זה'); return; }
+                    navigator.geolocation.getCurrentPosition(function(pos) {
+                        var ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                        ballisticsEditing = 'gun'; _refreshEditButtons(); _placeBallisticsPoint(ll);
+                        map.panTo(ll);
+                    }, function() { alert('לא ניתן היה לקבל מיקום GPS'); });
+                });
+
+                var gLat = _mkField('קו רוחב תותח [°]', 31.2520, 0.0001, -90, 90, '', null, null);
+                var gLon = _mkField('קו אורך תותח [°]', 34.7915, 0.0001, -180, 180, '', null, null);
+                var gAlt = _mkField('גובה לוע מעל פני הים [מ\']', 280, 1, null, null, 'נמשך אוטומטית, ניתן לעריכה ידנית', null, null);
+                var tLat = _mkField('קו רוחב מטרה [°]', 31.3600, 0.0001, -90, 90, '', null, null);
+                var tLon = _mkField('קו אורך מטרה [°]', 34.8900, 0.0001, -180, 180, '', null, null);
+                var tAlt = _mkField('גובה מטרה מעל פני הים [מ\']', 310, 1, null, null, 'נמשך אוטומטית, ניתן לעריכה ידנית', null, null);
+                function _applyManualGun() {
+                    var la = parseFloat(gLat.value), lo = parseFloat(gLon.value);
+                    if (isNaN(la) || isNaN(lo)) return;
+                    ballisticsEditing = 'gun'; _placeBallisticsPoint(L.latLng(la, lo));
+                    if (!isNaN(parseFloat(gAlt.value))) ballisticsGun.alt = parseFloat(gAlt.value);
+                }
+                function _applyManualTarget() {
+                    var la = parseFloat(tLat.value), lo = parseFloat(tLon.value);
+                    if (isNaN(la) || isNaN(lo)) return;
+                    ballisticsEditing = 'target'; _placeBallisticsPoint(L.latLng(la, lo));
+                    if (!isNaN(parseFloat(tAlt.value))) ballisticsTarget.alt = parseFloat(tAlt.value);
+                }
+                L.DomEvent.on(gLat, 'change', _applyManualGun); L.DomEvent.on(gLon, 'change', _applyManualGun);
+                L.DomEvent.on(gAlt, 'change', function() { if (ballisticsGun) ballisticsGun.alt = parseFloat(gAlt.value); });
+                L.DomEvent.on(tLat, 'change', _applyManualTarget); L.DomEvent.on(tLon, 'change', _applyManualTarget);
+                L.DomEvent.on(tAlt, 'change', function() { if (ballisticsTarget) ballisticsTarget.alt = parseFloat(tAlt.value); });
+                _ballisticsSyncFields = function() {
+                    // מעדכן את כל שדות הקלט (lat/lon/alt של תותח+מטרה) מהמצב הפנימי — נקרא אחרי כל הצבה/גרירה/GPS
+                    if (ballisticsGun) {
+                        gLat.value = ballisticsGun.lat.toFixed(5); gLon.value = ballisticsGun.lng.toFixed(5);
+                        if (ballisticsGun.alt !== null) gAlt.value = Math.round(ballisticsGun.alt);
+                    }
+                    if (ballisticsTarget) {
+                        tLat.value = ballisticsTarget.lat.toFixed(5); tLon.value = ballisticsTarget.lng.toFixed(5);
+                        if (ballisticsTarget.alt !== null) tAlt.value = Math.round(ballisticsTarget.alt);
+                    }
+                };
+
+                // ---- מטאו ----
+                _mkHeader('מטאו');
+                var metSrcSel = _mkSelect('מקור', [['תחזית חיה (Open-Meteo)', 'live'], ['אטמוספרה סטנדרטית', 'standard']], 0,
+                    'קובץ CSV/JSON — טרם ממומש בגרסה זו, ר\' README');
+                var metTemp = _mkField('טמפ\' בקרקע [°C] (ריק=סטנדרט)', '', 1, null, null, '', null, null);
+                var metPres = _mkField('לחץ בקרקע [hPa] (ריק=סטנדרט)', '', 1, null, null, '', null, null);
+                var metWspd = _mkField('מהירות רוח [מ\'/ש\']', 0, 0.5, 0, null, '', null, null);
+                var metWdir = _mkField('כיוון רוח, נושבת מ- [°]', 0, 1, 0, 360, '', null, null);
+                var metRow = [metTemp.parentElement, metPres.parentElement, metWspd.parentElement, metWdir.parentElement];
+                function _metSrcChanged() {
+                    var std = metSrcSel.value === 'standard';
+                    metRow.forEach(function(r) { r.style.display = std ? 'flex' : 'none'; });
+                }
+                L.DomEvent.on(metSrcSel, 'change', _metSrcChanged); _metSrcChanged();
+                var metStatus = L.DomUtil.create('div', '', panelBody);
+                metStatus.style.cssText = 'font-size:9px;color:#888;text-align:center;';
+                metStatus.textContent = 'מטאו נטען אוטומטית בחישוב הראשון';
+                _ballisticsMetStatusEl = metStatus;
+
+                // ---- פגז ותותח ----
+                _mkHeader('פגז ותותח');
+                var projLabel = L.DomUtil.create('div', '', panelBody);
+                projLabel.style.cssText = 'font-size:9px;color:#b00020;text-align:center;';
+                projLabel.textContent = '⚠ Generic 155mm HE — להדגמה בלבד, לא לירי אמיתי';
+                var mvInput = _mkField('מהירות לוע [מ\'/ש\']', 684, 1, 1, null, '', null, null);
+
+                // ---- מקדמי התאמה וחישוב ----
+                _mkHeader('מקדמי התאמה וחישוב');
+                var fdInput = _mkField('מקדם גרר fD', 1.0, 0.01, 0.1, 5, '', null, null);
+                var flInput = _mkField('מקדם עילוי fL', 1.0, 0.01, 0, 5, '', null, null);
+                var dtInput = _mkField('צעד אינטגרציה [ש\']', 0.02, 0.01, 0.005, 0.2, '', null, null);
+                var unitSel = _mkSelect('יחידות קלט', [['מילים', 'mils'], ['מעלות', 'deg']], 0, '');
+                var coriolisWrap = L.DomUtil.create('label', '', panelBody);
+                coriolisWrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                var coriolisSpan = L.DomUtil.create('span', '', coriolisWrap); coriolisSpan.textContent = 'קוריוליס';
+                coriolisSpan.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';  // ר' הערה ב-_mkField למעלה
+                var coriolisChk = L.DomUtil.create('input', '', coriolisWrap); coriolisChk.type = 'checkbox'; coriolisChk.checked = true;
+                coriolisChk.style.flexShrink = '0';
+                _attachCheckboxUndo(coriolisChk, 'מסלול בליסטי: קוריוליס');
+                var curvWrap = L.DomUtil.create('label', '', panelBody);
+                curvWrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';
+                var curvSpan = L.DomUtil.create('span', '', curvWrap); curvSpan.textContent = 'עקמומיות כדור הארץ';
+                curvSpan.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                var curvChk = L.DomUtil.create('input', '', curvWrap); curvChk.type = 'checkbox'; curvChk.checked = true;
+                _attachCheckboxUndo(curvChk, 'מסלול בליסטי: עקמומיות כדור הארץ');
+
+                function _ballisticsCommonParams() {
+                    // אוסף את כל הפרמטרים המשותפים (לא ספציפי-לטאב) — נקרא מכל פעולת-חישוב
+                    return {
+                        angle_unit: unitSel.value, coriolis: coriolisChk.checked, earth_curvature: curvChk.checked,
+                        dt: parseFloat(dtInput.value) || 0.02,
+                        fitting: {drag_factor: parseFloat(fdInput.value) || 1.0, lift_factor: parseFloat(flInput.value) || 1.0},
+                        mv: parseFloat(mvInput.value) || 684,
+                        met: metSrcSel.value === 'standard'
+                            ? {source: 'standard', surface_temp_c: metTemp.value === '' ? null : parseFloat(metTemp.value),
+                                surface_pressure_hpa: metPres.value === '' ? null : parseFloat(metPres.value),
+                                wind_speed_mps: parseFloat(metWspd.value) || 0, wind_dir_deg: parseFloat(metWdir.value) || 0}
+                            : {source: 'live'},
+                    };
+                }
+                _ballisticsGetCommonParams = _ballisticsCommonParams;
+                _ballisticsGetGunTarget = function() {
+                    if (!ballisticsGun) return null;
+                    var gun = {lat: ballisticsGun.lat, lon: ballisticsGun.lng, alt_m: ballisticsGun.alt || 0};
+                    var tgt = ballisticsTarget ? {lat: ballisticsTarget.lat, lon: ballisticsTarget.lng, alt_m: ballisticsTarget.alt || 0} : null;
+                    return {gun: gun, target: tgt};
+                };
+
+                // ---- עמדות שמורות (עקביות עם שאר הכלים) ----
+                var _ballisticsFieldMap = {
+                    mv: mvInput, drag_factor: fdInput, lift_factor: flInput, dt: dtInput,
+                    angle_unit: unitSel, coriolis: coriolisChk, earth_curvature: curvChk,
+                };
+                _buildStationUI(panelBody, 'ballistics', _ballisticsFieldMap,
+                    function() { return ballisticsGun ? L.latLng(ballisticsGun.lat, ballisticsGun.lng) : null; },
+                    function(latlng) { ballisticsEditing = 'gun'; _placeBallisticsPoint(latlng); },
+                    function() {}, 'עמדות שמורות (תותח+הגדרות):');
+
+                // ---- טאבים ----
+                var tabsRow = L.DomUtil.create('div', '', panelBody);
+                tabsRow.style.cssText = 'display:flex;gap:2px;margin-top:4px;flex-wrap:wrap;';
+                var tabNames = [['traj', 'מסלול בודד'], ['solve', 'פתרון ירי'], ['table', 'טבלת ירי'], ['cal', 'כיול'], ['met', 'מטאו']];
+                var tabBtns = {}, tabBodies = {};
+                var tabsHolder = L.DomUtil.create('div', '', panelBody);
+                function _selectTab(key) {
+                    tabNames.forEach(function(t) {
+                        tabBtns[t[0]].style.background = t[0] === key ? '#fab387' : '#f5f5f5';
+                        tabBodies[t[0]].style.display = t[0] === key ? 'flex' : 'none';
+                    });
+                }
+                tabNames.forEach(function(t) {
+                    var tb = L.DomUtil.create('button', '', tabsRow);
+                    tb.textContent = t[1]; tb.style.cssText = 'flex:1 1 auto;font-size:8.5px;padding:2px 3px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+                    L.DomEvent.on(tb, 'click', function(e) { L.DomEvent.stopPropagation(e); _selectTab(t[0]); });
+                    tabBtns[t[0]] = tb;
+                    var body = L.DomUtil.create('div', '', tabsHolder);
+                    body.style.cssText = 'display:none;flex-direction:column;gap:3px;padding-top:3px;';
+                    tabBodies[t[0]] = body;
+                });
+                _ballisticsSelectTab = _selectTab;
+                _ballisticsTabBodies = tabBodies;
+                _ballisticsMkField = _mkField; _ballisticsMkSelect = _mkSelect; _ballisticsMkHeader = _mkHeader;
+
+                _ballisticsBuildTrajTab(tabBodies['traj']);
+                _ballisticsBuildSolveTab(tabBodies['solve']);
+                _ballisticsBuildTableTab(tabBodies['table']);
+                _ballisticsBuildCalTab(tabBodies['cal']);
+                _ballisticsBuildMetTab(tabBodies['met']);
+                _selectTab('traj');
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                return container;
+            }
+        });
+        new BallisticsControl().addTo(map);  // הוספת ה-Control למפה
+
+        // באג אמיתי שנמצא בבדיקה חיה (10/11/2026): קביעת "var serversRunning = true" ישירות
+        // (למעלה) לא מספיקה כדי להפעיל בפועל את כפתורי LOS/רדיוס-ראייה/מכ"ם-דופלר/בליסטי ב-Web.
+        // _updateToolButtonsEnabled() (שמעדכן את opacity/pointer-events של הכפתורים) נקרא פעם
+        // אחת מ-map.whenReady - אבל זה קורה *לפני* שהכפתורים האלה נוצרים כלל (הם נוצרים כאן,
+        // בהמשך הסקריפט, ע"י new ...Control().addTo(map)) - אז הלולאה-שם מדלגת עליהם (עדיין null).
+        // ב-Desktop זה עובד כי main.py קורא ל-_setServersRunning(true) הרבה יותר מאוחר (רק כש
+        // המשתמש מפעיל שרתים בפועל, אחרי שהעמוד כולו כבר נטען) - אז כל הכפתורים כבר קיימים.
+        // ב-Web אין קריאה שנייה כזו בכלל - נדרשת קריאה מפורשת כאן, במקום הזה בדיוק (אחרי שכל
+        // ארבעת הכפתורים כבר קיימים, כי BallisticsControl הוא האחרון מביניהם שנוסף).
+        _setServersRunning(true);
+
+        // לחיצה על המפה בעת מצב "מסלול בליסטי" — ממקמת תותח/מטרה לפי ballisticsEditing.
+        // handler עצמאי (כמו custom-route), לא בתוך הדיספצ'ר המשולב של LOS/רדיוס-ראייה/מכ"ם
+        map.on('click', function(e) {
+            if (!ballisticsActive) return;
+            _placeBallisticsPoint(e.latlng);
+        });
+
         
+        // ══════════ בקרות web-בלבד (לא קיימות בדסקטופ — שם אלה widgets של Qt ב-main.py) ══════════
+        var WebNotamControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                var c = L.DomUtil.create('div', 'leaflet-control');
+                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                    + 'font-family:Arial;max-width:min(230px, calc(100vw - 20px));direction:rtl;max-height:150px;overflow-y:auto;';
+                var title = L.DomUtil.create('div', '', c);
+                title.textContent = 'NOTAM רחפנים';
+                title.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
+                NOTAM_CATEGORIES.forEach(function(cat) {
+                    var row = L.DomUtil.create('label', '', c);
+                    row.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;color:#cdd6f4;padding:1px 0;';
+                    var cb = L.DomUtil.create('input', '', row);
+                    cb.type = 'checkbox';
+                    L.DomEvent.on(cb, 'change', function() { toggleNotamCategory(cat.id); });
+                    var span = L.DomUtil.create('span', '', row);
+                    span.textContent = cat.label;
+                    span.style.color = cat.color;
+                });
+                L.DomEvent.disableClickPropagation(c);
+                return c;
+            }
+        });
+        new WebNotamControl().addTo(map);
+
+        // factory לשתי בקרות-מצב זהות במבנה (גבהים/טמפרטורה) — נמנע משכפול הקוד פעמיים
+        function _webHeatmapControl(title, setModeFn) {
+            return L.Control.extend({
+                options: { position: 'topleft' },
+                onAdd: function() {
+                    var c = L.DomUtil.create('div', 'leaflet-control');
+                    c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                        + 'font-family:Arial;direction:rtl;margin-top:6px;';
+                    var t = L.DomUtil.create('div', '', c);
+                    t.textContent = title;
+                    t.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
+                    var row = L.DomUtil.create('div', '', c);
+                    row.style.cssText = 'display:flex;gap:3px;';
+                    ['heat', 'grid', 'dots'].forEach(function(mode) {
+                        var b = L.DomUtil.create('a', '', row);
+                        b.href = '#'; b.textContent = mode;
+                        b.style.cssText = 'font-size:9px;padding:2px 5px;background:#313244;color:#cdd6f4;'
+                            + 'border-radius:4px;text-decoration:none;cursor:pointer;';
+                        L.DomEvent.on(b, 'click', function(e) {
+                            L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                            setModeFn(mode);
+                        });
+                    });
+                    L.DomEvent.disableClickPropagation(c);
+                    return c;
+                }
+            });
+        }
+        new (_webHeatmapControl('מצב גבהים', setElevMode))().addTo(map);
+        new (_webHeatmapControl('מצב טמפרטורה', setTempMode))().addTo(map);
+
+        var WebSearchControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                var c = L.DomUtil.create('div', 'leaflet-control');
+                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
+                    + 'font-family:Arial;direction:rtl;margin-top:6px;width:min(200px, calc(100vw - 20px));';
+
+                var cityRow = L.DomUtil.create('div', '', c);
+                cityRow.style.cssText = 'display:flex;gap:3px;margin-bottom:4px;';
+                var cityInput = L.DomUtil.create('input', '', cityRow);
+                cityInput.type = 'text'; cityInput.placeholder = 'חיפוש עיר/אזור';
+                cityInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;';
+                var cityBtn = L.DomUtil.create('a', '', cityRow);
+                cityBtn.href = '#'; cityBtn.innerHTML = '&#128269;';
+                cityBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
+                function _doCitySearch() {
+                    var q = cityInput.value.trim();
+                    if (!q) return;
+                    fetch('/geo_data?location=' + encodeURIComponent(q))
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.error) { alert(data.error); return; }
+                            map.setView([data.latitude, data.longitude], 11);
+                        })
+                        .catch(function() { alert('שגיאה בחיפוש מיקום'); });
+                }
+                L.DomEvent.on(cityBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doCitySearch(); });
+                L.DomEvent.on(cityInput, 'keydown', function(e) { if (e.key === 'Enter') _doCitySearch(); });
+
+                var flightRow = L.DomUtil.create('div', '', c);
+                flightRow.style.cssText = 'display:flex;gap:3px;';
+                var flightInput = L.DomUtil.create('input', '', flightRow);
+                flightInput.type = 'text'; flightInput.placeholder = 'מספר טיסה';
+                flightInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;direction:ltr;';
+                var flightBtn = L.DomUtil.create('a', '', flightRow);
+                flightBtn.href = '#'; flightBtn.innerHTML = '&#9992;';
+                flightBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
+                function _doFlightSearch() {
+                    var q = flightInput.value.trim().toUpperCase();
+                    if (!q) return;
+                    fetch('/flight_route?flight=' + encodeURIComponent(q))
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.error) { alert(data.error); return; }
+                            drawFlightRoute(data);
+                        })
+                        .catch(function() { alert('שגיאה בחיפוש טיסה'); });
+                }
+                L.DomEvent.on(flightBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doFlightSearch(); });
+                L.DomEvent.on(flightInput, 'keydown', function(e) { if (e.key === 'Enter') _doFlightSearch(); });
+
+                L.DomEvent.disableClickPropagation(c);
+                L.DomEvent.disableScrollPropagation(c);
+                return c;
+            }
+        });
+        new WebSearchControl().addTo(map);
+
+        var WebGpsControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                var btn = L.DomUtil.create('a', 'leaflet-control leaflet-bar');
+                btn.href = '#'; btn.innerHTML = '&#128205;'; btn.title = 'מיקום עצמי (GPS)';
+                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:30px;height:30px;'
+                    + 'background:rgba(30,30,46,.92);color:#cdd6f4;text-decoration:none;border-radius:8px;'
+                    + 'font-size:15px;margin-top:6px;cursor:pointer;';
+                L.DomEvent.on(btn, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
+                    if (!navigator.geolocation) { alert('הדפדפן לא תומך באיתור מיקום'); return; }
+                    navigator.geolocation.getCurrentPosition(function(pos) {
+                        var p = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                        map.setView(p, 13);
+                        var dot = L.circleMarker(p, {radius:7,color:'#fff',fillColor:'#89b4fa',fillOpacity:1,weight:2}).addTo(map);
+                        allMarkers.push(dot);
+                    }, function(err) {
+                        alert('שגיאה באיתור מיקום: ' + err.message);
+                    }, {enableHighAccuracy: true, timeout: 10000});
+                });
+                return btn;
+            }
+        });
+        new WebGpsControl().addTo(map);
+    
 
         // ── הודעת מידע — כלל טיסת VLOS ──
         // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,

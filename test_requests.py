@@ -203,6 +203,22 @@ TEST_CASES = [
              params={"job_id": "00000000-0000-0000-0000-000000000000"},
              validate=_validate_client_error),
 
+    # --- WeatherServer: כלי מסלול בליסטי (MPM), Stage 2 (FR-D-234) — בדיקת-HTTP בסיסית בלבד;
+    # בדיקת-הפיזיקה המלאה (כולל רכס סינתטי ל-terrain_check/min_qe_for_crest) ב-tests/test_ballistics_api.py ---
+    TestCase("WeatherServer", WEATHER_PORT, "POST /ballistics/trajectory", "POST", "/ballistics/trajectory",
+             json_body={"gun": {"lat": 31.2520, "lon": 34.7915, "alt_m": 280}, "qe": 450, "azimuth": 600,
+                       "mv": 684, "met": {"source": "standard"}, "include_path": False},
+             validate=_validate_json_keys("ok", "impact")),
+    TestCase("WeatherServer", WEATHER_PORT, "POST /ballistics/trajectory (חסר gun)", "POST", "/ballistics/trajectory",
+             json_body={"qe": 450, "azimuth": 600, "mv": 684}, validate=_validate_client_error),
+    TestCase("WeatherServer", WEATHER_PORT, "POST /ballistics/solve", "POST", "/ballistics/solve",
+             json_body={"gun": {"lat": 31.2520, "lon": 34.7915, "alt_m": 280},
+                       "target": {"lat": 31.3600, "lon": 34.8900, "alt_m": 310}, "mv": 684,
+                       "met": {"source": "standard"}, "group": "low", "include_path": False},
+             validate=_validate_json_keys("ok", "qe")),
+    TestCase("WeatherServer", WEATHER_PORT, "GET /ballistics/trajectory (method tampering)", "GET",
+             "/ballistics/trajectory", validate=_validate_expected_status(405)),
+
     # --- FlightServer (5004) ---
     TestCase("FlightServer", FLIGHT_PORT, "GET /metrics", "GET", "/metrics",
              validate=_validate_json_keys("uptime_sec", "endpoints")),

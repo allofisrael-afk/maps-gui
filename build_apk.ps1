@@ -171,7 +171,40 @@ Copy-Item "$PROJECT_SRC\pubspec.yaml" "$PROJECT_DIR\pubspec.yaml" -Force
 robocopy "$PROJECT_SRC\lib" "$PROJECT_DIR\lib" /E /IS /IT | Out-Null
 Copy-Item "$PROJECT_SRC\android_manifest.xml" `
     "$PROJECT_DIR\android\app\src\main\AndroidManifest.xml" -Force
+# כלי המסלול הבליסטי (Chaquopy, FR-D-237): שלושת קבצי ה-Gradle/Kotlin האלה הם קוד-אמת-שחי
+# ב--src (בניגוד ל-android/ הכללי שנוצר ע"י flutter create ונשאר רק בתיקיית ה-build) —
+# אותו דפוס בדיוק כמו android_manifest.xml למעלה, רק עם 3 יעדים חדשים במקום אחד
+Copy-Item "$PROJECT_SRC\android_build.gradle.kts" "$PROJECT_DIR\android\build.gradle.kts" -Force
+Copy-Item "$PROJECT_SRC\android_app_build.gradle.kts" "$PROJECT_DIR\android\app\build.gradle.kts" -Force
+Copy-Item "$PROJECT_SRC\android_settings.gradle.kts" "$PROJECT_DIR\android\settings.gradle.kts" -Force
+New-Item -ItemType Directory -Force "$PROJECT_DIR\android\app\src\main\kotlin\com\mapsapp\maps_gui_android" | Out-Null
+Copy-Item "$PROJECT_SRC\android_MainActivity.kt" `
+    "$PROJECT_DIR\android\app\src\main\kotlin\com\mapsapp\maps_gui_android\MainActivity.kt" -Force
+# נמצא בבנייה אמיתית (FR-D-237, לא קשור ל-Chaquopy בעצמו): flutter create מאפס את gradle-wrapper.properties
+# לגרסת-Gradle המובנית בתוך ה-Flutter SDK המותקן (9.7.1) בכל הרצה — וזו שוברת את AGP 8.11.1 הקיים
+# ("Gradle internal API that was removed in Gradle 9.6.0... use Gradle 9.5" — הודעת-השגיאה המדויקת).
+# לכן גם קובץ זה חייב להיות מסונכרן מ--src בכל build, לא רק בהתקנה הראשונה.
+Copy-Item "$PROJECT_SRC\android_gradle-wrapper.properties" `
+    "$PROJECT_DIR\android\gradle\wrapper\gradle-wrapper.properties" -Force
 Ok "Source files copied"
+
+# --- Step 7b: תיקיית-גישור ל-Chaquopy (FR-D-237) ---
+# Chaquopy סורק תיקייה שלמה לקבצי .py — אם נפנה אותו לשורש הפרויקט (D:\PY-IS\maps-gui) הוא
+# ייכנס גם ל-.venv\ (עשרות-אלפי קבצים, מאות MB), מה שיהפוך את ה-build לאיטי-מאוד/כושל.
+# הפתרון: תיקייה מבודדת וקטנה עם junction ל-mpm\/data\ ו-hardlink ל-mpm_api.py — לא עותקים
+# (אין כפילות-אמת-יחידה), רק הצבעות-מערכת-קבצים. לא ב-git (ר' .gitignore) — נוצר כאן, אידמפוטנטי.
+$ANDROID_PY_DIR = "$PSScriptRoot\android_python"
+if (-not (Test-Path $ANDROID_PY_DIR)) { New-Item -ItemType Directory -Force $ANDROID_PY_DIR | Out-Null }
+if (-not (Test-Path "$ANDROID_PY_DIR\mpm")) {
+    cmd /c mklink /J "$ANDROID_PY_DIR\mpm" "$PSScriptRoot\mpm" | Out-Null
+}
+if (-not (Test-Path "$ANDROID_PY_DIR\data")) {
+    cmd /c mklink /J "$ANDROID_PY_DIR\data" "$PSScriptRoot\data" | Out-Null
+}
+if (-not (Test-Path "$ANDROID_PY_DIR\mpm_api.py")) {
+    cmd /c mklink /H "$ANDROID_PY_DIR\mpm_api.py" "$PSScriptRoot\mpm_api.py" | Out-Null
+}
+Ok "android_python/ bridge directory ready (Chaquopy source root)"
 
 # --- Step 8: flutter pub get ---
 # הערה: $LASTEXITCODE אחרי flutter.bat pub get לא אמין תמיד על Windows (נצפה קוד שגיאה

@@ -12,6 +12,11 @@ __pycache__/
 *.pyc
 *.whl
 
+# android_python/ — נוצר ע"י build_apk.ps1 (junctions ל-mpm//data/, hardlink ל-mpm_api.py) כדי
+# ש-Chaquopy (Android, כלי המסלול הבליסטי) יסרוק תיקייה מבודדת-קטנה ולא את כל שורש הפרויקט
+# (שכולל .venv/ הענקית) — לא קבצים אמיתיים, לא שייך ל-git, ר' MAPS-GUI_SRS.md §3.27 FR-D-237
+/android_python/
+
 # סודות ותצורה מקומית
 .env
 .claude/settings.local.json

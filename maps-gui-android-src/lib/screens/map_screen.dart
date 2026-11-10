@@ -18,6 +18,7 @@ import '../services/api_service.dart'; // ApiService.parseCoordLine — פענו
 import '../state/map_state.dart';
 import '../version.dart';
 import '../widgets/controls_panel.dart';
+import '../widgets/ballistics_panel.dart'; // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237), דרך Chaquopy
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -925,6 +926,8 @@ class _MapScreenState extends State<MapScreen> {
                     _RadarDopplerPanel(state: state, cs: cs),
                     const SizedBox(height: 8),
                     _CustomRoutePanel(state: state, cs: cs),
+                    const SizedBox(height: 8),
+                    BallisticsPanel(cs: cs), // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237)
                   ],
                 ),
               ),

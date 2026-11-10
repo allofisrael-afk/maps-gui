@@ -20,10 +20,17 @@ PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 
 def main():
     os.makedirs(PUBLIC_DIR, exist_ok=True)
+    # באג אמיתי שנמצא בפועל (10/11/2026): create_map(output_path=None) כותב לנתיב היחסי
+    # "map.html" - שנפתר לפי ה-cwd של ה-process, לא לפי מיקום הקובץ הזה. ב-Vercel, vercel.json
+    # יושב ב-web/ (= Root Directory של הפרויקט ב-Vercel), כך שה-cwd בזמן ה-build הוא web/ -
+    # כלומר create_map('web') היה כותב בפועל ל-web/map.html, ואילו השורה למטה המשיכה להעתיק
+    # את map.html של השורש (קובץ ישן-ומחויב-ב-git, גרסת-Desktop בלי אף control של web ובלי
+    # serversRunning=true) - ה-deploy "הצליח" (לא קרס) אבל הגיש בפועל בניית-Desktop במקום Web.
+    # תוקן ע"י output_path מוחלט - לא תלוי-cwd יותר, בלי קשר לאיפה ה-process רץ בפועל.
+    generated = os.path.join(_PROJECT_ROOT, 'map.html')
     # target='web' מפעיל את ה-controls/CSS הנוספים ב-MAP.py (ר' create_map); api_base='' כי
     # כל קריאות ה-API הן same-origin יחסיות (vercel.json מנתב /weather וכו' לפונקציות המתאימות)
-    MAP.create_map(target='web', api_base='')
-    generated = os.path.join(_PROJECT_ROOT, 'map.html')  # create_map כותב תמיד לשם הזה בתיקיית העבודה
+    MAP.create_map(target='web', api_base='', output_path=generated)
     dest = os.path.join(PUBLIC_DIR, 'index.html')
     shutil.copyfile(generated, dest)
     print(f"נבנה: {dest}")

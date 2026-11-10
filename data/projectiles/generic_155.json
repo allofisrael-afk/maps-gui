@@ -1,0 +1,10 @@
+{
+  "name": "Generic 155mm HE (illustrative, M107-like)",
+  "note": "Approximate values for demonstration and learning only. Not for real fire. Replace with validated data.",
+  "mass_kg": 43.0,
+  "diameter_m": 0.15475,
+  "ix_kgm2": 0.1444,
+  "iy_kgm2": 1.162,
+  "twist_calibers": 20.0,
+  "aero_csv": "generic_155_aero.csv"
+}
