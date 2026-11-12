@@ -1,0 +1,6564 @@
+[
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 48,
+      "row": 6
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\MAP.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # הזרקת נתונים סטטיים (אזורי תיאום, קטגוריות NOTAM) כליטרלי JS — ר' בהמשך\r\nimport os\r\n\r\nfrom dotenv import load_dotenv  # טעינת משתני סביבה (נשמר לתאימות עתידית)\r\n\r\nfrom airport_ctr_zones import (\r\n    AIRPORT_CTR_ZONES,  # גבולות CTR קבועים של שדות תעופה, ממקור AIP רשמי — ר' airport_ctr_zones.py\r\n)\r\nfrom notam_categories import (\r\n    NOTAM_CATEGORIES,  # 7 קטגוריות סיווג NOTAM (id/label/color) — סטטי, ר' notam_categories.py\r\n)\r\nfrom uas_coordination_zones import (\r\n    UAS_COORDINATION_ZONES,  # נתוני \"אזורי תיאום כטב\"ם\" — סטטיים, לא נשלפים בזמן ריצה\r\n)\r\n\r\n",
+          "end_location": {
+            "column": 1,
+            "row": 8
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 10,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\MAP.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unused import: `os`"
+    },
+    "location": {
+      "column": 8,
+      "row": 1
+    },
+    "message": "`os` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\airport_ctr_zones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 43,
+      "row": 20
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\cis_checks.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # פענוח פלט Get-NetFirewallProfile שמומר ל-JSON ע\"י PowerShell עצמו\nimport os  # נתיב קובץ זמני ל-secedit export\nimport subprocess  # הרצת פקודות PowerShell/secedit חיצוניות\nimport tempfile  # תיקיית הטמפ של המערכת לקובץ ה-export הזמני\nimport time  # מדידת elapsed_ms לכל בדיקה\nimport winreg  # קריאת ערכי registry ישירות (מהירה יותר ופחות שברירית מ-PowerShell לבדיקות DWORD פשוטות)\nfrom pathlib import Path  # קריאת קובץ ה-export הזמני של secedit\n\nfrom security_types import (\n    SecurityFinding,  # מבנה התוצאה המשותף לכל בדיקות האבטחה בפרויקט\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 22
+          },
+          "location": {
+            "column": 1,
+            "row": 12
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 12
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 12,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 30,
+      "row": 29
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\cis_checks.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 13,
+            "row": 31
+          },
+          "location": {
+            "column": 13,
+            "row": 31
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 16,
+      "row": 29
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 29,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 23,
+      "row": 55
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\cis_checks.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 25,
+            "row": 56
+          },
+          "location": {
+            "column": 25,
+            "row": 56
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 9,
+      "row": 55
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 55,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 30,
+      "row": 9
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import logging  # רישום אירועים לקובץ לוג (ה-basicConfig עצמו הוגדר ב-server_common.create_app)\nimport os  # קריאת משתני סביבה לפרטי התחברות\nimport re  # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד\n\nfrom flask import (  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app\n    jsonify,\n    request,\n)\nfrom FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24\nfrom FlightRadar24.core import (\n    Core,  # קבועי URL/headers של הספרייה — משמשים ב-_fetch_flight_details_direct\n)\n\nfrom ports import FLIGHT_PORT\nfrom server_common import (\n    create_app,  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 10
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 56,
+      "row": 81
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "        from curl_cffi import (\n            requests as cffi_requests,  # ייבוא עצל — נכשל בעדינות אם התלות חסרה\n        )\n",
+          "end_location": {
+            "column": 1,
+            "row": 82
+          },
+          "location": {
+            "column": 1,
+            "row": 81
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 9,
+      "row": 81
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 81,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 85
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 85
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 85,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 118,
+      "row": 86
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 86
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 86,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 53,
+      "row": 87
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "        from FlightRadar24.request import (\n            APIRequest,  # ייבוא מקומי — נדרש רק בנתיב ה-fallback\n        )\n",
+          "end_location": {
+            "column": 1,
+            "row": 88
+          },
+          "location": {
+            "column": 1,
+            "row": 87
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 9,
+      "row": 87
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 87,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 106
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 106
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 106,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 51,
+      "row": 110
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 110
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 110,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 111
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 111
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 111,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 89,
+      "row": 112
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 112
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 112,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 114
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 114
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 114,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 48,
+      "row": 127
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 127
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 127,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 94,
+      "row": 143
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 143
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 143,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 144
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 144
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 144,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 90,
+      "row": 145
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 145
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 145,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 83,
+      "row": 164
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 164
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 164,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 166
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 166
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 166,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 76,
+      "row": 167
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 167
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 167,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 77,
+      "row": 178
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 178
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 178,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 82,
+      "row": 186
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 186
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 186,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 110,
+      "row": 200
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 200
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 200,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 213
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 213
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 213,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 94,
+      "row": 214
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 214
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 214,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 63,
+      "row": 217
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 217
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 217,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 247
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 247
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 247,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 116,
+      "row": 249
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 249
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 249,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 266
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 266
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 266,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 285
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 285
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 285,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 71,
+      "row": 286
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 286
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 286,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 57,
+      "row": 287
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה פנימית: {e!s}\"",
+          "end_location": {
+            "column": 59,
+            "row": 287
+          },
+          "location": {
+            "column": 34,
+            "row": 287
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 51,
+      "row": 287
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 287,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 21,
+      "row": 311
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 310
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 310,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 310
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 310
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 310,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 325
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 325
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 325,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 50,
+      "row": 326
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\flight_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 326
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 326,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 27,
+      "row": 8
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)\r\nimport os  # ייבוא מודול os לגישה למשתני סביבה\r\n\r\nimport requests  # קריאה ל-Google Geocoding API\r\nfrom flask import (  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app\r\n    jsonify,\r\n    request,\r\n)\r\n\r\nfrom notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים\r\nfrom ports import GEO_PORT\r\nfrom server_common import (\r\n    create_app,  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics\r\n)\r\n\r\n",
+          "end_location": {
+            "column": 1,
+            "row": 10
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 46,
+      "row": 25
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 25
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 25,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "F541",
+    "end_location": {
+      "column": 63,
+      "row": 29
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "\"https://maps.googleapis.com/maps/api/geocode/json\"",
+          "end_location": {
+            "column": 63,
+            "row": 29
+          },
+          "location": {
+            "column": 11,
+            "row": 29
+          }
+        }
+      ],
+      "message": "Remove extraneous `f` prefix"
+    },
+    "location": {
+      "column": 11,
+      "row": 29
+    },
+    "message": "f-string without any placeholders",
+    "name": "f-string-missing-placeholders",
+    "noqa_row": 29,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/f-string-missing-placeholders"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 49
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 49
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 49,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 54,
+      "row": 53
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 53
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 53,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 62,
+      "row": 57
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 57
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 57,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 59,
+      "row": 57
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה בחיבור ל-Google API: {e!s}\"",
+          "end_location": {
+            "column": 61,
+            "row": 57
+          },
+          "location": {
+            "column": 23,
+            "row": 57
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 53,
+      "row": 57
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 57,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 70,
+      "row": 58
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\geo_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה בחיבור ל-Google API: {e!s}\"",
+          "end_location": {
+            "column": 72,
+            "row": 58
+          },
+          "location": {
+            "column": 34,
+            "row": 58
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 64,
+      "row": 58
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 58,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\icao_glossary.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 35,
+      "row": 29
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # הזרקת טבעות גבול עיר (Nominatim) כליטרל JS\nimport logging  # רישום אירועים לקובץ לוג\nimport math  # חישוב זוויות למחוג שעוני הסקירה בדשבורד\nimport os  # גישה לנתיבי קבצים ומשתני סביבה\nimport subprocess  # הפעלת תהליכי שרת חיצוניים\nimport sys  # גישה לארגומנטים ויציאה מהאפליקציה\nimport time  # חישוב uptime בדשבורד התהליכים\nimport urllib.parse  # קידוד רתים בדשבורד\nfrom datetime import datetime  # חישוב פקיעת cache לפי זמן\n\nimport psutil  # מדידת CPU/זיכרון לתהליכי השחת בקשות HTTP לשרתים\nimport requests  # שלישמות ערים לפורמט URL\nfrom PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה\n    QDateTime,\n    QEasingCurve,\n    QPointF,\n    QPropertyAnimation,\n    QRectF,\n    QSettings,  # שמירת הגדרות והיסטוריית ערים בין הפעלות\n    QSize,\n    Qt,\n    QThread,\n    QTimer,\n    QUrl,\n    pyqtSignal,\n)\nfrom PyQt5.QtGui import (  # אייקונים/צבעים לממשק + ציור שעוני הסקירה בדשבורד\n    QColor,\n    QFont,\n    QIcon,\n    QPainter,\n    QPen,\n)\nfrom PyQt5.QtWebEngineWidgets import (  # תצוגת דפדפן פנימי להצגת המפה\n    QWebEnginePage,\n    QWebEngineView,\n)\nfrom PyQt5.QtWidgets import (  # רכיבי ממשק גרפי\n    QAbstractItemView,\n    QApplication,\n    QCheckBox,\n    QComboBox,\n    QDialog,  # רכיבי דשבורד התהליכים\n    QDoubleSpinBox,\n    QFileDialog,\n    QFrame,\n    QGridLayout,\n    QHBoxLayout,\n    QHeaderView,\n    QLabel,\n    QMainWindow,\n    QMenu,\n    QMessageBox,  # QLabel לכותרות, QTabWidget ללשוניות, QSlider לשקיפות, QComboBox להיסטוריה, QFrame להפרדה\n    QPushButton,\n    QSizePolicy,\n    QSlider,\n    QSplitter,\n    QTableWidget,\n    QTableWidgetItem,\n    QTabWidget,\n    QTextEdit,\n    QToolButton,  # תפריט \"toolbox\" נגלל לבחירת קטגוריות NOTAM מרובות\n    QVBoxLayout,\n    QWidget,\n    QWidgetAction,\n)\n\nfrom MAP import create_map  # ייבוא פונקציית יצירת המפה\nfrom notam_categories import (\n    NOTAM_CATEGORIES,  # 7 קטגוריות סיווג NOTAM — מקור אמת יחיד, גם ל-MAP.py וגם לתפריט כאן\n)\nfrom ports import (  # פורטים קבועים של שלושת שרתי ה-Flask המקומיים\n    FLIGHT_PORT,\n    GEO_PORT,\n    WEATHER_PORT,\n)\nfrom security_checks import (  # סריקת אבטחה/חשיפה לדשבורד\n    run_security_checks,\n    summarize_findings,\n)\nfrom test_requests import run_health_checks, summarize  # בדיקת תקינות שרתים לדשבורד\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 31
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 80,
+      "row": 18
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה\n    Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QRectF, QPointF\n)",
+          "end_location": {
+            "column": 2,
+            "row": 19
+          },
+          "location": {
+            "column": 1,
+            "row": 17
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 62,
+      "row": 18
+    },
+    "message": "`PyQt5.QtCore.QPropertyAnimation` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 18,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 94,
+      "row": 18
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה\n    Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QRectF, QPointF\n)",
+          "end_location": {
+            "column": 2,
+            "row": 19
+          },
+          "location": {
+            "column": 1,
+            "row": 17
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 82,
+      "row": 18
+    },
+    "message": "`PyQt5.QtCore.QEasingCurve` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 18,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 85,
+      "row": 53
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 53
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 53,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 21,
+      "row": 84
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 83
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 83,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 83
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 83
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 83,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 180
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 180
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 180,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 196
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 196
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 196,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 231
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 231
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 231,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 259
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 259
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 259,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "RUF012",
+    "end_location": {
+      "column": 6,
+      "row": 345
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 341
+    },
+    "message": "Mutable default value for class attribute",
+    "name": "mutable-class-default",
+    "noqa_row": 341,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/mutable-class-default"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 40,
+      "row": 811
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 62,
+            "row": 811
+          },
+          "location": {
+            "column": 62,
+            "row": 811
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 26,
+      "row": 811
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 811,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 39,
+      "row": 815
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 73,
+            "row": 815
+          },
+          "location": {
+            "column": 73,
+            "row": 815
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 25,
+      "row": 815
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 815,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 21,
+      "row": 817
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 816
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 816,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 816
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 816
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 816,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 34,
+      "row": 840
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 840
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 840,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1653
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1653
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1653,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1663
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1663
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1663,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1672
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1672
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1672,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1737
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1737
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1737,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1769
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1769
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1769,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1814
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1814
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1814,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 70,
+      "row": 1892
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 1892
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 1892,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "FURB122",
+    "end_location": {
+      "column": 44,
+      "row": 2173
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "f.writelines(log + \"\\n\" for log in self.logs)",
+          "end_location": {
+            "column": 44,
+            "row": 2173
+          },
+          "location": {
+            "column": 21,
+            "row": 2172
+          }
+        }
+      ],
+      "message": "Replace with `f.writelines`"
+    },
+    "location": {
+      "column": 21,
+      "row": 2172
+    },
+    "message": "Use of `f.write` in a for loop",
+    "name": "for-loop-writes",
+    "noqa_row": 2172,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/for-loop-writes"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 2175
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 2175
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 2175,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 21,
+      "row": 2268
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 2267
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 2267,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 2267
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 2267
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 2267,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 2338
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 2338
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 2338,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 2359
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\main.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 2359
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 2359,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 35,
+      "row": 11
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\metrics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import time  # מדידת זמני תגובה ו-uptime\nfrom collections import (\n    defaultdict,  # יוצר אוטומטית רשומת סטטיסטיקה ריקה לכל endpoint חדש\n)\nfrom datetime import datetime  # חותמת שעה קריאה לקריאה האחרונה\n\nfrom flask import jsonify, request  # גישה לבקשה הנוכחית והחזרת JSON\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 7
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF059",
+    "end_location": {
+      "column": 18,
+      "row": 97
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\engine.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "_T",
+          "end_location": {
+            "column": 18,
+            "row": 97
+          },
+          "location": {
+            "column": 17,
+            "row": 97
+          }
+        }
+      ],
+      "message": "Prefix it with an underscore or any other dummy variable pattern"
+    },
+    "location": {
+      "column": 17,
+      "row": 97
+    },
+    "message": "Unpacked variable `T` is never used",
+    "name": "unused-unpacked-variable",
+    "noqa_row": 97,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-unpacked-variable"
+  },
+  {
+    "cell": null,
+    "code": "RUF059",
+    "end_location": {
+      "column": 21,
+      "row": 97
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\engine.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "_P",
+          "end_location": {
+            "column": 21,
+            "row": 97
+          },
+          "location": {
+            "column": 20,
+            "row": 97
+          }
+        }
+      ],
+      "message": "Prefix it with an underscore or any other dummy variable pattern"
+    },
+    "location": {
+      "column": 20,
+      "row": 97
+    },
+    "message": "Unpacked variable `P` is never used",
+    "name": "unused-unpacked-variable",
+    "noqa_row": 97,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-unpacked-variable"
+  },
+  {
+    "cell": null,
+    "code": "RUF059",
+    "end_location": {
+      "column": 17,
+      "row": 203
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\engine.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "_y",
+          "end_location": {
+            "column": 17,
+            "row": 203
+          },
+          "location": {
+            "column": 16,
+            "row": 203
+          }
+        }
+      ],
+      "message": "Prefix it with an underscore or any other dummy variable pattern"
+    },
+    "location": {
+      "column": 16,
+      "row": 203
+    },
+    "message": "Unpacked variable `y` is never used",
+    "name": "unused-unpacked-variable",
+    "noqa_row": 203,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-unpacked-variable"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 68,
+      "row": 6
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\fire_control.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import math\nfrom dataclasses import replace\n\nfrom .engine import simulate, stability_warnings\nfrom .units import both, mils_to_rad, normalize_az_rad, rad_to_mils\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 8
+          },
+          "location": {
+            "column": 1,
+            "row": 2
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 2
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 2,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF059",
+    "end_location": {
+      "column": 18,
+      "row": 327
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\fire_control.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "_dr0",
+          "end_location": {
+            "column": 18,
+            "row": 327
+          },
+          "location": {
+            "column": 15,
+            "row": 327
+          }
+        }
+      ],
+      "message": "Prefix it with an underscore or any other dummy variable pattern"
+    },
+    "location": {
+      "column": 15,
+      "row": 327
+    },
+    "message": "Unpacked variable `dr0` is never used",
+    "name": "unused-unpacked-variable",
+    "noqa_row": 327,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-unpacked-variable"
+  },
+  {
+    "cell": null,
+    "code": "PLR0124",
+    "end_location": {
+      "column": 13,
+      "row": 66
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\projectile.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 66
+    },
+    "message": "Name compared with itself, consider replacing `m != m`",
+    "name": "comparison-with-itself",
+    "noqa_row": 66,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/comparison-with-itself"
+  },
+  {
+    "cell": null,
+    "code": "SIM118",
+    "end_location": {
+      "column": 57,
+      "row": 94
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm\\projectile.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 57,
+            "row": 94
+          },
+          "location": {
+            "column": 50,
+            "row": 94
+          }
+        }
+      ],
+      "message": "Remove `.keys()`"
+    },
+    "location": {
+      "column": 38,
+      "row": 94
+    },
+    "message": "Use `key in dict` instead of `key in dict.keys()`",
+    "name": "in-dict-keys",
+    "noqa_row": 94,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/in-dict-keys"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 54,
+      "row": 29
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import math  # טריגונומטריה להמרת מסלול מקומי (x,y,z) לנקודות גאוגרפיות\n\nfrom mpm.atmosphere import AtmosphereProfile  # בניית פרופיל-מטאו (standard/from_levels)\nfrom mpm.engine import (  # ליבת הפיזיקה — ללא שינוי\n    R_EARTH,\n    FireParams,\n    simulate,\n    stability_warnings,\n)\nfrom mpm.fire_control import (\n    QE_MAX,\n    QE_MIN,\n    TABLE_COLUMNS,\n)\nfrom mpm.fire_control import (\n    calibrate as _mpm_calibrate,\n)\nfrom mpm.fire_control import (\n    firing_table as _mpm_firing_table,\n)\nfrom mpm.fire_control import (  # שכבת בקרת-האש — solve/solve_mv הורחבו ב-Stage 2, שאר הפונקציות ללא שינוי\n    solve as _mpm_solve,\n)\nfrom mpm.fire_control import (\n    solve_mv as _mpm_solve_mv,\n)\nfrom mpm.geodesy import direct as _geo_direct  # Vincenty — ללא שינוי\nfrom mpm.geodesy import inverse as _geo_inverse\nfrom mpm.projectile import load_projectile  # טעינת קובץ-פגז (ברירת מחדל: generic_155)\nfrom mpm.units import angle_to_rad, both, mils_to_rad  # המרות-זווית — ללא שינוי\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 31
+          },
+          "location": {
+            "column": 1,
+            "row": 14
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 14
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 14,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 35,
+      "row": 362
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 86,
+            "row": 362
+          },
+          "location": {
+            "column": 21,
+            "row": 362
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 23,
+      "row": 362
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 362,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 47,
+      "row": 363
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 47,
+            "row": 363
+          },
+          "location": {
+            "column": 33,
+            "row": 363
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 35,
+      "row": 363
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 363,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 47,
+      "row": 364
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 47,
+            "row": 364
+          },
+          "location": {
+            "column": 33,
+            "row": 364
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 35,
+      "row": 364
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 364,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 51,
+      "row": 365
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 51,
+            "row": 365
+          },
+          "location": {
+            "column": 37,
+            "row": 365
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 39,
+      "row": 365
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 365,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\notam_categories.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 44,
+      "row": 31
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\notam_drones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import re  # פרסינג HTML/טקסט חופשי בלי תלות חיצונית — הדף עצמו לא מספק JSON\nimport time  # מדידת גיל ה-cache\n\nimport requests  # שליפת דף ה-NOTAM מרשות שדות התעופה\n\nfrom icao_glossary import (\n    render_hebrew_gloss,  # תרגום גס לעברית — ר' icao_glossary.py לאזהרת הבטיחות\n)\nfrom notam_categories import (\n    classify_notam,  # סיווג NOTAM ל-7 קטגוריות — ר' notam_categories.py\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 33
+          },
+          "location": {
+            "column": 1,
+            "row": 25
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 25
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 25,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\ports.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 60,
+      "row": 31
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\security_checks.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # פענוח פלט pip-audit\nimport os  # קריאת מפתחות סודיים ממשתני סביבה\nimport re  # חיפוש טוקנים קשיחים בקוד ה-Dart\nimport subprocess  # הרצת pip-audit כתהליך חיצוני\nimport time  # מדידת elapsed_ms לכל בדיקה\nimport zipfile  # פתיחת ה-APK כארכיון ZIP לסריקת סודות\nfrom pathlib import Path  # נתיבים עמידים בפני מערכת הפעלה (Windows/Linux)\n\nimport psutil  # רשימת חיבורי רשת פתוחים — לבדיקת חשיפת debug console\nimport requests  # בדיקת כותרות CORS מול השרתים\nfrom dotenv import load_dotenv  # טעינת .env כדי לדעת אילו סודות לחפש\n\nfrom cis_checks import (  # בטוח לייבוא רגיל כאן — cis_checks כבר לא מייבא בחזרה מהקובץ הזה\n    run_cis_l1_checks,\n    run_cis_l2_checks,\n)\nfrom ports import FLIGHT_PORT, GEO_PORT, WEATHER_PORT\nfrom security_types import (\n    SecurityFinding,  # מבנה תוצאה משותף — קובץ נפרד כדי למנוע circular import עם cis_checks\n)\nfrom test_requests import (  # שימוש חוזר בבדיקות התקינות לסריקת סודות בתגובות אמיתיות\n    DEFAULT_HOST,\n    run_health_checks,\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 33
+          },
+          "location": {
+            "column": 1,
+            "row": 16
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 16
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 16,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 30,
+      "row": 145
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\security_checks.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 13,
+            "row": 147
+          },
+          "location": {
+            "column": 13,
+            "row": 147
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 16,
+      "row": 145
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 145,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 158
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\security_checks.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 158
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 158,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\security_types.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\server_common.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 54,
+      "row": 17
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import concurrent.futures  # threads מקבילים לבדיקות עומס\nimport sys  # קידוד stdout ב-CLI\nimport time  # מדידת elapsed_ms\nfrom dataclasses import dataclass  # מבני TestCase/TestResult/LoadTestCase\nfrom typing import (  # טיפוסי type hints לשדות אופציונליים ולפונקציית validate\n    Callable,\n    Optional,\n)\n\nimport requests  # ירי הבקשות בפועל לשרתים\n\nfrom ports import FLIGHT_PORT, GEO_PORT, WEATHER_PORT\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 19
+          },
+          "location": {
+            "column": 1,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 9
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 9,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP035",
+    "end_location": {
+      "column": 38,
+      "row": 13
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from typing import Optional\nfrom collections.abc import Callable",
+          "end_location": {
+            "column": 38,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 13
+          }
+        }
+      ],
+      "message": "Import from `collections.abc`"
+    },
+    "location": {
+      "column": 1,
+      "row": 13
+    },
+    "message": "Import from `collections.abc` instead: `Callable`",
+    "name": "deprecated-import",
+    "noqa_row": 13,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/deprecated-import"
+  },
+  {
+    "cell": null,
+    "code": "UP045",
+    "end_location": {
+      "column": 27,
+      "row": 29
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "dict | None",
+          "end_location": {
+            "column": 27,
+            "row": 29
+          },
+          "location": {
+            "column": 13,
+            "row": 29
+          }
+        }
+      ],
+      "message": "Convert to `X | None`"
+    },
+    "location": {
+      "column": 13,
+      "row": 29
+    },
+    "message": "Use `X | None` for type annotations",
+    "name": "non-pep604-annotation-optional",
+    "noqa_row": 29,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/non-pep604-annotation-optional"
+  },
+  {
+    "cell": null,
+    "code": "UP045",
+    "end_location": {
+      "column": 30,
+      "row": 30
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "dict | None",
+          "end_location": {
+            "column": 30,
+            "row": 30
+          },
+          "location": {
+            "column": 16,
+            "row": 30
+          }
+        }
+      ],
+      "message": "Convert to `X | None`"
+    },
+    "location": {
+      "column": 16,
+      "row": 30
+    },
+    "message": "Use `X | None` for type annotations",
+    "name": "non-pep604-annotation-optional",
+    "noqa_row": 30,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/non-pep604-annotation-optional"
+  },
+  {
+    "cell": null,
+    "code": "UP045",
+    "end_location": {
+      "column": 33,
+      "row": 32
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "Callable | None",
+          "end_location": {
+            "column": 33,
+            "row": 32
+          },
+          "location": {
+            "column": 15,
+            "row": 32
+          }
+        }
+      ],
+      "message": "Convert to `X | None`"
+    },
+    "location": {
+      "column": 15,
+      "row": 32
+    },
+    "message": "Use `X | None` for type annotations",
+    "name": "non-pep604-annotation-optional",
+    "noqa_row": 32,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/non-pep604-annotation-optional"
+  },
+  {
+    "cell": null,
+    "code": "UP045",
+    "end_location": {
+      "column": 26,
+      "row": 40
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "int | None",
+          "end_location": {
+            "column": 26,
+            "row": 40
+          },
+          "location": {
+            "column": 13,
+            "row": 40
+          }
+        }
+      ],
+      "message": "Convert to `X | None`"
+    },
+    "location": {
+      "column": 13,
+      "row": 40
+    },
+    "message": "Use `X | None` for type annotations",
+    "name": "non-pep604-annotation-optional",
+    "noqa_row": 40,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/non-pep604-annotation-optional"
+  },
+  {
+    "cell": null,
+    "code": "UP045",
+    "end_location": {
+      "column": 27,
+      "row": 248
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "dict | None",
+          "end_location": {
+            "column": 27,
+            "row": 248
+          },
+          "location": {
+            "column": 13,
+            "row": 248
+          }
+        }
+      ],
+      "message": "Convert to `X | None`"
+    },
+    "location": {
+      "column": 13,
+      "row": 248
+    },
+    "message": "Use `X | None` for type annotations",
+    "name": "non-pep604-annotation-optional",
+    "noqa_row": 248,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/non-pep604-annotation-optional"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 280
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 280
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 280,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 296
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\test_requests.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 296
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 296,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 34,
+      "row": 14
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\tests\\self_test.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from mpm.atmosphere import AtmosphereProfile\nfrom mpm.engine import FireParams, simulate\nfrom mpm.fire_control import (  # solve_mv נוסף ב-Stage 2 (FR-D-234)\n    calibrate,\n    solve,\n    solve_mv,\n)\nfrom mpm.geodesy import direct, inverse\nfrom mpm.projectile import load_projectile\nfrom mpm.units import mils_to_rad\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 16
+          },
+          "location": {
+            "column": 1,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 9
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 9,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\uas_coordination_zones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 11,
+      "row": 13
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # קריאה/כתיבה של קובץ \"עמדות שמורות\" (saved_stations.json)\r\nimport logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)\r\nimport math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ\r\nimport os  # קריאת מפתחות API ממשתני סביבה, בדיקת קיום קובץ CSV\r\nimport sys  # הוספת שורש-הפרויקט ל-sys.path כדי לייבא את mpm_api (כלי המסלול הבליסטי, Stage 2)\r\nimport threading  # ריצת חישוב רדיוס-ראייה ברקע (job) כדי לא לחסום את הבקשה עצמה — מאפשר polling+ביטול\r\nimport time  # השהיות בין ניסיונות חוזרים ובין batches\r\nimport uuid  # מזהה ייחודי לכל job של רדיוס-ראייה\r\n\r\nimport requests  # קריאות ל-OpenWeather/Open-Meteo/Google\r\nfrom flask import (  # פענוח בקשות — Flask() עצמו נוצר ב-server_common.create_app\r\n    jsonify,\r\n    request,\r\n)\r\n\r\nfrom ports import WEATHER_PORT\r\nfrom server_common import (\r\n    create_app,  # תשתית משותפת לשלושת השרתים — .env/logging/Flask/CORS/metrics\r\n)\r\n\r\n",
+          "end_location": {
+            "column": 1,
+            "row": 14
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 77,
+      "row": 14
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 126,
+            "row": 14
+          },
+          "location": {
+            "column": 63,
+            "row": 14
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 65,
+      "row": 14
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 14,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 29,
+      "row": 15
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 97,
+            "row": 15
+          },
+          "location": {
+            "column": 15,
+            "row": 15
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 17,
+      "row": 15
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 15,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 63
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 63
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 63,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 63,
+      "row": 64
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 64
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 64,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 13,
+      "row": 86
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 85
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 85,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 85
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 85
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 85,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 71,
+      "row": 96
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 96
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 96,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 101
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 101
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 101,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 132
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 132
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 132,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "F541",
+    "end_location": {
+      "column": 64,
+      "row": 137
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "\"http://api.openweathermap.org/data/2.5/weather\"",
+          "end_location": {
+            "column": 64,
+            "row": 137
+          },
+          "location": {
+            "column": 15,
+            "row": 137
+          }
+        }
+      ],
+      "message": "Remove extraneous `f` prefix"
+    },
+    "location": {
+      "column": 15,
+      "row": 137
+    },
+    "message": "f-string without any placeholders",
+    "name": "f-string-missing-placeholders",
+    "noqa_row": 137,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/f-string-missing-placeholders"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 68,
+      "row": 143
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 143
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 143,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 100,
+      "row": 153
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 153
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 153,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 156
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 156
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 156,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 158
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 158
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 158,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 85,
+      "row": 185
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 185
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 185,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 187
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 187
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 187,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 59,
+      "row": 188
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 188
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 188,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 191
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 191
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 191,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 74,
+      "row": 228
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 228
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 228,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 87,
+      "row": 244
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 244
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 244,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 74,
+      "row": 248
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 248
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 248,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 250
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 250
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 250,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 54,
+      "row": 251
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 251
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 251,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 322
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 322
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 322,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 75,
+      "row": 339
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 339
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 339,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 86,
+      "row": 343
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 343
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 343,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 345
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 345
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 345,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 66,
+      "row": 346
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 346
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 346,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "PLR1730",
+    "end_location": {
+      "column": 39,
+      "row": 455
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "max_angle = max(max_angle, bare_angle)",
+          "end_location": {
+            "column": 39,
+            "row": 455
+          },
+          "location": {
+            "column": 13,
+            "row": 454
+          }
+        }
+      ],
+      "message": "Replace with `max_angle = max(max_angle, bare_angle)`"
+    },
+    "location": {
+      "column": 13,
+      "row": 454
+    },
+    "message": "Replace `if` statement with `max_angle = max(max_angle, bare_angle)`",
+    "name": "if-stmt-min-max",
+    "noqa_row": 454,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/if-stmt-min-max"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 487
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 487
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 487,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 538
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 538
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 538,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 736
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 736
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 736,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 737
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 737
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 737,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "SIM103",
+    "end_location": {
+      "column": 16,
+      "row": 926
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "return not (n >= 1 and abs(radial_speed_ms - n * v_blind_unit) <= tolerance_frac * (n * v_blind_unit))",
+          "end_location": {
+            "column": 16,
+            "row": 926
+          },
+          "location": {
+            "column": 5,
+            "row": 924
+          }
+        }
+      ],
+      "message": "Inline condition"
+    },
+    "location": {
+      "column": 5,
+      "row": 924
+    },
+    "message": "Return the negated condition directly",
+    "name": "needless-bool",
+    "noqa_row": 924,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/needless-bool"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 1148
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1148
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1148,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 77,
+      "row": 1149
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1149
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 1149,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "C401",
+    "end_location": {
+      "column": 107,
+      "row": 1466
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "{",
+          "end_location": {
+            "column": 31,
+            "row": 1466
+          },
+          "location": {
+            "column": 27,
+            "row": 1466
+          }
+        },
+        {
+          "content": "}",
+          "end_location": {
+            "column": 107,
+            "row": 1466
+          },
+          "location": {
+            "column": 106,
+            "row": 1466
+          }
+        }
+      ],
+      "message": "Rewrite as a set comprehension"
+    },
+    "location": {
+      "column": 27,
+      "row": 1466
+    },
+    "message": "Unnecessary generator (rewrite as a set comprehension)",
+    "name": "unnecessary-generator-set",
+    "noqa_row": 1466,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unnecessary-generator-set"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 1577
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1577
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1577,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 86,
+      "row": 1578
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1578
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 1578,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 1646
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1646
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1646,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 61,
+      "row": 1647
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1647
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 1647,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 1749
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 1749
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1749,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 16,
+      "row": 15
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import math  # חישובי עקמומיות/טריגונומטריה בהתאמת-הקרקע לגובה-הלוע\nimport os  # איתור שורש-הפרויקט (מעל web/) כדי לייבא את mpm_api.py/mpm/\nimport sys  # הוספת שורש-הפרויקט ל-sys.path\nimport time  # השהיה בין batches (זהה ל-_RADIAL_BATCH_PAUSE_SEC ב-weather.py)\n\nimport requests  # קריאת-רשת ל-Open-Meteo (שכבות-מטאו חיות)\nfrom flask import (  # Blueprint — לא Flask() נפרד, ר' docstring למעלה\n    Blueprint,\n    jsonify,\n    request,\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 17
+          },
+          "location": {
+            "column": 1,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 9
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 9,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 63,
+      "row": 24
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "# weather.py הוא מודול-אח באותה תיקייה (web/api/), כבר על sys.path דרך web/app.py —\n# שימוש-חוזר ב-_fetch_elevations/_RADIAL_BATCH_PAUSE_SEC הקיימים שם, לא שכפול שלהם\nfrom weather import _RADIAL_BATCH_PAUSE_SEC, _fetch_elevations  # noqa: E402\n\nimport mpm_api  # noqa: E402 — אחרי שינוי sys.path, בכוונה (אותו mpm_api.py בדיוק כמו ב-Desktop)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 26
+          },
+          "location": {
+            "column": 1,
+            "row": 20
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 20
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 29,
+      "row": 20
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 97,
+            "row": 20
+          },
+          "location": {
+            "column": 15,
+            "row": 20
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 17,
+      "row": 20
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 20,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 77,
+      "row": 24
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 77,
+            "row": 24
+          },
+          "location": {
+            "column": 63,
+            "row": 24
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 65,
+      "row": 24
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 24,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 56
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\ballistics.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 56
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 56,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 11,
+      "row": 4
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import os\nimport sys\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 5
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 3
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 36,
+      "row": 11
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig מוגדר ב-server_common.create_app)\nimport re  # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד\n\nfrom flask import (  # Blueprint — ר' הערה מטה למה לא Flask() נפרד\n    Blueprint,\n    jsonify,\n    request,\n)\nfrom FlightRadar24 import FlightRadar24API  # ספריית Python לשליפת נתוני FR24\nfrom FlightRadar24.core import (\n    Core,  # קבועי URL/headers של הספרייה — משמשים ב-_fetch_flight_details_direct\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 7
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 56,
+      "row": 89
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "        from curl_cffi import (\n            requests as cffi_requests,  # ייבוא עצל — נכשל בעדינות אם התלות חסרה\n        )\n",
+          "end_location": {
+            "column": 1,
+            "row": 90
+          },
+          "location": {
+            "column": 1,
+            "row": 89
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 9,
+      "row": 89
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 89,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 93
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 93
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 93,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 118,
+      "row": 94
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 94
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 94,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 53,
+      "row": 95
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "        from FlightRadar24.request import (\n            APIRequest,  # ייבוא מקומי — נדרש רק בנתיב ה-fallback\n        )\n",
+          "end_location": {
+            "column": 1,
+            "row": 96
+          },
+          "location": {
+            "column": 1,
+            "row": 95
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 9,
+      "row": 95
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 95,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 112
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 112
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 112,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 51,
+      "row": 116
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 116
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 116,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 117
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 117
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 117,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 89,
+      "row": 118
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 118
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 118,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 120
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 120
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 120,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 48,
+      "row": 133
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 133
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 133,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 94,
+      "row": 149
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 149
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 149,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 150
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 150
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 150,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 90,
+      "row": 151
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 151
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 151,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 83,
+      "row": 170
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 170
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 170,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 172
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 172
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 172,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 76,
+      "row": 173
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 173
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 173,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 77,
+      "row": 184
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 184
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 184,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 82,
+      "row": 192
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 192
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 192,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 110,
+      "row": 206
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 206
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 206,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 219
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 219
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 219,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 94,
+      "row": 220
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 220
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 220,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 63,
+      "row": 223
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 223
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 223,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 253
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 253
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 253,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 116,
+      "row": 255
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 255
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 255,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 272
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 272
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 272,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 291
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 291
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 291,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 71,
+      "row": 292
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 292
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 292,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 57,
+      "row": 293
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה פנימית: {e!s}\"",
+          "end_location": {
+            "column": 59,
+            "row": 293
+          },
+          "location": {
+            "column": 34,
+            "row": 293
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 51,
+      "row": 293
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 293,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 21,
+      "row": 317
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 316
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 316,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 316
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 316
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 316,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 331
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 331
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 331,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 50,
+      "row": 332
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\flight.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 332
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 332,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 11,
+      "row": 5
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import os\r\nimport sys\r\n\r\n",
+          "end_location": {
+            "column": 1,
+            "row": 6
+          },
+          "location": {
+            "column": 1,
+            "row": 4
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 4
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 4,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 40,
+      "row": 12
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig עצמו מוגדר ב-server_common.create_app)\r\n\r\nimport requests  # קריאה ל-Google Geocoding API\r\nfrom flask import (  # Blueprint — ר' הערה מטה למה לא Flask() נפרד\r\n    Blueprint,\r\n    jsonify,\r\n    request,\r\n)\r\n\r\nfrom notam_drones import get_uas_notams  # שליפה/פרסור/cache של שכבת ה-NOTAM לרחפנים\r\n\r\n",
+          "end_location": {
+            "column": 1,
+            "row": 13
+          },
+          "location": {
+            "column": 1,
+            "row": 8
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 8
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 8,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 46,
+      "row": 32
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 32
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 32,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "F541",
+    "end_location": {
+      "column": 63,
+      "row": 36
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "\"https://maps.googleapis.com/maps/api/geocode/json\"",
+          "end_location": {
+            "column": 63,
+            "row": 36
+          },
+          "location": {
+            "column": 11,
+            "row": 36
+          }
+        }
+      ],
+      "message": "Remove extraneous `f` prefix"
+    },
+    "location": {
+      "column": 11,
+      "row": 36
+    },
+    "message": "f-string without any placeholders",
+    "name": "f-string-missing-placeholders",
+    "noqa_row": 36,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/f-string-missing-placeholders"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 56
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 56
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 56,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 54,
+      "row": 60
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 60
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 60,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 62,
+      "row": 64
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 64
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 64,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 59,
+      "row": 64
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה בחיבור ל-Google API: {e!s}\"",
+          "end_location": {
+            "column": 61,
+            "row": 64
+          },
+          "location": {
+            "column": 23,
+            "row": 64
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 53,
+      "row": 64
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 64,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "RUF010",
+    "end_location": {
+      "column": 70,
+      "row": 65
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\geo.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "f\"שגיאה בחיבור ל-Google API: {e!s}\"",
+          "end_location": {
+            "column": 72,
+            "row": 65
+          },
+          "location": {
+            "column": 34,
+            "row": 65
+          }
+        }
+      ],
+      "message": "Replace with conversion flag"
+    },
+    "location": {
+      "column": 64,
+      "row": 65
+    },
+    "message": "Use explicit conversion flag",
+    "name": "explicit-f-string-type-conversion",
+    "noqa_row": 65,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/explicit-f-string-type-conversion"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 11,
+      "row": 4
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import os\nimport sys\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 5
+          },
+          "location": {
+            "column": 1,
+            "row": 3
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 3
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 3,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 12,
+      "row": 14
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # קריאה/כתיבה של קובץ \"עמדות שמורות\" (saved_stations.json) — ר' הערה ל-_STATIONS_FILE למטה\nimport logging  # רישום אירועים ללוג (stdout ב-web — ה-basicConfig מוגדר ב-server_common.create_app)\nimport math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ\nimport threading  # ריצת חישוב רדיוס-ראייה ברקע (job) — ר' הערת-מגבלה ב-/los_radial/start למטה\nimport time  # השהיות בין ניסיונות חוזרים ובין batches\nimport uuid  # מזהה ייחודי לכל job של רדיוס-ראייה\n\nimport requests  # קריאות ל-OpenWeather/Open-Meteo/Google\nfrom flask import (  # Blueprint — ר' הערה מטה למה לא Flask() נפרד\n    Blueprint,\n    jsonify,\n    request,\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 16
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 7
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 12,
+      "row": 7
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 8
+          },
+          "location": {
+            "column": 1,
+            "row": 7
+          }
+        }
+      ],
+      "message": "Remove unused import: `json`"
+    },
+    "location": {
+      "column": 8,
+      "row": 7
+    },
+    "message": "`json` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 7,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 65
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 65
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 65,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 63,
+      "row": 66
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 66
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 66,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "S110",
+    "end_location": {
+      "column": 13,
+      "row": 88
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 87
+    },
+    "message": "`try`-`except`-`pass` detected, consider logging the exception",
+    "name": "try-except-pass",
+    "noqa_row": 87,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/try-except-pass"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 87
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 87
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 87,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 71,
+      "row": 98
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 98
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 98,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 103
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 103
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 103,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 134
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 134
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 134,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "F541",
+    "end_location": {
+      "column": 64,
+      "row": 139
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "\"http://api.openweathermap.org/data/2.5/weather\"",
+          "end_location": {
+            "column": 64,
+            "row": 139
+          },
+          "location": {
+            "column": 15,
+            "row": 139
+          }
+        }
+      ],
+      "message": "Remove extraneous `f` prefix"
+    },
+    "location": {
+      "column": 15,
+      "row": 139
+    },
+    "message": "f-string without any placeholders",
+    "name": "f-string-missing-placeholders",
+    "noqa_row": 139,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/f-string-missing-placeholders"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 68,
+      "row": 145
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 145
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 145,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 100,
+      "row": 155
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 155
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 155,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 158
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 158
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 158,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 37,
+      "row": 160
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 160
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 160,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 85,
+      "row": 187
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 187
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 187,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 189
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 189
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 189,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 59,
+      "row": 190
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 190
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 190,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 69,
+      "row": 193
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 193
+    },
+    "message": "`info()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 193,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 74,
+      "row": 230
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 230
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 230,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 87,
+      "row": 246
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 246
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 246,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 74,
+      "row": 250
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 250
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 250,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 252
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 252
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 252,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 54,
+      "row": 253
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 253
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 253,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 78,
+      "row": 324
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 324
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 324,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 75,
+      "row": 341
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 341
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 341,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 86,
+      "row": 345
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 345
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 345,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 29,
+      "row": 347
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 20,
+      "row": 347
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 347,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 66,
+      "row": 348
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 348
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 348,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "PLR1730",
+    "end_location": {
+      "column": 39,
+      "row": 457
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "max_angle = max(max_angle, bare_angle)",
+          "end_location": {
+            "column": 39,
+            "row": 457
+          },
+          "location": {
+            "column": 13,
+            "row": 456
+          }
+        }
+      ],
+      "message": "Replace with `max_angle = max(max_angle, bare_angle)`"
+    },
+    "location": {
+      "column": 13,
+      "row": 456
+    },
+    "message": "Replace `if` statement with `max_angle = max(max_angle, bare_angle)`",
+    "name": "if-stmt-min-max",
+    "noqa_row": 456,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/if-stmt-min-max"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 25,
+      "row": 489
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 16,
+      "row": 489
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 489,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 540
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 540
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 540,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 105,
+      "row": 725
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from job_store import delete_job as _jobstore_delete\nfrom job_store import get_job as _jobstore_get\nfrom job_store import set_job as _jobstore_set\n\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 728
+          },
+          "location": {
+            "column": 1,
+            "row": 725
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 725
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 725,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "SIM103",
+    "end_location": {
+      "column": 16,
+      "row": 940
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "return not (n >= 1 and abs(radial_speed_ms - n * v_blind_unit) <= tolerance_frac * (n * v_blind_unit))",
+          "end_location": {
+            "column": 16,
+            "row": 940
+          },
+          "location": {
+            "column": 5,
+            "row": 938
+          }
+        }
+      ],
+      "message": "Inline condition"
+    },
+    "location": {
+      "column": 5,
+      "row": 938
+    },
+    "message": "Return the negated condition directly",
+    "name": "needless-bool",
+    "noqa_row": 938,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/needless-bool"
+  },
+  {
+    "cell": null,
+    "code": "C401",
+    "end_location": {
+      "column": 107,
+      "row": 1494
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "{",
+          "end_location": {
+            "column": 31,
+            "row": 1494
+          },
+          "location": {
+            "column": 27,
+            "row": 1494
+          }
+        },
+        {
+          "content": "}",
+          "end_location": {
+            "column": 107,
+            "row": 1494
+          },
+          "location": {
+            "column": 106,
+            "row": 1494
+          }
+        }
+      ],
+      "message": "Rewrite as a set comprehension"
+    },
+    "location": {
+      "column": 27,
+      "row": 1494
+    },
+    "message": "Unnecessary generator (rewrite as a set comprehension)",
+    "name": "unnecessary-generator-set",
+    "noqa_row": 1494,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unnecessary-generator-set"
+  },
+  {
+    "cell": null,
+    "code": "BLE001",
+    "end_location": {
+      "column": 21,
+      "row": 1605
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1605
+    },
+    "message": "Do not catch blind exception: `Exception`",
+    "name": "blind-except",
+    "noqa_row": 1605,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/blind-except"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 86,
+      "row": 1606
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 1606
+    },
+    "message": "`error()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 1606,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 81,
+      "row": 1651
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\api\\weather.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from stations_store import delete_station as _redis_delete_station\nfrom stations_store import list_stations as _redis_list_stations\nfrom stations_store import save_station as _redis_save_station\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 1653
+          },
+          "location": {
+            "column": 1,
+            "row": 1650
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 1650
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 1651,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 38,
+      "row": 19
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import os\nimport sys\n\nfrom flask import (\n    send_from_directory,  # מגיש את public/index.html ישירות, ר' route '/' למטה\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 21
+          },
+          "location": {
+            "column": 1,
+            "row": 16
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 16
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 16,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 51,
+      "row": 28
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 81,
+            "row": 28
+          },
+          "location": {
+            "column": 37,
+            "row": 28
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 39,
+      "row": 28
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 28,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 37,
+      "row": 35
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from ballistics import ballistics_bp  # noqa: E402 — כלי מסלול בליסטי (MPM), Stage 2 (FR-D-234)\nfrom flight import flight_bp  # noqa: E402\nfrom geo import geo_bp  # noqa: E402\nfrom weather import weather_bp  # noqa: E402\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 37
+          },
+          "location": {
+            "column": 1,
+            "row": 32
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 32
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 32,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 37,
+      "row": 32
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 37,
+            "row": 32
+          },
+          "location": {
+            "column": 23,
+            "row": 32
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 25,
+      "row": 32
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 32,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 45,
+      "row": 33
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 45,
+            "row": 33
+          },
+          "location": {
+            "column": 31,
+            "row": 33
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 33,
+      "row": 33
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 33,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 43,
+      "row": 34
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 43,
+            "row": 34
+          },
+          "location": {
+            "column": 29,
+            "row": 34
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 31,
+      "row": 34
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 34,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 51,
+      "row": 35
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\app.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 96,
+            "row": 35
+          },
+          "location": {
+            "column": 37,
+            "row": 35
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 39,
+      "row": 35
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 35,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "RUF100",
+    "end_location": {
+      "column": 25,
+      "row": 16
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\build_web.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 61,
+            "row": 16
+          },
+          "location": {
+            "column": 11,
+            "row": 16
+          }
+        }
+      ],
+      "message": "Remove unused `noqa` directive"
+    },
+    "location": {
+      "column": 13,
+      "row": 16
+    },
+    "message": "Unused `noqa` directive (non-enabled: `E402`)",
+    "name": "unused-noqa",
+    "noqa_row": 16,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-noqa"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\airport_ctr_zones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\icao_glossary.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\job_store.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 36,
+      "row": 36
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\job_store.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "    from upstash_redis import (\n        Redis,  # ייבוא עצל — לא נדרש בכלל אם אף route לא משתמש ב-Redis בפועל\n    )\n",
+          "end_location": {
+            "column": 1,
+            "row": 37
+          },
+          "location": {
+            "column": 1,
+            "row": 36
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 5,
+      "row": 36
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 36,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\notam_categories.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "I001",
+    "end_location": {
+      "column": 44,
+      "row": 32
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\notam_drones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "import json  # serialization של מצב ה-cache ל-Redis (שלב 2, ר' _load_cache_state/_save_cache_state)\nimport re  # פרסינג HTML/טקסט חופשי בלי תלות חיצונית — הדף עצמו לא מספק JSON\nimport time  # מדידת גיל ה-cache\n\nimport requests  # שליפת דף ה-NOTAM מרשות שדות התעופה\n\nfrom icao_glossary import (\n    render_hebrew_gloss,  # תרגום גס לעברית — ר' icao_glossary.py לאזהרת הבטיחות\n)\nfrom notam_categories import (\n    classify_notam,  # סיווג NOTAM ל-7 קטגוריות — ר' notam_categories.py\n)\n\n",
+          "end_location": {
+            "column": 1,
+            "row": 34
+          },
+          "location": {
+            "column": 1,
+            "row": 25
+          }
+        }
+      ],
+      "message": "Organize imports"
+    },
+    "location": {
+      "column": 1,
+      "row": 25
+    },
+    "message": "Import block is un-sorted or un-formatted",
+    "name": "unsorted-imports",
+    "noqa_row": 25,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unsorted-imports"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\ports.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\server_common.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "LOG015",
+    "end_location": {
+      "column": 105,
+      "row": 40
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\server_common.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 40
+    },
+    "message": "`warning()` call on root logger",
+    "name": "root-logger-call",
+    "noqa_row": 40,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/root-logger-call"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\stations_store.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  },
+  {
+    "cell": null,
+    "code": "UP009",
+    "end_location": {
+      "column": 24,
+      "row": 1
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\web\\lib\\uas_coordination_zones.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 2
+          },
+          "location": {
+            "column": 1,
+            "row": 1
+          }
+        }
+      ],
+      "message": "Remove unnecessary coding comment"
+    },
+    "location": {
+      "column": 1,
+      "row": 1
+    },
+    "message": "UTF-8 encoding declaration is unnecessary",
+    "name": "utf8-encoding-declaration",
+    "noqa_row": 1,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/utf8-encoding-declaration"
+  }
+]

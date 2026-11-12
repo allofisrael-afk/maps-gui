@@ -136,7 +136,7 @@ def get_weather():
 
     # בקשה ל-OpenWeatherMap
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather"
+        url = f"https://api.openweathermap.org/data/2.5/weather"  # ASVS-L1 (QA engagement): היה http:// - ה-API key עבר ב-query-param ברשת לא-מוצפנת (אותו תיקון כמו ב-weather_server.py)
         response = requests.get(url, params=params, timeout=15)  # היה חסר timeout — קריאה תקועה הייתה חוסמת את כל התהליך (dev server חד-thread)
         data = response.json()
 
@@ -1312,7 +1312,10 @@ def cancel_radar_doppler():
     try:
         _jobstore_delete(job_id)
     except RuntimeError:
-        pass
+        pass  # Redis לא מוגדר — אין מה למחוק ממילא, לא קריטי לדווח כשגיאה כאן
+    # F-011 (QA engagement): חסר return כאן גרם ל-500 על כל קריאה ("did not return a valid
+    # response") — Flask מצפה שכל view-function תחזיר Response. מיישר עם cancel_radial_los.
+    return jsonify({'ok': True})
 
 
 @weather_bp.route("/radar_doppler/profile", methods=["GET"])

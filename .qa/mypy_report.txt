@@ -1,0 +1,2 @@
+mpm\engine.py:45: error: Incompatible types in assignment (expression has type "None", variable has type "float")  [assignment]
+mpm\engine.py:241: error: Need type annotation for "w" (hint: "w: list[<type>] = ...")  [var-annotated]

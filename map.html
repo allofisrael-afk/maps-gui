@@ -90,11 +90,6 @@
         .leaflet-popup-tip { background-color: #1e1e2e; }
         .leaflet-popup-content { margin: 10px 14px; }
         
-        @media (max-width: 600px) {
-            .leaflet-control { font-size: 11px !important; }
-            #status { font-size: 11px !important; padding: 5px 8px !important; }
-        }
-    
     </style>
 </head>
 <body>
@@ -1135,7 +1130,7 @@
         function toggleNotamCategory(catId) {
             if (!uasNotamLoaded) {
                 document.title = '__uas_notam_loading__';  // איתות ל-Python (main.py) שהטעינה החלה — נתפס ב-_on_title_changed
-                fetch('/uas_notams')
+                fetch('http://localhost:5003/uas_notams')
                     .then(function(r) {
                         if (!r.ok) throw new Error('שגיאת שרת: ' + r.status);
                         return r.json();
@@ -1608,7 +1603,7 @@
             }
 
             // שליחת בקשה לשרת המקומי שמעביר ל-Open-Meteo
-            fetch('/elevation', {
+            fetch('http://localhost:5002/elevation', {
                 method:  'POST',                                    // POST — הנקודות בגוף הבקשה
                 headers: {'Content-Type': 'application/json'},    // הצהרת סוג תוכן
                 body:    JSON.stringify({locations: locations})    // המרת הנקודות ל-JSON
@@ -1664,7 +1659,7 @@
         // שרת מקומי, ה-backend (Vercel) כבר פעיל תמיד; בלי זה כל הכפתורים האלה נשארים מנוטרלים-לנצח
         // (opacity:0.4;pointer-events:none) ב-Web, כי שום דבר לעולם לא קורא ל-_setServersRunning(true)
         // שם — נמצא בדיווח אמיתי של המשתמש ("אין יכולת להפעיל שרתים וכל התפריט... לא קיים").
-        var serversRunning = true;
+        var serversRunning = false;
 
         function toggleHeatmap() {
             if (tempHeatLayer || tempSelecting) {
@@ -1732,7 +1727,7 @@
             var ne = bounds.getNorthEast();
             document.title = '__heatmap_computing__';
 
-            fetch('/temp_grid', {
+            fetch('http://localhost:5002/temp_grid', {
                 method:  'POST',
                 headers: {'Content-Type': 'application/json'},
                 body:    JSON.stringify({
@@ -1929,7 +1924,7 @@
 
         function loadHeatmapData() {
             // שליפת נתוני מפת החום משרת מזג האוויר המקומי
-            const url = "/heatmap_data";
+            const url = "http://localhost:5002/heatmap_data";
 
             fetch(url)
                 .then(response => {
@@ -1963,13 +1958,13 @@
 
         function fetchWeather(lat, lon) {
             // שליפת מזג אוויר וגובה במקביל — Promise.all מבטיח תצוגה אחת לאחר שתי התשובות
-            var weatherPromise = fetch(`/weather?lat=${lat}&lon=${lon}`)
+            var weatherPromise = fetch(`http://localhost:5002/weather?lat=${lat}&lon=${lon}`)
                 .then(function(r) {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();
                 });
 
-            var elevationPromise = fetch('/elevation', {
+            var elevationPromise = fetch('http://localhost:5002/elevation', {
                 method:  'POST',
                 headers: {'Content-Type': 'application/json'},
                 body:    JSON.stringify({locations: [{latitude: parseFloat(lat), longitude: parseFloat(lon)}]})
@@ -2087,7 +2082,7 @@
         function _runLos(obs, tgt, session) {
             document.title = '__los_loading__';  // איתות ל-Python: חישוב החל
             // בניית URL עם קואורדינטות שתי הנקודות וגבהי הצופה/היעד שנשמרו על הסשן ביצירתו
-            var url = '/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
+            var url = 'http://localhost:5002/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
                       '&lat2=' + tgt.lat + '&lon2=' + tgt.lng +
                       '&obs_h=' + (session.obsH != null ? session.obsH : 11) +
                       '&tgt_h=' + (session.tgtH != null ? session.tgtH : 0);
@@ -2355,7 +2350,7 @@
             delBtn.innerHTML = '&#128465;';  // 🗑
 
             function _refreshList() {
-                fetch('/stations/list?tool=' + toolKey)
+                fetch('http://localhost:5002/stations/list?tool=' + toolKey)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     var stations = data.stations || [];
@@ -2386,7 +2381,7 @@
                 });
                 var obs = getObsFn ? getObsFn() : null;
                 if (obs) { params.lat = obs.lat; params.lon = obs.lng; }
-                fetch('/stations/save', {
+                fetch('http://localhost:5002/stations/save', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({tool: toolKey, name: name, params: params})
                 })
@@ -2428,7 +2423,7 @@
                 var name = stationSelect.value;
                 if (!name) return;
                 if (!confirm('למחוק את העמדה "' + name + '"?')) return;
-                fetch('/stations/delete', {
+                fetch('http://localhost:5002/stations/delete', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({tool: toolKey, name: name})
                 })
@@ -2613,7 +2608,7 @@
             document.title = '__radial_los_loading__';  // איתות ל-Python — שורת לוג
             if (radialLosInfoEl) radialLosInfoEl.textContent = 'מתחיל חישוב…';
             if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'block';  // מציג את כפתור הביטול רק בזמן ריצה
-            var url = '/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
+            var url = 'http://localhost:5002/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
                       '&obs_h=' + obsH + '&tgt_h=' + tgtH + '&ridge_margin_deg=' + marginDeg +
@@ -2637,7 +2632,7 @@
         function _pollRadialLosStatus() {
             // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
             if (!radialLosJobId) return;
-            fetch('/los_radial/status?job_id=' + radialLosJobId)
+            fetch('http://localhost:5002/los_radial/status?job_id=' + radialLosJobId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.status === 'running') {
@@ -2734,7 +2729,7 @@
             // כפתור "בטל" — עוצר מיד בצד הלקוח (בלי לחכות לתשובת השרת), ומודיע גם לשרת שיפסיק
             if (radialLosPollTimer) { clearInterval(radialLosPollTimer); radialLosPollTimer = null; }
             if (radialLosJobId) {
-                fetch('/los_radial/cancel?job_id=' + radialLosJobId, {method:'POST'});
+                fetch('http://localhost:5002/los_radial/cancel?job_id=' + radialLosJobId, {method:'POST'});
             }
             radialLosJobId = null;
             radialLosLoading = false;
@@ -2984,7 +2979,7 @@
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
             if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
-            var url = '/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+            var url = 'http://localhost:5002/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
                       '&h_antenna=' + hAnt + '&ridge_margin_deg=' + marginDeg +
@@ -3014,7 +3009,7 @@
         function _pollRadarDopplerStatus() {
             // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
             if (!radarJobId) return;
-            fetch('/radar_doppler/status?job_id=' + radarJobId)
+            fetch('http://localhost:5002/radar_doppler/status?job_id=' + radarJobId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.status === 'running') {
@@ -3125,7 +3120,7 @@
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג, אותו איתות כמו סריקה רגילה
             if (radarInfoEl) radarInfoEl.textContent = 'מעריך מסלול טיסה מול המכ"ם…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
-            fetch('/radar_doppler/evaluate_route/start', {
+            fetch('http://localhost:5002/radar_doppler/evaluate_route/start', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
             })
             .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -3266,7 +3261,7 @@
             // ומבקש מ-/radar_doppler/profile את כל נקודות הדגימה לאורך הקרן (לא רק את הסיכום)
             if (!radarObs) return;
             function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }
-            var url = '/radar_doppler/profile?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
+            var url = 'http://localhost:5002/radar_doppler/profile?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
                       '&bearing_deg=' + ray.bearing_deg +
                       '&range_km=' + num(_radarRangeInput, 50) + '&min_range_km=' + num(_radarMinRangeInput, 1) +
                       '&h_antenna=' + num(_radarHAntInput, 15) + '&ridge_margin_deg=' + num(_radarMarginInput, 0) +
@@ -3319,7 +3314,7 @@
             // כפתור "בטל" — עוצר מיד בצד הלקוח, ומודיע גם לשרת שיפסיק
             if (radarPollTimer) { clearInterval(radarPollTimer); radarPollTimer = null; }
             if (radarJobId) {
-                fetch('/radar_doppler/cancel?job_id=' + radarJobId, {method:'POST'});
+                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + radarJobId, {method:'POST'});
             }
             radarJobId = null;
             radarLoading = false;
@@ -3796,7 +3791,7 @@
 
         // מרענן את רשימת "המסלולים השמורים" בפאנל — GET גנרי, tool='custom_route'
         function _refreshCustomRouteList() {
-            fetch('/stations/list?tool=custom_route')
+            fetch('http://localhost:5002/stations/list?tool=custom_route')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var routes = data.stations || [];
@@ -3939,7 +3934,7 @@
                     var name = nameInput.value.trim();
                     if (!name) { alert('הזן שם למסלול'); return; }
                     if (customRoutePoints.length < 2) { alert('נדרשות לפחות 2 נקודות במסלול כדי לשמור'); return; }
-                    fetch('/stations/save', {
+                    fetch('http://localhost:5002/stations/save', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({tool: 'custom_route', name: name, params: {points: customRoutePoints}})
                     })
@@ -3979,7 +3974,7 @@
                     var name = routeSelect.value;
                     if (!name) return;
                     if (!confirm('למחוק את המסלול "' + name + '"?')) return;
-                    fetch('/stations/delete', {
+                    fetch('http://localhost:5002/stations/delete', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({tool: 'custom_route', name: name})
                     })
@@ -4020,7 +4015,7 @@
             // ממקור הגובה הקיים, וניתן לעריכה ידנית" לפי בקשת שלב 3
             var pt = which === 'gun' ? ballisticsGun : ballisticsTarget;
             if (!pt) return;
-            fetch('/elevation', {
+            fetch('http://localhost:5002/elevation', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({locations: [{latitude: pt.lat, longitude: pt.lng}]})
             })
@@ -4175,7 +4170,7 @@
 
         function _ballisticsRunTerrainCheck(path, infoEl, onDone) {
             // מריץ terrain_check על מסלול קיים ומציג שורת-סטטוס — נקרא אוטומטית אחרי כל trajectory/solve מוצלח
-            fetch('/ballistics/terrain_check', {
+            fetch('http://localhost:5002/ballistics/terrain_check', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({path: path, safety_margin_m: 10.0, resolution_m: 75.0})
             })
@@ -4241,7 +4236,7 @@
                 ballisticsLoading = true; info.textContent = 'מחשב...';
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
-                fetch('/ballistics/trajectory', {
+                fetch('http://localhost:5002/ballistics/trajectory', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(Object.assign({}, common, {
                         gun: gt.gun, qe: parseFloat(qeNum.value), azimuth: parseFloat(azInput.value),
@@ -4280,7 +4275,7 @@
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
                 info.textContent = 'מחשב הגבהה-מינימלית...';
-                fetch('/ballistics/min_qe_for_crest', {
+                fetch('http://localhost:5002/ballistics/min_qe_for_crest', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target})),
                 })
@@ -4351,13 +4346,13 @@
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
                 var path = fixedChk.checked
-                    ? fetch('/ballistics/solve_mv', {
+                    ? fetch('http://localhost:5002/ballistics/solve_mv', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target,
                             qe: parseFloat(fixedQeInput.value), mv_min: parseFloat(mvMinInput.value), mv_max: parseFloat(mvMaxInput.value),
                             include_path: true, path_step: 5})),
                     })
-                    : fetch('/ballistics/solve', {
+                    : fetch('http://localhost:5002/ballistics/solve', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, target: gt.target, group: groupSel.value,
                             qe_min: qeMinInput.value === '' ? null : parseFloat(qeMinInput.value),
@@ -4409,7 +4404,7 @@
                 if (!ballisticsGun) { alert('הצב תותח קודם'); return; }
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
-                fetch('/ballistics/table', {
+                fetch('http://localhost:5002/ballistics/table', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, azimuth: parseFloat(azInput.value),
                         qe_start: parseFloat(startInput.value), qe_end: parseFloat(endInput.value), qe_step: parseFloat(stepInput.value)})),
@@ -4486,7 +4481,7 @@
                 if (!pts.length) { alert('הוסף לפחות נקודה אחת'); return; }
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
-                fetch('/ballistics/calibrate', {
+                fetch('http://localhost:5002/ballistics/calibrate', {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(Object.assign({}, common, {gun: gt.gun, points: pts})),
                 })
@@ -4768,7 +4763,7 @@
         // המשתמש מפעיל שרתים בפועל, אחרי שהעמוד כולו כבר נטען) - אז כל הכפתורים כבר קיימים.
         // ב-Web אין קריאה שנייה כזו בכלל - נדרשת קריאה מפורשת כאן, במקום הזה בדיוק (אחרי שכל
         // ארבעת הכפתורים כבר קיימים, כי BallisticsControl הוא האחרון מביניהם שנוסף).
-        _setServersRunning(true);
+        
 
         // לחיצה על המפה בעת מצב "מסלול בליסטי" — ממקמת תותח/מטרה לפי ballisticsEditing.
         // handler עצמאי (כמו custom-route), לא בתוך הדיספצ'ר המשולב של LOS/רדיוס-ראייה/מכ"ם
@@ -4778,146 +4773,6 @@
         });
 
         
-        // ══════════ בקרות web-בלבד (לא קיימות בדסקטופ — שם אלה widgets של Qt ב-main.py) ══════════
-        var WebNotamControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                var c = L.DomUtil.create('div', 'leaflet-control');
-                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
-                    + 'font-family:Arial;max-width:min(230px, calc(100vw - 20px));direction:rtl;max-height:150px;overflow-y:auto;';
-                var title = L.DomUtil.create('div', '', c);
-                title.textContent = 'NOTAM רחפנים';
-                title.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
-                NOTAM_CATEGORIES.forEach(function(cat) {
-                    var row = L.DomUtil.create('label', '', c);
-                    row.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10px;color:#cdd6f4;padding:1px 0;';
-                    var cb = L.DomUtil.create('input', '', row);
-                    cb.type = 'checkbox';
-                    L.DomEvent.on(cb, 'change', function() { toggleNotamCategory(cat.id); });
-                    var span = L.DomUtil.create('span', '', row);
-                    span.textContent = cat.label;
-                    span.style.color = cat.color;
-                });
-                L.DomEvent.disableClickPropagation(c);
-                return c;
-            }
-        });
-        new WebNotamControl().addTo(map);
-
-        // factory לשתי בקרות-מצב זהות במבנה (גבהים/טמפרטורה) — נמנע משכפול הקוד פעמיים
-        function _webHeatmapControl(title, setModeFn) {
-            return L.Control.extend({
-                options: { position: 'topleft' },
-                onAdd: function() {
-                    var c = L.DomUtil.create('div', 'leaflet-control');
-                    c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
-                        + 'font-family:Arial;direction:rtl;margin-top:6px;';
-                    var t = L.DomUtil.create('div', '', c);
-                    t.textContent = title;
-                    t.style.cssText = 'color:#cdd6f4;font-size:10px;font-weight:bold;margin-bottom:3px;';
-                    var row = L.DomUtil.create('div', '', c);
-                    row.style.cssText = 'display:flex;gap:3px;';
-                    ['heat', 'grid', 'dots'].forEach(function(mode) {
-                        var b = L.DomUtil.create('a', '', row);
-                        b.href = '#'; b.textContent = mode;
-                        b.style.cssText = 'font-size:9px;padding:2px 5px;background:#313244;color:#cdd6f4;'
-                            + 'border-radius:4px;text-decoration:none;cursor:pointer;';
-                        L.DomEvent.on(b, 'click', function(e) {
-                            L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
-                            setModeFn(mode);
-                        });
-                    });
-                    L.DomEvent.disableClickPropagation(c);
-                    return c;
-                }
-            });
-        }
-        new (_webHeatmapControl('מצב גבהים', setElevMode))().addTo(map);
-        new (_webHeatmapControl('מצב טמפרטורה', setTempMode))().addTo(map);
-
-        var WebSearchControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                var c = L.DomUtil.create('div', 'leaflet-control');
-                c.style.cssText = 'background:rgba(30,30,46,.92);border-radius:8px;padding:5px 7px;'
-                    + 'font-family:Arial;direction:rtl;margin-top:6px;width:min(200px, calc(100vw - 20px));';
-
-                var cityRow = L.DomUtil.create('div', '', c);
-                cityRow.style.cssText = 'display:flex;gap:3px;margin-bottom:4px;';
-                var cityInput = L.DomUtil.create('input', '', cityRow);
-                cityInput.type = 'text'; cityInput.placeholder = 'חיפוש עיר/אזור';
-                cityInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;';
-                var cityBtn = L.DomUtil.create('a', '', cityRow);
-                cityBtn.href = '#'; cityBtn.innerHTML = '&#128269;';
-                cityBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
-                function _doCitySearch() {
-                    var q = cityInput.value.trim();
-                    if (!q) return;
-                    fetch('/geo_data?location=' + encodeURIComponent(q))
-                        .then(function(r) { return r.json(); })
-                        .then(function(data) {
-                            if (data.error) { alert(data.error); return; }
-                            map.setView([data.latitude, data.longitude], 11);
-                        })
-                        .catch(function() { alert('שגיאה בחיפוש מיקום'); });
-                }
-                L.DomEvent.on(cityBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doCitySearch(); });
-                L.DomEvent.on(cityInput, 'keydown', function(e) { if (e.key === 'Enter') _doCitySearch(); });
-
-                var flightRow = L.DomUtil.create('div', '', c);
-                flightRow.style.cssText = 'display:flex;gap:3px;';
-                var flightInput = L.DomUtil.create('input', '', flightRow);
-                flightInput.type = 'text'; flightInput.placeholder = 'מספר טיסה';
-                flightInput.style.cssText = 'flex:1;font-size:10px;padding:3px;border-radius:4px;border:1px solid #45475a;min-width:0;direction:ltr;';
-                var flightBtn = L.DomUtil.create('a', '', flightRow);
-                flightBtn.href = '#'; flightBtn.innerHTML = '&#9992;';
-                flightBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#cdd6f4;';
-                function _doFlightSearch() {
-                    var q = flightInput.value.trim().toUpperCase();
-                    if (!q) return;
-                    fetch('/flight_route?flight=' + encodeURIComponent(q))
-                        .then(function(r) { return r.json(); })
-                        .then(function(data) {
-                            if (data.error) { alert(data.error); return; }
-                            drawFlightRoute(data);
-                        })
-                        .catch(function() { alert('שגיאה בחיפוש טיסה'); });
-                }
-                L.DomEvent.on(flightBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e); _doFlightSearch(); });
-                L.DomEvent.on(flightInput, 'keydown', function(e) { if (e.key === 'Enter') _doFlightSearch(); });
-
-                L.DomEvent.disableClickPropagation(c);
-                L.DomEvent.disableScrollPropagation(c);
-                return c;
-            }
-        });
-        new WebSearchControl().addTo(map);
-
-        var WebGpsControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                var btn = L.DomUtil.create('a', 'leaflet-control leaflet-bar');
-                btn.href = '#'; btn.innerHTML = '&#128205;'; btn.title = 'מיקום עצמי (GPS)';
-                btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:30px;height:30px;'
-                    + 'background:rgba(30,30,46,.92);color:#cdd6f4;text-decoration:none;border-radius:8px;'
-                    + 'font-size:15px;margin-top:6px;cursor:pointer;';
-                L.DomEvent.on(btn, 'click', function(e) {
-                    L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
-                    if (!navigator.geolocation) { alert('הדפדפן לא תומך באיתור מיקום'); return; }
-                    navigator.geolocation.getCurrentPosition(function(pos) {
-                        var p = L.latLng(pos.coords.latitude, pos.coords.longitude);
-                        map.setView(p, 13);
-                        var dot = L.circleMarker(p, {radius:7,color:'#fff',fillColor:'#89b4fa',fillOpacity:1,weight:2}).addTo(map);
-                        allMarkers.push(dot);
-                    }, function(err) {
-                        alert('שגיאה באיתור מיקום: ' + err.message);
-                    }, {enableHighAccuracy: true, timeout: 10000});
-                });
-                return btn;
-            }
-        });
-        new WebGpsControl().addTo(map);
-    
 
         // ── הודעת מידע — כלל טיסת VLOS ──
         // תוכן טקסטואלי סטטי בלבד, לא שכבה גיאומטרית — אין מקור geodata ל"אזור מותר" בפועל,

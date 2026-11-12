@@ -26,8 +26,13 @@ def main():
     # כלומר create_map('web') היה כותב בפועל ל-web/map.html, ואילו השורה למטה המשיכה להעתיק
     # את map.html של השורש (קובץ ישן-ומחויב-ב-git, גרסת-Desktop בלי אף control של web ובלי
     # serversRunning=true) - ה-deploy "הצליח" (לא קרס) אבל הגיש בפועל בניית-Desktop במקום Web.
-    # תוקן ע"י output_path מוחלט - לא תלוי-cwd יותר, בלי קשר לאיפה ה-process רץ בפועל.
-    generated = os.path.join(_PROJECT_ROOT, 'map.html')
+    # תיקון ראשון (output_path מוחלט) *יצר* באג חדש וחמור יותר: הנתיב המוחלט שנבחר היה בדיוק
+    # map.html של השורש - אותו קובץ ש-main.py (Desktop) טוען ישירות ב-startup (QUrl.fromLocalFile,
+    # main.py:790) *בלי* לקרוא create_map() מראש. הרצת build_web.py (web) אחרי create_map()
+    # (desktop) דרסה את הקובץ שהדסקטופ טוען - main.py שעולה בלי לחיצה על "load map" קיבל בפועל
+    # גרסת-web עם fetch-ים יחסיים נגד file://, בלי שרת - כל הכלים נשברים בשקט. התיקון הנכון:
+    # web/ קבלת קובץ-ביניים עצמאי משלה, שאינו חופף לשום קובץ ש-Desktop טוען בשום שלב.
+    generated = os.path.join(_PROJECT_ROOT, 'web', '_generated_map.html')
     # target='web' מפעיל את ה-controls/CSS הנוספים ב-MAP.py (ר' create_map); api_base='' כי
     # כל קריאות ה-API הן same-origin יחסיות (vercel.json מנתב /weather וכו' לפונקציות המתאימות)
     MAP.create_map(target='web', api_base='', output_path=generated)

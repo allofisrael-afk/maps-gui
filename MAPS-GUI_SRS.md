@@ -1,6 +1,6 @@
 # מפרט דרישות תוכנה (SRS) — מערכת מפה אינטראקטיבית maps-gui
 
-**גרסת מסמך:** 1.1 | **תאריך עדכון אחרון:** 16/08/2026 (נוצר במקור 07/08/2026) | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
+**גרסת מסמך:** 1.1 | **תאריך עדכון אחרון:** 12/11/2026 (נוצר במקור 07/08/2026) | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
 **נכתב ומתעדכן אוטומטית ע"י Claude Code מתוך קריאת קוד המקור בפועל — מסמך זה מתעדכן על כל שינוי בקוד, לא רק בסריקה חד-פעמית.**
 
 מסמך משלים ל-[MAPS-GUI_README.md](MAPS-GUI_README.md) (מדריך טכני/תפעולי). מסמך זה הוא **מפרט דרישות** — מה המערכת אמורה לעשות, עבור מי, ובאילו אילוצים — ברמת פירוט הניתנת למעקב (traceable) לפי מזהי דרישה.
@@ -426,6 +426,33 @@
 
 **טרם בוצע**: commit+push (לשני ה-repos, ר' פרויקט-memory) ו-redeploy בפועל ב-Vercel לאישור שהאתר החי אכן משקף את התיקון — התיקון אומת רק מקומית עד כה, בדיוק כמו שהבדיקה המקומית הקודמת (§3.27, FR-D-238) לא הייתה מספיקה כדי לתפוס את הבאג הזה.
 
+**FR-D-240 (ממצא 0.1 מ-Stage 0 של ה-QA engagement, 10/11/2026): התיקון עצמו ב-`output_path` יצר רגרסיה חדשה וחמורה יותר — דרס בטעות את `map.html` שה-Desktop טוען.** התיקון ל-FR-D-240-הקודם (חלק ב' למעלה) בחר `output_path=os.path.join(_PROJECT_ROOT,'map.html')` — אבל זה **בדיוק** הקובץ ש-`main.py` טוען ישירות ב-`__init__` (`QUrl.fromLocalFile`, שורה 790) **בלי** לקרוא `create_map()` מראש (זה קורה רק בלחיצה מפורשת על "load_map_button"). הרצת `create_map()` (desktop) ואז `build_web.py` (web) ברצף באותו סשן — דרסה את קובץ ה-Desktop בגרסת-Web (fetch-ים יחסיים, בלי שרת, מוסווה ע"י `serversRunning=true` הקשיח). נמצא ע"י סוכן-מיפוי Stage 0 של ה-QA engagement, אומת עצמאית (`grep`: `serversRunning=true`×2, בקרות-web×4, `localhost:5002`×0 ב-`map.html`), ותוקן **באישור מפורש של המשתמש**: `build_web.py` כותב כעת ל-`web/_generated_map.html` (קובץ-ביניים עצמאי, ב-`.gitignore`) — לא עוד לנתיב המשותף עם Desktop. `map.html` שוחזר ל-target=desktop. אומת: הרצת `build_web.py` עם `cwd=web/` (כמו Vercel) לא משנה יותר את `map.html` של השורש.
+
+---
+
+## Stage 6 — תיקון לפי ממצאי ה-QA engagement (11-12/11/2026)
+
+**הקשר**: מחזור ה-QA/אבטחה המלא (ISO/IEC/IEEE 29119 + OWASP ASVS 5.0/MASVS + WCAG 2.2, ר' `.qa/STAGE5_FINAL_REPORT.md`/`.qa/findings.xlsx`) הפיק 28 ממצאים (F-001…F-028). המשתמש מילא טופס-תשובות (`.qa/findings_form.html`→`maps-gui-findings-answers.json`) עם הכרעה לכל ממצא. תוך-כדי-קריאת התשובות התגלתה עובדה חדשה: **`map.yechielalaluf.com` ירד לגמרי ולא יוחזר/יועלה-ל-Vercel בעתיד** (אישור מפורש של המשתמש) — הופך ממצאי-Web (F-004/005/006/007, חלקי F-026/F-027) ל**לא-רלוונטיים בפועל**. המשתמש גם הרחיב את יעד-האבטחה של Desktop (ר' RUN_DECISIONS #4 ב-`.qa/findings_data.py`) מ"אימוץ-חלקי" ל**"עמידה פורמלית מלאה ב-ASVS 5.0 Level 1"**.
+
+**FR-D-241 (תיקוני-קוד שאושרו, production):**
+- **F-011** — `cancel_radar_doppler()` ב-`web/api/weather.py:1308-1315` לא החזירה ערך בכלל (Flask זרק 500 על כל קריאה) — נוסף `return jsonify({'ok': True})`, מיושר עם `cancel_radial_los` הקיים.
+- **F-012** — `web/map.html` (4949 שורות, שריד-build מ-cwd שגוי לפני FR-D-240) נמחק (`git rm`) — לא היה בשימוש ע"י שום קוד.
+- **F-014** — `security_checks.py`'s `_SECRET_ENV_VARS` לא כלל `"ANOTHER_API_KEY"` (קיים ב-`.env.example`) — 5/6 מפתחות-סוד נסרקו בפועל. נוסף.
+- **F-015** — `mpm/engine.py:45`, `FireParams.target_alt: float = None` — טיפוס שגוי (mypy). שונה ל-`Optional[float]` + `from typing import Optional`.
+- **F-016** — `mpm_api.py:375,395`, שני קריאות `urlopen(url)` בלי בדיקת-scheme מפורשת (bandit B310, CWE-918 תיאורטי). נוסף `if not url.startswith(('http://','https://')): raise ValueError(...)` לפני כל קריאה (לא `assert` — bandit B101 מסמן `assert` כ-stripped-תחת `-O`), + `# nosec B310` נקי (בלי טקסט נוסף בשורה — bandit מפרש שגוי שורת-nosec עם טקסט).
+- **F-019** — `data/met_example.csv` (קובץ-דוגמה יתום, לא נקרא ע"י קוד פעיל) נמחק (`git rm`). `weather_data.csv` (היעד השני) לא נמצא בדיסק כלל — אין פעולה.
+- **חדש (מ-Stage ב', ר' למטה) — `weather_server.py` ו-`web/api/weather.py`**: קריאת OpenWeatherMap הייתה ב-`http://` (מפתח-API חשוף ב-query-param ברשת לא-מוצפנת) — שונה ל-`https://` בשני הקבצים (Desktop+Web, לפי אותו דפוס).
+
+**אומת (אחרי כל הקבוצה)**: `python -m py_compile` על כל קובץ שונה; `.qa/.venv/Scripts/python.exe .qa/tests/run_regression.py` — **2/2 רגרסיה-קיימת ממשיכה לעבור** (`self_test.py`, `test_ballistics_api.py`), **4/4 בדיקות-שחזור (F-011/F-012/F-013/F-014) התהפכו מ-FAIL ל-PASS** (ההיפוך הוא ההוכחה שהתיקון עבד, לא רק "לא קרס"). קריאה אמיתית ל-`/weather` של `weather_server.py` החי (לא רק קומפילציה) אחרי שינוי ה-scheme החזירה תוצאה תקינה. סריקה חוזרת של bandit/ruff/mypy/pip-audit (אותן פקודות מה-engagement) — 0 ממצאים חדשים.
+
+**F-013 (תיקון-מתוקן, לא תיקון-קוד — ר' `.qa/findings_data.py`)**: הממצא המקורי (חסר-attribution ל-OSM) נמצא **false-positive** בבדיקה-חוזרת לפני תיקון: הבדיקה המקורית חיפשה מחרוזת-מדויקת-מדי שלא תאמה לתג-`<a>` האמיתי בטקסט-הייחוס. אומת ב-render חי (QWebEngineView) ש-`.leaflet-control-attribution` קיים ותקין — **0 שינוי-קוד**, רק תיקון-הבדיקה עצמה.
+
+**FR-D-242 (ביקורת ASVS 5.0 Level-1 פורמלית ל-Desktop, חדש — `.qa/asvs_l1_desktop_compliance.md`, 11-12/11/2026)**: מענה להרחבת-היקף RUN_DECISIONS #4. רשימת-הדרישות הרשמית אומתה ישירות מהמקור (`github.com/OWASP/ASVS`, לא מהזיכרון). **30 דרישות-L1 רלוונטיות** נבדקו (פרקים V1,V2,V4,V5,V11,V12,V13,V14,V15 — V3/V6-V10/V16/V17 לא-רלוונטים-לארכיטקטורה, אין משתמשים-מרובים/הזדהות/WebRTC; V16 אומת שאין בו L1 items כלל). **תוצאה: 14 עומד, 13 לא-רלוונטי-לארכיטקטורה, 2 מגבלה-חיצונית-מתועדת (V14.2.1 — מפתחות-API ב-query-string לפי דרישת-הספקים-עצמם; V2.1.1 — ולידציה קיימת-בקוד אך לא-מתועדת-כמסמך-נפרד), 1 נסגר כתוצר-לוואי של המסמך עצמו (V15.1.1, מדיניות-remediation-timeframe לא-כתובה קודם — נכתבה כעת: קריטי/גבוה תוך 7 ימים, בינוני תוך 30 יום)**. **0 ממצאי-L1 פתוחים שדורשים תיקון-קוד נוסף** — הפער היחיד שנמצא (V12.2.1, HTTP→HTTPS) כבר תוקן לעיל. חשוב: זו הלימה (alignment) מתועדת לפי ביקורת-ידנית-שיטתית, **לא** הסמכה/certification צד-שלישי.
+
+**FR-D-243 (F-022 — mock-layer ל-`test_requests.py`, `.qa/tests/test_requests_mocked.py`, 11-12/11/2026, סגור)**: 37 TEST_CASES ב-`test_requests.py` קוראים בפועל ל-APIs חיצוניים אמיתיים (Google Geocoding/Nominatim/OpenWeatherMap/Open-Meteo×2/FlightRadar24 SDK) — אינם ניתנים-להרצה תחת מגבלת "mock בלבד" של הריצה האוטונומית. נבנה קובץ-בדיקות נפרד שמייבא את ה-TEST_CASES הקיימים (לא משכפל) ומריץ אותם נגד קוד ה-route האמיתי (Flask `test_client()`) עם `unittest.mock.patch` על `requests`/`FlightRadar24API` + מגן-socket קשיח שחוסם כל חיבור-רשת-אמיתי בפועל (לא רק הצהרה — אומת שהוא לא הופעל אף פעם). `test_requests.py`/`geo_server.py`/`flight_server.py` עצמם **לא שונו**. 0 שינוי-production. **תוצאה: 37/37 עברו, 0 קריאות-רשת-אמיתיות.** **באג אמיתי נמצא ותוקן תוך-כדי-בנייה**: `geo_server.py` ו-`weather_server.py` שניהם מייבאים `requests` — אותו אובייקט-מודול יחיד ב-Python, כך ששני `mock.patch` נפרדים (per-מודול) דרסו זה-את-זה; תוקן ל-patch משותף אחד עם `side_effect` שמפזר לפי URL. `.qa/tests/README.md` עודכן. רגרסיה מלאה (`run_regression.py`) הורצה מחדש בסיום: 2/2 רגרסיה-קיימת + 4/4 בדיקות-שחזור ירוק, exit 0 — 0 נסיגה.
+
+**FR-D-244 (עדכון-סטטוס לכל 28 הממצאים + 7 החלטות-הריצה, `.qa/findings_data.py`+`.qa/findings.xlsx`, 11-12/11/2026)**: כל ממצא עודכן עם הכרעת-Stage-6 מפורשת (תוקן/לא-רלוונטי-Web-ירד/accepted-risk/נדחה-מפורש/ארכיון) ישירות בשדה `status`+הערה ב-`recommended`, לא עמודה-נפרדת. RUN_DECISIONS #2 (יעד-Web) סומן כ-**התייתר**; #4 (יעד-Desktop) סומן כ-**שונה ל-ASVS-L1 פורמלי**. Q-6 (מיקום `.qa/tests/`) פורש בעקיפין לפי RUN_DECISIONS #7 (ללא "change") — **הבדיקות נשארות תחת `.qa/tests/` בלבד**, לא מועברות ל-`tests/` הרגיל; דורש אישור-בדיעבד אם ההנחה שגויה. `findings.xlsx` נרגנרר מהמקור המעודכן.
+
 ---
 
 ### 3.13 שכבות רקע (בסיס מפה)
@@ -749,4 +776,4 @@
 
 ---
 
-*מסמך זה נוצר במקור ב-07/08/2026, ועודכן לאחרונה ב-18/08/2026 ע"י Claude Code, מבוסס על קריאת קוד המקור בפועל. מתעדכן על כל שינוי מהותי בקוד — ר' גם `MAPS-GUI_README.md` §11 להיסטוריית שינויים.*
+*מסמך זה נוצר במקור ב-07/08/2026, ועודכן לאחרונה ב-12/11/2026 ע"י Claude Code, מבוסס על קריאת קוד המקור בפועל. מתעדכן על כל שינוי מהותי בקוד — ר' גם `MAPS-GUI_README.md` §11 להיסטוריית שינויים.*

@@ -34,7 +34,7 @@ load_dotenv()  # טעינת משתני הסביבה מ-.env — נדרש לפנ�
 
 _BASE_DIR = Path(__file__).resolve().parent  # תיקיית הפרויקט — בסיס לכל הנתיבים היחסיים
 _SERVERS = [("GeoServer", GEO_PORT), ("WeatherServer", WEATHER_PORT), ("FlightServer", FLIGHT_PORT)]  # שם תצוגה + פורט לכל שרת Flask
-_SECRET_ENV_VARS = ["OPENWEATHER_API_KEY", "GOOGLE_API_KEY", "FR24_TOKEN", "FR24_USER", "FR24_PASS"]  # מפתחות שנסרקים כדליפה
+_SECRET_ENV_VARS = ["OPENWEATHER_API_KEY", "GOOGLE_API_KEY", "FR24_TOKEN", "FR24_USER", "FR24_PASS", "ANOTHER_API_KEY"]  # מפתחות שנסרקים כדליפה — F-014 (QA engagement): ANOTHER_API_KEY היה קיים ב-.env.example אך חסר מכאן
 _APK_PATH = _BASE_DIR / "maps-gui-android" / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk"  # פלט build_apk.ps1
 _REQUIREMENTS_PATH = _BASE_DIR / "requirements.txt"  # קלט ל-pip-audit
 _DART_API_SERVICE = _BASE_DIR / "maps-gui-android-src" / "lib" / "services" / "api_service.dart"  # מקור הטוקנים הקשיחים באנדרואיד

@@ -32,6 +32,11 @@ saved_stations.json
 # IDE
 .idea/
 
+# web/build_web.py — קובץ-ביניים של ה-build (target='web'), לא שורש-המפה המשותף עם Desktop
+# (ר' MAPS-GUI_SRS.md §3.28 ממצא 0.1 — build_web.py כתב בעבר בטעות לאותו map.html שDesktop
+# טוען ישירות, מה שגרם לדריסה הדדית; עכשיו לקובץ נפרד שלא נוגעים בו משום מקום אחר)
+web/_generated_map.html
+
 # Flutter / Android (maps-gui-android)
 maps-gui-android/build/
 maps-gui-android/.dart_tool/

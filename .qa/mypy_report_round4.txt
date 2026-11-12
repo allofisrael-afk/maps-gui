@@ -1,0 +1,2 @@
+mpm\engine.py:242: error: Need type annotation for "w" (hint: "w: list[<type>] = ...")  [var-annotated]
+Found 1 error in 1 file (checked 8 source files)

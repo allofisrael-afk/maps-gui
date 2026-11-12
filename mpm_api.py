@@ -371,8 +371,14 @@ def default_elevation_fetcher(locations):
     lats = ",".join(str(p["lat"]) for p in locations)
     lons = ",".join(str(p["lon"]) for p in locations)
     url = "https://api.open-meteo.com/v1/elevation?" + _urlparse.urlencode({"latitude": lats, "longitude": lons})
+    # F-016 (QA engagement): הגנת-הגנה-לעומק נגד bandit B310 (urlopen scheme לא-מאומת) - raise ולא assert
+    # כי assert נמחק תחת python -O, ולא היה מגן בפועל בסביבת-ריצה כזו.
+    if not url.startswith("https://"):
+        raise ValueError(f"scheme לא-מאובטח ב-URL: {url!r}")
     try:
-        with _urlrequest.urlopen(url, timeout=30) as r:
+        # scheme כבר אומת למעלה (F-016, QA engagement) - bandit B310 לא עושה ניתוח-זרימת-נתונים
+        # ומסמן כל urlopen גורף, ללא קשר לבדיקה שקדמה לו; nosec מתועד בכוונה, לא התעלמות-סתמית.
+        with _urlrequest.urlopen(url, timeout=30) as r:  # nosec B310
             elevs = _json.loads(r.read().decode("utf-8")).get("elevation", [])
         return [elevs[i] if i < len(elevs) else None for i in range(len(locations))], None
     except (_urlerror.URLError, _urlerror.HTTPError) as e:
@@ -391,8 +397,14 @@ def _default_fetch_met_live(lat, lon, alt_m):
         hourly += [f"temperature_{p}hPa", f"wind_speed_{p}hPa", f"wind_direction_{p}hPa", f"geopotential_height_{p}hPa"]
     params = {"latitude": f"{lat:.5f}", "longitude": f"{lon:.5f}", "hourly": ",".join(hourly), "wind_speed_unit": "ms", "timezone": "UTC"}
     url = "https://api.open-meteo.com/v1/forecast?" + _urlparse.urlencode(params)
+    # F-016 (QA engagement): הגנת-הגנה-לעומק נגד bandit B310 (urlopen scheme לא-מאומת) - raise ולא assert
+    # כי assert נמחק תחת python -O, ולא היה מגן בפועל בסביבת-ריצה כזו.
+    if not url.startswith("https://"):
+        raise ValueError(f"scheme לא-מאובטח ב-URL: {url!r}")
     try:
-        with _urlrequest.urlopen(url, timeout=30) as r:
+        # scheme כבר אומת למעלה (F-016, QA engagement) - bandit B310 לא עושה ניתוח-זרימת-נתונים
+        # ומסמן כל urlopen גורף, ללא קשר לבדיקה שקדמה לו; nosec מתועד בכוונה, לא התעלמות-סתמית.
+        with _urlrequest.urlopen(url, timeout=30) as r:  # nosec B310
             d = _json.loads(r.read().decode("utf-8"))
     except (_urlerror.URLError, _urlerror.HTTPError) as e:
         return None, {"error": str(e)}

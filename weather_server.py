@@ -134,7 +134,7 @@ def get_weather():
 
     # בקשה ל-OpenWeatherMap
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather"
+        url = f"https://api.openweathermap.org/data/2.5/weather"  # ASVS-L1 (QA engagement): היה http:// - ה-API key עבר ב-query-param ברשת לא-מוצפנת
         response = requests.get(url, params=params, timeout=15)  # היה חסר timeout — קריאה תקועה הייתה חוסמת את כל התהליך (dev server חד-thread)
         data = response.json()
 

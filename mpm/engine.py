@@ -20,6 +20,7 @@ fD, fL, fM – מקדמי התאמה (fitting factors) לגרר, עילוי ומ
 """
 import math
 from dataclasses import dataclass, field
+from typing import Optional  # F-015 (QA engagement): target_alt צריך טיפוס-אופציונלי אמיתי, לא float=None
 
 from .units import both
 
@@ -42,7 +43,7 @@ class FireParams:
     mv: float                     # מהירות לוע [m/s]
     latitude: float = 0.0         # [rad]
     gun_alt: float = 0.0          # גובה הלוע מעל פני הים [m]
-    target_alt: float = None      # גובה נקודת הפגיעה מעל פני הים [m]; None = כגובה התותח
+    target_alt: Optional[float] = None  # גובה נקודת הפגיעה מעל פני הים [m]; None = כגובה התותח
     dt: float = 0.02              # צעד אינטגרציה [s]
     drag_factor: float = 1.0
     lift_factor: float = 1.0
