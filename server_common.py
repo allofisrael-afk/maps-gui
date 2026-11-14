@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 תשתית משותפת לשלושת שרתי ה-Flask (weather_server.py, geo_server.py, flight_server.py) —
 מאחדת קוד שהיה כפול בכל אחד מהם בנפרד: טעינת .env, הגדרת logging משותף לקובץ אחד

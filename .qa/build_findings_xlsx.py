@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בונה את .qa/findings.xlsx מתוך findings_data.py (מקור-אמת יחיד, ר' אותו קובץ).
 הרצה: .qa/.venv/Scripts/python.exe .qa/build_findings_xlsx.py"""
 import sys

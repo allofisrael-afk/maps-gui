@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """ מבנה התוצאה המשותף לכל בדיקות האבטחה בפרויקט (security_checks.py + cis_checks.py) —
 קובץ נפרד כדי ששני המודולים יוכלו לייבא אותו בלי circular import ביניהם. """
 from dataclasses import dataclass

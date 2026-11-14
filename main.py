@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import json  # הזרקת טבעות גבול עיר (Nominatim) כליטרל JS
 import logging  # רישום אירועים לקובץ לוג
 import math  # חישוב זוויות למחוג שעוני הסקירה בדשבורד
@@ -891,6 +893,23 @@ class MapApp(QMainWindow):
         """ מאפס את טיימר ה-debounce — הבקשה תישלח רק 600ms אחרי שינוי אחרון. """
         self.debounce_timer.start(600)  # כל שינוי ב-Spinbox מאפס את הספירה לאחור
 
+    def show_about_dialog(self):
+        """דיאלוג אודות: הודעת זכויות היוצרים, גרסה, ורכיבי צד-שלישי עיקריים (רשימה מלאה ב-THIRD_PARTY_NOTICES.md)."""
+        text = (  # תוכן הדיאלוג — HTML פשוט ש-QMessageBox מציג
+            f"<b>מפה אינטראקטיבית</b> — גרסה {APP_VERSION}<br>"  # שם האפליקציה וגרסה ממקור-האמת (קובץ VERSION)
+            "Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.<br>"  # הודעת זכויות היוצרים של הבעלים
+            "<a href='https://israelalaluf.com'>israelalaluf.com</a><br><br>"  # כתובת ליצירת קשר
+            "רכיבי צד-שלישי עיקריים: PyQt5 / Qt (GPL-3.0 / LGPL-3.0), Flask, requests, Leaflet, "  # רכיבים מרכזיים ורישיונם
+            "FlightRadarAPI ועוד — הרשימה המלאה ורישיונותיהם בקובץ THIRD_PARTY_NOTICES.md בשורש הפרויקט.<br>"  # הפניה לקובץ ההודעות המלא
+            "נתוני מפה: © OpenStreetMap contributors (ODbL), OpenTopoMap (CC-BY-SA), Esri, Open-Meteo.com (CC BY 4.0), OpenWeather (ODbL)."  # קרדיט מקורות נתונים
+        )
+        box = QMessageBox(self)  # דיאלוג מודאלי ביחס לחלון הראשי
+        box.setWindowTitle("אודות")  # כותרת הדיאלוג
+        box.setTextFormat(Qt.RichText)  # מאפשר HTML וקישור
+        box.setText(text)  # הצבת התוכן
+        box.setLayoutDirection(Qt.RightToLeft)  # כיוון עברית
+        box.exec_()  # הצגה והמתנה לסגירה
+
     def _load_city_history(self):
         """ טוען רשימת ערים אחרונות מ-QSettings ומאכלס את ה-ComboBox. """
         history = self.settings.value("city_history", [])  # קריאה מ-QSettings — רשימה ריקה אם לא קיים
@@ -1045,6 +1064,12 @@ class MapApp(QMainWindow):
         lbl_version.setToolTip("גרסת האפליקציה (Desktop) — זהה לגרסה המוצגת באנדרואיד כשהבנייה מסונכרנת")
         lbl_version.setAccessibleName("גרסת האפליקציה")  # נגישות: accessibleName עבור קוראי-מסך (F-027, Q-1)
         servers_header_row.addWidget(lbl_version)
+        about_button = QPushButton("אודות")  # כפתור "אודות": הודעת זכויות יוצרים + הפניה לרישיונות צד-שלישי (ביקורת רישוי)
+        about_button.setToolTip("זכויות יוצרים ורישיונות צד-שלישי")  # tooltip מסביר תפקיד
+        about_button.setAccessibleName("אודות וזכויות יוצרים")  # נגישות: שם לקוראי-מסך
+        about_button.setFixedHeight(22)  # כפתור קטן שלא יבלוט ליד תג הגרסה
+        about_button.clicked.connect(self.show_about_dialog)  # חיבור לפתיחת דיאלוג האודות
+        servers_header_row.addWidget(about_button)  # מיקום ליד תג הגרסה
         servers_header_row.addStretch()  # דוחף את הכותרת+התג שמאלה, לא נמתחים לרוחב הפאנל
         top_layout.addLayout(servers_header_row)
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import urllib.request  # לשליחת בקשות HTTP
 
 def send_request(lat, lon):

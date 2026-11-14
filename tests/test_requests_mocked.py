@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 F-022 (QA engagement, Stage 6): גרסת-mock של test_requests.py.
 

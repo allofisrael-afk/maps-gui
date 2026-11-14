@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 ballistics.py — Blueprint ל-7 פעולות כלי "מסלול בליסטי (MPM)" (Stage 2, FR-D-234,
 ר' MAPS-GUI_SRS.md §3.27). עוטף את mpm_api.py (שורש-הפרויקט, משותף ל-Desktop+Web) ב-HTTP,

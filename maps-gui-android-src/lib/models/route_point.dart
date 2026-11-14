@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 // נקודה בודדת ב"מסלול טיסה מותאם" (הכלי שהמשתמש מזין בו ידנית רשימת נקודות) —
 // גובה אופציונלי (nullable), בשונה מ-FlightTrailPoint שמגיע ממקור חיצוני (FR24/OpenSky).
 class RoutePoint {

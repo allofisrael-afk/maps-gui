@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import math  # ייבוא ספרייה לחישובים מתמטיים, כולל מרחקים גיאוגרפיים
 import csv  # ייבוא ספרייה לקריאה וכתיבה של קבצי CSV
 import requests  # ייבוא ספרייה לשליחת בקשות HTTP לשרתים

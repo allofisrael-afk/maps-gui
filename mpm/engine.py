@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """מנוע MPM (Modified Point Mass) — 4 דרגות חופש: x, y, z של מרכז הכובד וקצב הספין p.
 
 מערכת צירים מקומית (שטוחה עם תיקון עקמומיות כדור הארץ, לפי McCoy):

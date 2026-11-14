@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """מייצא את findings_data.py ל-JSON - נצרך ע"י findings_form.html (טופס-מילוי מקומי) ו-executive-summary.html.
 הרצה: .qa/.venv/Scripts/python.exe .qa/export_data_json.py  (או כל python - אין תלות חיצונית כאן)"""
 import json

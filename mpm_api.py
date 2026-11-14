@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 mpm_api.py — שכבת-API אחת לכלי "מסלול בליסטי (MPM)", לפי טבלת הפעולות בפרומפט המקורי
 (trajectory/solve/solve_mv/terrain_check/min_qe_for_crest/table/calibrate). כל פעולה מחזירה

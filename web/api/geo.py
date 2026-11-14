@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 # bootstrap נתיב-ייבוא — מוסיף את web/lib/ ל-sys.path כדי שהייבואים למטה (server_common,
 # notam_drones וכו') ימצאו את המודולים שם בלי לשנות את שמות הייבוא המקוריים בכלל (קובץ זה
 # הוא כמעט-עותק-מדויק של geo_server.py המקורי — ר' MAPS-GUI_SRS.md §3.24).

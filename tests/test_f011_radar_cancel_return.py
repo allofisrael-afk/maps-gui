@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """F-011: /radar_doppler/cancel (Web) לא מחזיר ערך - Flask זורק 500.
 משחזר דרך Flask test_client (in-process WSGI, 0 רשת אמיתית) - לא דורש שרת חי/קריאות-חוץ.
 צפוי להיכשל (מדגים את הבאג) עד שהתיקון המאושר יבוצע (הוספת return jsonify({'ok': True}))."""

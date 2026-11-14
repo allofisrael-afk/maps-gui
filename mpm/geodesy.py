@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """מרחק ואזימוט בין נקודות על אליפסואיד WGS84 (נוסחת Vincenty ההפוכה, דיוק מילימטרי)."""
 import math
 

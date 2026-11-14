@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 // נקודת מסלול טיסה בודדת עם טלמטריה מלאה (גובה/מהירות/כיוון) — לשימוש בהערכת מסלול טיסה
 // מול מכ"ם-דופלר (ר' ApiService.fetchRouteEvaluation). שונה מ-FlightData.path הקיים (רק
 // List<LatLng>, בלי טלמטריה) — נשמר כשדה נוסף לצדו, לא מחליף אותו, כדי לא לגעת בכל מקום

@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 בדיקות עמידה ב-CIS Microsoft Windows 11 Benchmark — Level 1 ו-Level 2, מסוננות לתת-קבוצה
 שנבחרה כרלוונטית להקשר הפרויקט (שרתי Flask שמאזינים על פורטים מקומיים, הרצת תהליכי-בן,

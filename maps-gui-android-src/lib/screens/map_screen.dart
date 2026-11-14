@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'dart:math';
 import 'dart:ui' as ui; // נדרש עבור ui.Path בציירן הגרף (Path של flutter_map מסתיר את Canvas Path)
 import 'package:flutter/material.dart';
@@ -550,7 +552,9 @@ class _MapScreenState extends State<MapScreen> {
                     borderStrokeWidth: 2,
                   ),
                 ]),
-              RichAttributionWidget(attributions: [TextSourceAttribution(state.tileAttribution)]),
+              SimpleAttributionWidget( // ייחוס גלוי תמיד — מדיניות אריחי OSM אוסרת הסתרה מאחורי כפתור (היה RichAttributionWidget מקופל)
+                source: Text('${state.tileAttribution} · Data: Open-Meteo.com', style: const TextStyle(fontSize: 10)), // קרדיט שכבת הרקע + נתוני Open-Meteo (CC BY 4.0)
+              ),
             ],
           ),
 
@@ -2055,6 +2059,7 @@ class _WeatherCard extends StatelessWidget {
                     _WRow(Icons.water_drop, '${state.weatherData!['humidity']}%', cs),
                     _WRow(Icons.air, '${state.weatherData!['wind']} km/h', cs),
                     _WRow(Icons.wb_cloudy, _wmo[state.weatherData!['code'] as int] ?? 'לא ידוע', cs),
+                    Text('Weather data by Open-Meteo.com', style: TextStyle(fontSize: 9, color: cs.outline)), // ייחוס חובה ל-Open-Meteo (CC BY 4.0) בכל הצגת הנתונים
                   ],
                 ),
               ),

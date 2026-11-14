@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 // נתוני "אזורי תיאום כטב"ם" — סטטיים, נגזרים מאותו מקור כמו uas_coordination_zones.py (השווה בעדכון עתידי).
 // מקור: פמ"ת פנים ארצי, פרק ב'-09, נספח ב'-1, עדכון 1/26. תחילת פעילות בכל אזור דורשת אישור נת"א — לא שכבת "מותר לטוס".
 import 'package:latlong2/latlong.dart';

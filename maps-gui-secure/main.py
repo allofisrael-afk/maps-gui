@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import html  # נדרש ל-html.escape() — מניעת XSS בתוכן פופאפים
 import json
 import logging

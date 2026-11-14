@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_map/flutter_map.dart';
 

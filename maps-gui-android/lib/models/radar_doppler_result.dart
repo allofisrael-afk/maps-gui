@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'package:latlong2/latlong.dart';
 import 'los_session.dart'; // LosPoint — נקודות הפרופיל משתמשות באותו מבנה בדיוק כמו קו-הראייה (dist_km/elevation/los_h/visible)
 

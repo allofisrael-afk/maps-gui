@@ -1,8 +1,11 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../state/map_state.dart';
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
+import '../legal/about.dart'; // דיאלוג "אודות ורישיונות" (ביקורת רישוי)
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text, this.cs);
@@ -566,6 +569,15 @@ class LayersPanel extends StatelessWidget {
             onTap: state.toggleAirportCtrLayer,
             cs: cs,
           ),
+          const Divider(height: 24), // מפריד לפני מקטע "אודות" (ביקורת רישוי)
+          _ActionBtn(
+            label: 'אודות ורישיונות', // כפתור אודות: הודעת זכויות + רשימת רישיונות צד-שלישי
+            icon: Icons.info_outline, // אייקון מידע
+            enabled: true, // תמיד זמין
+            active: false, // לא כפתור מצב
+            onTap: () => showAppAbout(context), // פותח את דיאלוג האודות (lib/legal/about.dart)
+            cs: cs, // ערכת הצבעים של הפאנל
+          ),
         ],
         ), // סגירת ה-Column הפנימי (תוכן הפאנל בתוך אזור הגלילה)
         ), // סגירת SingleChildScrollView
@@ -644,8 +656,8 @@ class _TileSelector extends StatelessWidget {
 
   static const _layers = [
     (label: 'OSM רגיל',    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',                                                                       attr: '© OpenStreetMap contributors'),
-    (label: 'ESRI לוויין', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                          attr: '© Esri'),
-    (label: 'CartoDB כהה', url: 'https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png',                                              attr: '© CartoDB'),
+    (label: 'ESRI לוויין', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                          attr: 'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community'), // נוסח הייחוס הרשמי של Esri (ביקורת רישוי)
+    (label: 'CartoDB כהה', url: 'https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png',                                              attr: '© CARTO, © OpenStreetMap contributors'), // CARTO דורש קרדיט CARTO + OSM (ביקורת רישוי)
   ];
 
   @override

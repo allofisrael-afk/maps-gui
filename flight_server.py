@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import logging  # רישום אירועים לקובץ לוג (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import os        # קריאת משתני סביבה לפרטי התחברות
 import re        # חילוץ קידומת ICAO מה-callsign לחיפוש ממוקד

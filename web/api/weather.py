@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 # bootstrap נתיב-ייבוא — מוסיף את web/lib/ ל-sys.path כדי שהייבואים למטה ימצאו את המודולים
 # שם בלי לשנות שמות ייבוא (קובץ זה כמעט-עותק-מדויק של weather_server.py — ר' MAPS-GUI_SRS.md §3.24)
 import os

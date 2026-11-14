@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 תשתית משותפת לגרסת ה-Web (Vercel) — מותאמת מ-server_common.py המקורי (Desktop).
 שינויים מהמקור (ר' MAPS-GUI_SRS.md §3.24 להסבר המלא):

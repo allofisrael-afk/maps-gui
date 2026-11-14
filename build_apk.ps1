@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 # build_apk.ps1 - Install Flutter + Android SDK and build APK
 # Run from: d:\PY-IS\maps-gui\
 # Output:   d:\PY-IS\maps-gui\maps-gui-android\build\app\outputs\flutter-apk\app-release.apk
@@ -186,6 +188,11 @@ Copy-Item "$PROJECT_SRC\android_MainActivity.kt" `
 # לכן גם קובץ זה חייב להיות מסונכרן מ--src בכל build, לא רק בהתקנה הראשונה.
 Copy-Item "$PROJECT_SRC\android_gradle-wrapper.properties" `
     "$PROJECT_DIR\android\gradle\wrapper\gradle-wrapper.properties" -Force
+# אייקון אפליקציה מקורי ("אללוף") במקום לוגו Flutter של התבנית — לוגו Flutter הוא סימן מסחר של Google (ביקורת רישוי)
+foreach ($density in @('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi')) {  # כל צפיפויות המסך שתבנית Flutter יוצרת
+    Copy-Item "$PROJECT_SRC\android_res\mipmap-$density\ic_launcher.png" `
+        "$PROJECT_DIR\android\app\src\main\res\mipmap-$density\ic_launcher.png" -Force  # דורס את אייקון התבנית שנוצר ע"י flutter create
+}
 Ok "Source files copied"
 
 # --- Step 7b: תיקיית-גישור ל-Chaquopy (FR-D-237) ---

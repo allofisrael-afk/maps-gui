@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """מקור-אמת יחיד לממצאי ה-QA engagement - נצרך ע"י build_findings_xlsx.py ו-build_executive_docx.py
 וה-detailed report (STAGE5_FINAL_REPORT.md) כדי לא לשכפל נתונים בשלושה מקומות בנפרד."""
 

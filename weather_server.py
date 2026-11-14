@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import json  # קריאה/כתיבה של קובץ "עמדות שמורות" (saved_stations.json)
 import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ

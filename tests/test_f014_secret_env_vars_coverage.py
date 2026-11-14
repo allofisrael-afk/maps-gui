@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """F-014: ANOTHER_API_KEY (קיים ב-.env.example) לא נכלל ב-security_checks._SECRET_ENV_VARS -
 משמעות: אם המפתח הזה ידלוף בתגובת-שרת, הכלי הפנימי לא יזהה זאת. 0 רשת/שינוי-production."""
 import os

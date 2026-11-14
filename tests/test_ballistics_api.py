@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 בדיקות שכבת ה-API (mpm_api.py) לכלי המסלול הבליסטי — Stage 2 (FR-D-234). בניגוד ל-self_test.py
 (בודק רק את mpm/ הגולמי) — כאן נבדקות trajectory/solve/solve_mv/table/calibrate/terrain_check/

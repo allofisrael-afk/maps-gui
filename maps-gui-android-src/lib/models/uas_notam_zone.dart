@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'package:latlong2/latlong.dart';
 
 /// אזור NOTAM — מקביל ל-notam_drones.py בגרסת הדסקטופ. מסווג ל-7 קטגוריות אפשריות

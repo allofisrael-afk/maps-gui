@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 סיווג NOTAM ל-7 קטגוריות, בהשראת מסך השכבות של אפליקציית DronesIL הרשמית (רשות
 התעופה האזרחית) — נבדק ידנית מול קובץ ה-APK שלה (חילוץ סטטי בלבד, ללא הרצה) ולא

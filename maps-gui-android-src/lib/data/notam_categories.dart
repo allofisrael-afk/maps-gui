@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 // סיווג NOTAM ל-7 קטגוריות — נגזר מאותו מקור כמו notam_categories.py (השווה בעדכון עתידי).
 // בהשראת מסך השכבות של אפליקציית DronesIL הרשמית — ר' notam_categories.py להסבר המלא.
 

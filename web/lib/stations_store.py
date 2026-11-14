@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 stations_store.py — מחליף את _load_stations/_save_stations (saved_stations.json על דיסק)
 ב-Redis (Upstash) — מחליף קובץ שטוח יחיד במפתח Redis יחיד לכל tool, בדיוק באותו מבנה-

@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """חבילת-רגרסיה תחת tests/ (Q-6, 14/11/2026: הועבר מ-.qa/tests/ המבודד - מעכשיו חלק קבוע מחבילת-הבדיקות
 הרגילה של הפרויקט, לא סילו-QA נפרד).
 מריצה כ-subprocess את קבצי-הבדיקה הקיימים של הפרויקט (לא משכפלת/לא עורכת את הלוגיקה שלהם) +

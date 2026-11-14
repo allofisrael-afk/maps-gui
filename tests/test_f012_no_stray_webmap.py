@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """F-012: web/map.html הוא שריד-build לא-בשימוש, tracked בגיט בטעות (ר' MAPS-GUI_SRS.md §3.28).
 משחזר ע"י בדיקת-קובץ ישירה - 0 git/רשת."""
 import os

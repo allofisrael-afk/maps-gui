@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בקרת אש: פתרון ירי לטווח ואזימוט, טבלת ירי וכיול מקדמי התאמה."""
 import math
 from dataclasses import replace

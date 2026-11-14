@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 app.py — נקודת-הכניסה היחידה שVercel מצפה לה תחת "Flask framework" (זוהה אוטומטית לפי שם
 הקובץ, ר' https://vercel.com/docs/frameworks/backend/flask): "Vercel looks for a Flask

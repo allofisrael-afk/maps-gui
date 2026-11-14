@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 build_web.py — שלב ה-build שVercel מריץ (ר' buildCommand ב-vercel.json) לפני כל deploy.
 קורא ל-MAP.create_map(target='web') ומעתיק את הפלט ל-web/public/index.html — כלומר

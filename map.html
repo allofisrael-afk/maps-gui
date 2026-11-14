@@ -619,7 +619,7 @@
             'topo': L.tileLayer(
                 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
                 {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+                    attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',  // ייחוס מלא לפי opentopomap.org/about — כולל SRTM ורישיון CC-BY-SA (ביקורת רישוי)
                     subdomains: 'abc',   // 3 שרתי CDN לאיזון עומסים
                     maxZoom: 17          // OpenTopoMap מוגבל ל-zoom 17
                 }
@@ -635,11 +635,11 @@
                 }
             ),
 
-            // תצלום לוויין — Esri World Imagery, חינמי וללא מפתח API, רזולוציה גבוהה
+            // תצלום לוויין — Esri World Imagery (רישיון Esri Master License Agreement), רזולוציה גבוהה
             'satellite': L.tileLayer(
                 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 {
-                    attribution: '&copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
+                    attribution: 'Source: <a href="https://www.esri.com">Esri</a>, Vantor, Earthstar Geographics, and the GIS User Community',  // נוסח הייחוס הרשמי מה-copyrightText של שירות Esri (ביקורת רישוי)
                     maxZoom: 19   // Esri מספק תמונות עד zoom 19
                 }
             )
@@ -647,6 +647,8 @@
 
         var currentBaseLayer = baseLayers['topo'];  // שכבת ברירת המחדל — טופוגרפית
         currentBaseLayer.addTo(map);                // הוספה ראשונית למפה
+        // ייחוס קבוע לנתוני Open-Meteo (גבהים/טמפרטורות/מטאו) — חובה לפי רישיון CC BY 4.0 של Open-Meteo (ביקורת רישוי)
+        map.attributionControl.addAttribution('Elevation &amp; weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>');
 
         // פונקציה להחלפת שכבת הבסיס — נקראת מהפקד על המפה
         function setBaseLayer(name) {
@@ -2027,6 +2029,7 @@
                         <div><strong>מזג אוויר:</strong>  ${weather}</div>
                         <div><strong>טמפרטורה:</strong>   ${temperature}</div>
                         <div><strong>גובה:</strong>        ${elevText}</div>
+                        <div style="direction:ltr;text-align:left;font-size:10px;color:#777;margin-top:4px;">Weather data &copy; <a href="https://openweathermap.org/" target="_blank">OpenWeather</a> &middot; Elevation: <a href="https://open-meteo.com/" target="_blank">Open-Meteo.com</a></div> <!-- ייחוס גלוי לנתוני מזג אוויר (ODbL, OpenWeather) וגובה (CC BY 4.0, Open-Meteo) — ביקורת רישוי -->
                     </div>`;
 
                 const marker = L.marker([parseFloat(lat), parseFloat(lon)])

@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """MPM — Modified Point Mass (4-DOF) trajectory model, per the STANAG 4355 structure.
 
 Modules:

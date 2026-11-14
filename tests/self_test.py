@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בדיקות שפיות למנוע. הרצה: python tests/self_test.py"""
 import math
 import os

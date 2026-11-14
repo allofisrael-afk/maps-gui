@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 שכבת "אזורי פעילות טיסה (NOTAM)" — שולף ומפרש NOTAMs מ-brin.iaa.gov.il (רשות שדות
 התעופה), מסונן ל-7 קטגוריות (ר' notam_categories.py — בהשראת מסך השכבות של DronesIL

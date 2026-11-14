@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """F-013 (תוקן ל-false-positive, 11/11/2026): הבדיקה המקורית חיפשה את המחרוזת המדויקת
 'OpenStreetMap contributors' (בלי תג-HTML בין המילים) - אבל הטקסט האמיתי ב-MAP.py הוא
 'OpenStreetMap</a> contributors' (יש קישור <a> שבור את הרצף). Leaflet מציג ייחוס-ODbL

@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 package com.mapsapp.maps_gui_android
 
 import com.chaquo.python.PyObject

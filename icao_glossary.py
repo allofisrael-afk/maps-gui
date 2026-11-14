@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 מילון קיצורי ICAO/NOTAM נפוצים + "תרגום גס" לעברית.
 

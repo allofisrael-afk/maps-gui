@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בונה את .qa/executive-summary.docx (2-4 עמודים, RTL מלא) + גרף-עמודות (matplotlib) מוטמע.
 כלים: python-docx, matplotlib, python-bidi - כולם ב-.qa/.venv (מבודד).
 הרצה: .qa/.venv/Scripts/python.exe .qa/build_executive_docx.py"""

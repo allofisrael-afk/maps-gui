@@ -1,11 +1,15 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'screens/map_screen.dart';
 import 'state/map_state.dart';
+import 'legal/about.dart'; // רישום רישיונות צד-שלישי שאינם חבילות Dart (ביקורת רישוי)
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  registerThirdPartyLicenses(); // מוסיף ל-LicenseRegistry את CPython/Chaquopy/AndroidX/Play services ומקורות הנתונים
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
   runApp(ChangeNotifierProvider(create: (_) => MapState(), child: const MapsApp()));
 }

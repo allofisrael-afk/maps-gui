@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """המרות יחידות זוויתיות. מיל נאט"ו: מעגל מלא = 6400 מיל."""
 import math
 

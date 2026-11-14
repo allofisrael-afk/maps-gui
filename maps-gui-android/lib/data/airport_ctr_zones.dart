@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 // נתוני גבולות CTR (אזור פיקוח) של שדות התעופה האזרחיים בישראל — סטטיים, נגזרים
 // מאותו מקור כמו airport_ctr_zones.py (השווה בעדכון עתידי): ה-eAIP הרשמי של רשות
 // התעופה האזרחית הישראלית (e-aip.azurefd.net), סעיף AD 2.17 ("ATS Airspace") של

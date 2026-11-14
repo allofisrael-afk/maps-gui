@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import logging  # ייבוא מודול הלוגים
 import requests  # ייבוא מודול לשליחת בקשות HTTP
 import asyncio  # ייבוא מודול לתמיכה בפונקציות א-סינכרוניות

@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 בדיקות אבטחה/חשיפה לשלושת שרתי ה-Flask של הפרויקט — נפרד מ-test_requests.py כי כאן
 המדד הוא "האם יש חשיפה/סיכון" ולא "האם ה-endpoint עובד". נצרך ע"י ProcessDashboard

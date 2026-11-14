@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בונה את .qa/executive-summary.html - גרסה מקומית, קריאה-בלבד, של סיכום-המנהלים (מקביל ל-.docx,
 לא תחליף לו - שני הקבצים קיימים). self-contained: הגרף מוטמע כ-base64 כדי שהקובץ יהיה נייד.
 הרצה: .venv/Scripts/python.exe .qa/build_executive_html.py (stdlib בלבד, לא דורש .qa/.venv)"""

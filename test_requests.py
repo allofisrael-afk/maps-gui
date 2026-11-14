@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 בדיקות תקינות (health checks) לשלושת שרתי ה-Flask של הפרויקט: GeoServer (5003),
 WeatherServer (5002), FlightServer (5004).

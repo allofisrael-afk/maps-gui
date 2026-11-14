@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import os  # ייבוא מודול os לגישה למשתני סביבה
 from flask import jsonify, request  # פענוח פרמטרים — Flask() עצמו נוצר ב-server_common.create_app

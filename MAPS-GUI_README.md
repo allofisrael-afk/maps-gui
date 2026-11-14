@@ -3,6 +3,8 @@
 
 זהו תיעוד **טכני** (ל-Claude/מפתחים). למדריך תפעולי למשתמש-קצה של אפליקציית ה-Android, ר' `מדריך-הפעלה-Android.md`.
 
+**רישיון:** Copyright (c) 2024-2026 Israel Alalouf. All rights reserved — ר' `LICENSE`. רכיבי צד-שלישי ורישיונותיהם: `THIRD_PARTY_NOTICES.md`; רשומת התלויות ויומן-ההחלטות: `docs/DEPENDENCIES.md`; מדיניות קבועה להוספת תלויות: `CLAUDE.md`.
+
 ---
 
 ## תוכן עניינים
@@ -317,6 +319,12 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 ---
 
 ## 11. היסטוריית שינויים עיקריים
+
+### עדכון גרסה ל-1.0.3 + בניית APK (14/11/2026)
+גרסה נסגרה במפורש ע"י המשתמש אחרי Stage 7 וביקורת הרישוי. `VERSION` ו-`kAppVersion` עודכנו יחד מ-`1.0.2` ל-`1.0.3`; APK חדש נבנה דרך `build_apk.ps1` (כולל אייקון "אללוף" ומסך "אודות ורישיונות"). ר' `MAPS-GUI_SRS.md` FR-D-257.
+
+### ביקורת רישוי וזכויות-יוצרים (14/11/2026)
+ביקורת מלאה של כל התלויות, הנכסים והשירותים החיצוניים מול מקורות ראשוניים, ואחריה החלת מודל All Rights Reserved: `LICENSE` חדש, כותרת זכויות ב-89 קבצי-מקור, כפתור "אודות" ב-Desktop וב-Android (כולל עמוד רישיונות מלא ורישום CPython/Chaquopy/AndroidX/Play services שאינם נאספים אוטומטית), תיקון ייחוס מפות ושירותים (OpenTopoMap, Esri, CARTO, Open-Meteo, OpenWeather; ייחוס OSM גלוי תמיד באנדרואיד), אייקון Android מקורי "אללוף" במקום לוגו Flutter, ו-`THIRD_PARTY_NOTICES.md`/`docs/DEPENDENCIES.md`/`CLAUDE.md`. החלטות: Desktop לא מופץ כרגע (PyQt5 GPL), FlightRadar24 נשאר (accepted risk), Open-Meteo לא-מסחרי + ייחוס. אומת: רגרסיה 2/2+4/4, mock 37/37, render חי של המפה (0 שגיאות), `flutter analyze` 0 חדש. לא נבנה APK. ר' `MAPS-GUI_SRS.md` FR-D-252 עד FR-D-256.
 
 ### Stage 7 — תוכנית-עבודה חדשה לפי מילוי-תשובות על 30 ממצאים (14/11/2026)
 

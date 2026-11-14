@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """בונה את .qa/findings_form.html - טופס-מילוי מקומי (לא published, dir='rtl', self-contained).
 נתוני findings_data.py מוטמעים ישירות כ-JS object (לא fetch() נפרד) כדי שיעבוד גם כ-file://
 בדפדפן בלי חסימות-CORS. 'שמור כ-JSON' מוריד קובץ JSON להעלאה חזרה לצ'אט.

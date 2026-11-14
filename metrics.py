@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """
 מודול משותף למדידת מטריקות קריאות API בשרתי ה-Flask (geo/weather/flight).
 כל שרת קורא ל-register_metrics(app) מיד לאחר יצירת ה-app, ומקבל אוטומטית

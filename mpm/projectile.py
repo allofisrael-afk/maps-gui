@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+# See LICENSE in the project root.
 """נתוני פגז: מאפיינים פיזיקליים וטבלאות מקדמים אווירודינמיים כפונקציה של מאך.
 
 קובץ פגז (JSON):

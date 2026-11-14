@@ -1,6 +1,7 @@
 name: maps_gui_android
 description: מפה אינטראקטיבית — גבהים, טמפרטורות, מסלולי טיסה ומזג אוויר
-publish_to: 'none'
+publish_to: 'none'  # קוד קנייני (All Rights Reserved) — מונע פרסום בטעות ל-pub.dev
+homepage: https://israelalaluf.com  # אתר הבעלים (Israel Alalouf) — ר' LICENSE
 version: 1.0.0+1
 
 environment:

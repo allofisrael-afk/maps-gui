@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
+// See LICENSE in the project root.
 import 'dart:async';
 import 'dart:convert'; // jsonEncode/jsonDecode ל"עמדות שמורות" (אחסון מקומי, ר' saveStation/loadStations)
 import 'dart:math';

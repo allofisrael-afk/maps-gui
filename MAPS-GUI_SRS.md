@@ -477,6 +477,22 @@
 
 ---
 
+## ביקורת רישוי וזכויות-יוצרים (14/11/2026)
+
+**FR-D-252 (מודל-זכויות: All Rights Reserved)**: קוד הפרויקט קנייני — `Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.` קובץ `LICENSE` חדש בשורש (איסור העתקה/הפצה/שינוי ללא אישור בכתב; רכיבי צד-שלישי לפי רישיונותיהם ב-`THIRD_PARTY_NOTICES.md`). כותרת זכויות דו-שורתית נוספה ל-89 קבצי-מקור של הבעלים (63 `.py` כולל `maps-gui-secure/`/`.qa`/`tests`/`web`, 24 `.dart` ב-`-src`, `android_MainActivity.kt`, `build_apk.ps1`) — אחרי shebang/encoding כשקיימים; לא נגעה בקבצי צד-שלישי (`qwebchannel.js`), קבצים שנוצרים (`map.html`, `web/public/index.html`), קבצי-תבנית של Flutter (`android_*.gradle.kts`), נתונים ונכסים. אומת: כל קבצי ה-Python מתקמפלים.
+
+**FR-D-253 (הודעה גלויה במוצר)**: **Desktop** — כפתור "אודות" ליד תג-הגרסה (`main.py`, `show_about_dialog`): גרסה, הודעת זכויות, israelalaluf.com, רכיבי צד-שלישי עיקריים והפניה ל-`THIRD_PARTY_NOTICES.md` (אומת ע"י הפעלת `MapApp()` אמיתית ולחיצה על הכפתור). **Android** — כפתור "אודות ורישיונות" בתחתית פאנל השכבות (`controls_panel.dart`) שפותח `showAboutDialog` עם `applicationLegalese`, וממנו עמוד הרישיונות המלא; קובץ חדש `lib/legal/about.dart` רושם ל-`LicenseRegistry` רכיבים שנארזים ב-APK אך Flutter לא אוסף לבד (CPython/PSF-2.0, Chaquopy/MIT, AndroidX+Kotlin+ReLinker/Apache-2.0, Play services) ואת מקורות-הנתונים — טקסטי-הרישיון נלקחו מקבצים מקוריים (LICENSE של CPython המותקן, Apache-2.0 מחבילת `clock`). `pubspec.yaml`: `homepage: https://israelalaluf.com`.
+
+**FR-D-254 (ייחוס מפות ושירותים — חובת-רישיון)**: Desktop (`MAP.py`): OpenTopoMap — נוסח מלא כולל SRTM ו-CC-BY-SA; Esri — הנוסח הרשמי "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community" (היה "Maxar" מיושן); ייחוס קבוע ל-Open-Meteo בבקר-הייחוס של המפה; שורת קרדיט OpenWeather + Open-Meteo בחלון מזג-האוויר. Android: `RichAttributionWidget` המקופל הוחלף ב-`SimpleAttributionWidget` גלוי תמיד (מדיניות אריחי OSM אוסרת הסתרה מאחורי כפתור) + "Data: Open-Meteo.com"; Esri ו-CARTO (+OSM) בנוסח מלא; קרדיט Open-Meteo בכרטיס מזג-האוויר. Google Geocoding משמש רק את רכיב-החיפוש של ה-Web שירד — אין מקום-תצוגה חי, תועד. אומת ב-render חי (QWebEngineView): הייחוס המעודכן מוצג בשכבות טופו ולוויין, 0 שגיאות קונסולה.
+
+**FR-D-255 (אייקון אפליקציה מקורי)**: אייקון ההפעלה של Android היה זהה-בייט ללוגו Flutter של התבנית (סימן מסחר של Google; הנחיות-המותג אוסרות שימוש במוצר). הוחלף באייקון מקורי — עיגול כחול עם קווי-גובה, סמן-מיקום והשם "אללוף" (גופן Noto Sans Hebrew, OFL 1.1, מרוסטר בלבד — קובץ הגופן לא מופץ). המקור: `maps-gui-android-src/android_res/` (master 1024 + 5 צפיפויות); `build_apk.ps1` מעתיק אותם מעל אייקון התבנית בכל build. לא נבנה APK (דורש אישור נפרד).
+
+**FR-D-256 (תיעוד ומדיניות קבועה)**: `THIRD_PARTY_NOTICES.md` (נוצר מתוך מקורות ראשוניים: metadata של חבילות, קבצי LICENSE, NOTICES של Flutter) ו-`docs/DEPENDENCIES.md` (טבלת הביקורת + יומן-החלטות D1–D6). `CLAUDE.md` חדש עם מדיניות-תלויות מחייבת לכל עבודה עתידית. **החלטות הבעלים**: D1 — Desktop לא מופץ כרגע (PyQt5 = GPL-3.0); D2 — FlightRadar24 נשאר כמות-שהוא (accepted risk, כולל הטוקן הקשיח); D3 — Open-Meteo בשימוש לא-מסחרי + ייחוס; D4 — Esri נשאר עם ייחוס מתוקן; D5 — אייקון מקורי; D6 — שנים 2024-2026; קבצים לא-בשימוש לא נמחקו לפי בקשה. אומת: `tests/run_regression.py` 2/2+4/4, `test_requests_mocked.py` 37/37, `flutter analyze` — 32 בעיות, 0 חדשות (כולן קיימות-מראש בקוד שלא נגע).
+
+**FR-D-257 (עדכון גרסה ל-1.0.3, 14/11/2026)**: גרסה נסגרה במפורש ע"י המשתמש ("תעלה מספר גירסה לכל הפלטפורמות") אחרי Stage 7 וביקורת הרישוי — `VERSION` (Desktop) ו-`kAppVersion` (`maps-gui-android-src/lib/version.dart`) עודכנו יחד מ-`1.0.2` ל-`1.0.3`, לפי מדיניות FR-D-193. Web ירד ואין בו תג-גרסה. `pubspec.yaml` (`version: 1.0.0+1`, ומכאן versionCode=1) לא שונה — עקבי עם כל העדכונים הקודמים. APK נבנה דרך `build_apk.ps1` באישור מפורש.
+
+---
+
 ### 3.13 שכבות רקע (בסיס מפה)
 - **FR-D-120:** בקר שכבות ייעודי (top-right) יאפשר מעבר בין 3 שכבות בסיס: טופו (OpenTopoMap, ברירת מחדל), רחובות (OSM), לוויין (Esri World Imagery).
 
