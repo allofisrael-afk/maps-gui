@@ -1,6 +1,8 @@
-# חבילת רגרסיה — .qa/tests/
+# חבילת רגרסיה — tests/
 
-הרצה: `.venv/Scripts/python.exe .qa/tests/run_regression.py` (מהשורש, עם ה-`.venv` **הראשי** של הפרויקט — לא `.qa/.venv`, כי אלה בדיקות של קוד-הפרויקט עצמו, לא כלי-ניתוח).
+**(Q-6, 14/11/2026: הועבר מ-`.qa/tests/` המבודד — מעכשיו חלק קבוע מחבילת-הבדיקות הרגילה של הפרויקט, לא סילו-QA נפרד.)**
+
+הרצה: `.venv/Scripts/python.exe tests/run_regression.py` (מהשורש, עם ה-`.venv` **הראשי** של הפרויקט — לא `.qa/.venv`, כי אלה בדיקות של קוד-הפרויקט עצמו, לא כלי-ניתוח).
 
 ## רגרסיה (חייבת לעבור)
 `tests/self_test.py` (מנוע mpm/), `tests/test_ballistics_api.py` (שכבת ה-API). שתיהן self-contained, 0 קריאות-רשת-חיצוניות.
@@ -14,7 +16,7 @@
 כל ארבעתן עברו תיקון מאושר (Stage 6, שלב א') ועוברות כרגע (exit 0) — `run_regression.py` מדפיס לכל אחת "CLOSED - תוקן". אם אחת מהן תתחיל להיכשל מחדש, זו רגרסיה אמיתית.
 
 ## test_requests_mocked.py — F-022
-גרסת-mock של `test_requests.py`: מייבא את אותם `TEST_CASES` (37 בדיקות-תקינות, לא משוכפלים) ומריץ כל אחד מהם נגד קוד ה-route האמיתי של `geo_server.py`/`weather_server.py`/`flight_server.py` דרך `test_client()` של Flask (אין socket אמיתי), עם כל קריאת-רשת חיצונית (Google Geocoding/Nominatim/OpenWeatherMap/Open-Meteo/FlightRadar24) ממוקה. שכבת-הגנה נוספת חוסמת כל `socket.socket.connect` אמיתי לכל אורך הריצה. תוצאה נוכחית: 37/37 עוברות, 0 קריאות-רשת-אמיתיות. הרצה: `.venv/Scripts/python.exe .qa/tests/test_requests_mocked.py` (מה-`.venv` הראשי — צריך flask/requests/FlightRadar24 אמיתיים).
+גרסת-mock של `test_requests.py`: מייבא את אותם `TEST_CASES` (37 בדיקות-תקינות, לא משוכפלים) ומריץ כל אחד מהם נגד קוד ה-route האמיתי של `geo_server.py`/`weather_server.py`/`flight_server.py` דרך `test_client()` של Flask (אין socket אמיתי), עם כל קריאת-רשת חיצונית (Google Geocoding/Nominatim/OpenWeatherMap/Open-Meteo/FlightRadar24) ממוקה. שכבת-הגנה נוספת חוסמת כל `socket.socket.connect` אמיתי לכל אורך הריצה. תוצאה נוכחית: 37/37 עוברות, 0 קריאות-רשת-אמיתיות. הרצה: `.venv/Scripts/python.exe tests/test_requests_mocked.py` (מה-`.venv` הראשי — צריך flask/requests/FlightRadar24 אמיתיים).
 
 ## לא כלול
 - `test_requests.py` עצמו (הגרסה המקורית, מול שרתים חיים אמיתיים) — **חסום** (ר' `.qa/progress.md`, ממצא F-022): רוב ה-TestCase שלו קוראים בפועל ל-APIs חיצוניים אמיתיים. כיסוי שווה-ערך הושג במקומו ב-`test_requests_mocked.py` לעיל.

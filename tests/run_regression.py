@@ -1,16 +1,17 @@
-"""חבילת-רגרסיה תחת .qa/tests/ (לא בתיקיית-הבדיקות של הפרויקט - לפי מגבלת הריצה האוטונומית).
+"""חבילת-רגרסיה תחת tests/ (Q-6, 14/11/2026: הועבר מ-.qa/tests/ המבודד - מעכשיו חלק קבוע מחבילת-הבדיקות
+הרגילה של הפרויקט, לא סילו-QA נפרד).
 מריצה כ-subprocess את קבצי-הבדיקה הקיימים של הפרויקט (לא משכפלת/לא עורכת את הלוגיקה שלהם) +
 בדיקות-שחזור (repro tests) לממצאים קונקרטיים שנמצאו (F-011/F-012/F-013/F-014). כולן self-contained,
 0 קריאות-רשת-חיצוניות אמיתיות (F-011 משתמש ב-Flask test_client שהוא WSGI in-process, לא socket).
 
-הרצה: python .qa/tests/run_regression.py  (מהשורש, עם .venv הראשי של הפרויקט - לא .qa/.venv,
+הרצה: python tests/run_regression.py  (מהשורש, עם .venv הראשי של הפרויקט - לא .qa/.venv,
 כי אלה בדיקות-הפרויקט עצמו, לא כלי-ניתוח)
 """
 import subprocess
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Q-6: הועבר מ-.qa/tests/ ל-tests/ - שתי רמות למעלה, לא שלוש
 PYTHON = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
 TESTS_DIR = Path(__file__).resolve().parent
 
@@ -30,8 +31,15 @@ BUG_REPRO_TESTS = [
 
 
 def run_one(label, path):
-    proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+    # F-030: timeout=120 - שונות-זמנים אמיתית נמדדה (47-87ש', חריגה אחת מ-120ש') בלי קוד תקוע;
+    # בלי timeout, תקיעה אמיתית עתידית תיתקע את כל ריצת-הרגרסיה לנצח בלי אבחון.
+    try:
+        proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=120,
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
+        err = (e.stderr or "") if isinstance(e.stderr, str) else (e.stderr or b"").decode("utf-8", "replace")
+        return label, False, None, out, err + "\n[TIMEOUT] חרג מ-120 שניות - נבדק כ-FAIL"
     return label, proc.returncode == 0, proc.returncode, proc.stdout, proc.stderr
 
 

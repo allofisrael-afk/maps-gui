@@ -67,7 +67,7 @@
 
 | דרישה | תיאור | סטטוס | ראיה |
 |---|---|---|---|
-| V13.4.1 | מטא-דאטה-בקרת-גרסאות (`.git`/`.svn`) לא-נגישה פנימית/חיצונית | **עומד** | אף route לא מגיש קבצים-סטטיים/תיקיות גולמיות (כל ה-routes מחזירים JSON מחושב) — אין נתיב שדרכו `.git/` יכול להיחשף |
+| V13.4.1 | מטא-דאטה-בקרת-גרסאות (`.git`/`.svn`) לא-נגישה פנימית/חיצונית | **עומד** | **תוקן (F-029, 14/11/2026)**: `web/app.py:51` כן מגיש route סטטי יחיד (`send_from_directory(_PUBLIC_DIR,'index.html')`) — אך שם-הקובץ קבוע-בקוד (לא מגיע מ-request, אין path traversal אפשרי), ו-`_PUBLIC_DIR`=`web/public/` נפרד-לגמרי משורש-הריפו, כך ש-`.git/` עדיין לא נגיש משם. שאר ה-routes מחזירים JSON מחושב בלבד |
 
 ## V14 — Data Protection (2/2 L1 נבדקו)
 
@@ -95,3 +95,14 @@
 Desktop **עומד בפועל** ב-14/30 הדרישות (46%), **13/30 לא-רלוונטיות-לארכיטקטורה** (43%, לא "כשל" — תכונות שהמערכת פשוט לא מממשת), **2/30 מגבלה-חיצונית-מתועדת** (7%, לא ניתנות-לתיקון בצד שלנו), **1/30 נסגרה בקובץ הזה עצמו** (תיעוד-מדיניות, 3%). **0 ממצאי-L1 פתוחים שדורשים תיקון-קוד** — הפער היחיד שנמצא (V12.2.1, HTTP→HTTPS) כבר תוקן ואומת ב-Stage א' של תוכנית-התיקון הזו.
 
 **חשוב להבהיר**: זו **הלימה (alignment)** מתועדת ושקופה ל-ASVS 5.0 L1 לפי ביקורת ידנית-שיטתית, **לא** הסמכה/certification רשמית — ASVS אינו תקן בר-הסמכה-צד-שלישי, וה"עמידה" כאן מבוססת על סקירת-קוד+בדיקות-קיימות (bandit/pip-audit/test_requests.py/grep-ים ישירים), לא audit חיצוני. ⚠️ שני ממצאי-אבטחה **אחרים** מהמחזור (F-004 חוסר rate-limiting, F-009 `debug=True`) **אינם דרישות-L1 ספציפיות** לפי המקור הרשמי שנבדק (לא עלו ברשימת-ה-L1 המאומתת של V4/V13) — הם נשארים ממצאי-אבטחה לגיטימיים לפי שיקול-דעת פרויקטלי (ולפי F-009, כבר מנוטרים), אך לא "כשל-L1 פורמלי".
+
+---
+
+## הערת-המשך: נגישות Desktop (F-027, Q-1 — לא חלק מ-ASVS, תועד כאן לשלמות)
+
+המשתמש ביקש (Q-1) יעד WCAG 2.x AA גם ל-Desktop. יושמו שני מסלולים נפרדים:
+
+1. **פאנלים נייטיביים של Qt (`main.py`)**: נוסף `setAccessibleName()` לכל כפתור/שדה/מחוון-סטטוס שהיה מסתמך על `setToolTip()` בלבד (tooltip אינו accessible-name אמיתי) — כולל שני כפתורי-אייקון בלי טקסט גלוי בכלל (`toggle_log_button`/`save_log_button`), ה-slider (`opacity_slider`), שדה-טיסה עם placeholder בלבד (`flight_input`), ושני מחווני-הסטטוס (`geo_status_dot`/`weather_status_dot`, שמתעדכנים דינמית גם בעת הפעלה/עצירת שרתים). **אומת חי**: אינסטנציה אמיתית של `MapApp`, `widget.accessibleName()` נבדק על כל הווידג'טים הרלוונטיים — כולם מוגדרים נכון.
+2. **בקרות Leaflet/JS במפה (`MAP.py`)**: נוסף `role`+`aria-label` (ולחלק — `aria-expanded`) ל-12 מתוך 16 ה-`L.Control.extend` (דולגו במכוון 4 בקרות ה-Web-בלבד בתוך `_build_web_controls_js` — `WebNotamControl`/`WebSearchControl`/`WebGpsControl`/factory-מצב-החום — כי Web ירד לגמרי ואינן רצות ב-`target='desktop'` לעולם). כולל: `LayerSwitcher`, `UndoRedoControl`, `ScaleBar` (role="status" עם aria-label מתעדכן), שלושת ה-legends המשותפות (`_makeCollapsibleLegend` — תיקון יחיד ל-3 קוראים), `LosControl`/`RadialLosControl`/`RadarDopplerControl`/`CustomRouteControl`/`BallisticsControl` (כפתורי-toggle + `_buildStationUI` המשותף לשמירה/טעינה/מחיקה של עמדות), ו-`VlosInfoControl` (תבנית disclosure מלאה עם `aria-expanded` מתעדכן). **אומת חי בפועל** (QWebEngineView עם `view.show()` — חשוב: בלי זה `setTimeout` בדף נחסם ונותן false-negative, לקח שחזר על עצמו גם בבדיקה הזו) — כל התכונות נמצאות ב-DOM החי, 0 שגיאות קונסולה.
+
+⚠️ **מגבלה תיעודית חשובה**: ה-accessibility bridge של QtWebEngine (Chromium מוטמע) לקוראי-מסך (NVDA/Narrator) **מתועד כבעייתי/לא-אמין** בדיווחי-באג רשמיים של Qt (למשל QTBUG-90897 — פוקוס שגוי אחרי מעבר ל-UIA backend ב-NVDA; דיווחים חוזרים ש-NVDA לא מתייחס בכלל ל-QtWebEngine כ"תוכן-web" ב-browse-mode). **המשמעות**: סעיף 2 (ARIA ב-Leaflet) **יושם נכון ואומת ב-DOM, אך לא-מאומת מול קורא-מסך אמיתי** — זו מגבלת-framework מתועדת, לא תלויה בקוד הזה. סעיף 1 (Qt native) סביר-הרבה-יותר לעבוד בפועל, כי ה-bridge הנייטיבי של Qt בוגר ואמין יותר. **המלצה מפורשת**: לפני כל הכרזה על "Desktop עומד ב-WCAG 2.x AA", לבצע בדיקה ידנית אמיתית עם NVDA/Narrator בפועל — זה לא ניתן-לאוטומציה-מלאה מכאן.

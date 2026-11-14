@@ -69,3 +69,28 @@ Stage 6 סגור. שאלות-פתוחות שנותרו (Q-4/Mutation-Fuzzing, Q-
 
 ## צעד הבא (ריצה רביעית)
 ממתין שהמשתמש יסמן את `findings.xlsx` (בפרט F-029/F-030) ויחזיר אותו — Stage 6 הבא יתקן את שניהם (שני תיקונים טריוויאליים, המלצת-ברירת-המחדל: לתקן את שניהם) בתוספת לכל דבר אחר שיסומן.
+
+## Stage 7 — תוכנית-עבודה חדשה לפי מילוי-תשובות (14/11/2026)
+
+המשתמש מילא טופס-תשובות חדש על 30 הממצאים (לא חזרה על Stage 6 — כמה הכרעות חדשות הופכות פריטים שנדחו-במפורש ב-Stage 6 לעבודה מאושרת: F-021/F-023/F-024/F-026/F-027, והרחבת-יעד-נגישות קריטית ב-Q-1 ל-WCAG 2.x AA על Android **וגם** Desktop). תוכנית מלאה נכתבה ואושרה (plan mode, `C:\Users\allof\.claude\plans\compiled-gliding-wren.md`).
+
+**הושלם עד כה (שלב א'+ב'+ה' מהתוכנית, בוצעו ע"י fork נפרד — Python בלבד)**:
+- שלב א': F-021 (docstring MAP.py), F-029 (ניסוח-ראיה ב-asvs_l1_desktop_compliance.md), F-030 (`timeout=120` ל-subprocess.run), F-018-Desktop (`_schema_version` ל-saved_stations).
+- שלב ב' (F-017, עדיפות-1-דחוף של המשתמש): 9 אתרי `except Exception` רחב צומצמו לסוגי-שגיאה ספציפיים ב-`weather_server.py`+`web/api/weather.py`. 10 אתרים אחרים (גבול-bridge ל-Android, 3 background-job safety-nets, כל קריאות-FlightRadar24API) נשארו כ-catch-all מוצדק, לפי בדיקה מוקדמת.
+- **שלב ה' (Q-6 — הופכת ישירות את ההחלטה הקודמת של Stage 6): `.qa/tests/` הועבר במלואו ל-`tests/`** הראשית (`run_regression.py`, 4 בדיקות-F0xx, `test_requests_mocked.py`, `README.md`) — נתיבי-`PROJECT_ROOT` תוקנו בכל קובץ שהועבר. `.qa/tests/` לא קיים יותר. **מעכשיו: כל פקודת-הרצה מתייחסת ל-`tests/...`, לא `.qa/tests/...`** (למשל `python tests/run_regression.py`). היסטוריה קודמת ב-SRS/README וב-progress.md שלמעלה שמזכירה `.qa/tests/` נשארת כמו-שהיא בכוונה — מתארת נכון את המצב-שהיה-אז; FR-D חדש מלא לכל שינויי Stage 7 (כולל ההעברה הזו) יתועד בשלב ט' (סגירה) של התוכנית, לא כאן.
+- **אומת**: רגרסיה 2/2 + 4/4 בדיקות-שחזור + 37/37 mock-tests — ירוק מלא מהמיקום החדש; bandit חזר נקי (רק F-009 הקיים-והמוכר, 0 חדש).
+
+**הושלם — שלב ג' (Android, fork נפרד)**: F-010 (התראת-אחסון-לא-מוצפן, widget משותף, 3 פאנלים), F-018-Android (schema-version בנקודת-מחנק יחידה), F-026 (טרגטי-מגע ≥44×44 בכל האתרים מהתוכנית, padding/hit-box בלבד, 0 שינוי ויזואלי), F-027-Android (18 עטיפות `Semantics`). אומת: `flutter analyze` 0 חדש.
+
+**הושלם — שלב ד' (Desktop accessibility, fork נפרד)**: `main.py` — ~23 `setAccessibleName()`, אומת חי. `MAP.py` — 12/16 בקרות-Leaflet קיבלו role/aria-label (54 aria-label, 29 role="button" ב-DOM, אומת חי). ⚠️ מגבלת-QtWebEngine-לקוראי-מסך תועדה במפורש (לא הונחה) ב-`asvs_l1_desktop_compliance.md` — "יושם, לא-מאומת", לא "עומד".
+
+**הושלם — שלבים ו'-ח' (כלי-QA, fork נפרד)**: F-023 Mutation Testing חלקי (atmosphere.py בלבד, 7 שורדים+הצעת-תיקון; תקרית-timeout נמצאה-ותוקנה, mpm/ אומת-נקי). F-024 SBOM (שני קבצים, CycloneDX 1.6). F-028 דוח-FR24-licensing (MIT החבילה, אך ToS-FR24 אוסר scraping — accepted-risk בהקשר הפצה-מוגבלת).
+
+**הושלם — שלב ט' (תיעוד וסגירה, ישירות)**: `.qa/findings_data.py` — כל 30 הממצאים עודכנו עם הכרעת-Stage-7 (22 תוקנו/נסגרו, 4 התייתרו-Web-ירד, 4 נשארו-פתוחים-באישור: F-001/F-008/F-023/F-025). F-006/F-009 ("לדיון") נסגרו-ללא-פעולה לפי פרק-לבירור של התוכנית. `findings.xlsx`/`findings_form.html`/`executive-summary.html` נרגנרו (האחרון תוקן גם מבחינת-לוגיקה — ניסוח "הצעד הבא" הפך data-driven לגמרי, לא רשימת-F-ID קשיחה שתתיישן בסבב הבא). `MAPS-GUI_SRS.md` (FR-D-245 עד FR-D-251), `MAPS-GUI_README.md` (§11) עודכנו.
+
+**אימות-סופי עצמאי (לא רק דיווחי-forks)**: `git status`/`diff` אישרו שכל 4 ה-forks נשארו בתוך ה-scope שהוקצה להם (0 חפיפה/התנגשות). `tests/run_regression.py` הורץ ישירות — 2/2+4/4 ירוק. `py_compile` על כל קובצי-Python שנערכו. `maps-gui-android/` (עותק-build מיוצר) אומת זהה-בייט ל-`maps-gui-android-src/` (סנכרון-בלבד לצורך flutter-analyze, לא ערך-נוסף).
+
+**0 git commit/push** (לפי מדיניות-הפרויקט — אישור נשאל בנפרד תמיד).
+
+## צעד הבא (Stage 7)
+Stage 7 סגור. 4 ממצאים נשארים פתוחים-באישור: F-001 (טוקן FR24, אין backend חליפי זמין), F-008 (NOTAM-scraping fragility, accepted-risk), F-023 (mutation testing חלקי — 2043 מוטנטים לא נוסו, ממצא-המשך לסבב עתידי אם רלוונטי), F-025 (lockfile, לא דחוף). שום פעולה נוספת לא נדרשת כרגע אלא אם המשתמש מסמן אחרת ב-`findings_form.html`/`findings.xlsx`.

@@ -153,20 +153,29 @@ class _MapScreenState extends State<MapScreen> {
       child: Stack(
         children: List.generate(4, (i) {
           final pt = _mapController.camera.latLngToScreenPoint(corners[i]);
+          const cornerNames = ['דרום-מערב', 'דרום-מזרח', 'צפון-מזרח', 'צפון-מערב'];
           return Positioned(
-            left: pt.x.toDouble() - 10,
-            top:  pt.y.toDouble() - 10,
-            width: 20, height: 20,
-            child: GestureDetector(
-              onPanStart:  (_)  => setState(() => _draggingHandleIdx = i),
-              onPanUpdate: (d)  { if (_draggingHandleIdx == i) _dragHandle(i, d.globalPosition, state); },
-              onPanEnd:    (_)  => setState(() => _draggingHandleIdx = null),
-              onPanCancel: ()   => setState(() => _draggingHandleIdx = null),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: cs.primary,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.white, width: 2),
+            left: pt.x.toDouble() - 22, // F-026: שטח-מגע 44x44 (היה 20x20) — המלבן הויזואלי (20x20) נשאר במרכז דרך Center+SizedBox
+            top:  pt.y.toDouble() - 22,
+            width: 44, height: 44,
+            child: Semantics(
+              label: 'ידית גרירה - פינת אזור בחירה ${cornerNames[i]}', // F-027
+              child: GestureDetector(
+                onPanStart:  (_)  => setState(() => _draggingHandleIdx = i),
+                onPanUpdate: (d)  { if (_draggingHandleIdx == i) _dragHandle(i, d.globalPosition, state); },
+                onPanEnd:    (_)  => setState(() => _draggingHandleIdx = null),
+                onPanCancel: ()   => setState(() => _draggingHandleIdx = null),
+                child: Center(
+                  child: SizedBox(
+                    width: 20, height: 20,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: cs.primary,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -194,20 +203,28 @@ class _MapScreenState extends State<MapScreen> {
       endPt = distCalc.offset(obs, rangeM, state.radialEndBearingDeg);
     }
 
-    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag) {
+    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag, String label) {
       final screenPt = _mapController.camera.latLngToScreenPoint(pt);
       return Positioned(
-        left: screenPt.x.toDouble() - 8, top: screenPt.y.toDouble() - 8,
-        width: 16, height: 16,
-        child: GestureDetector(
-          onPanUpdate: (d) {
-            final latLng = _globalToLatLng(d.globalPosition);
-            if (latLng != null) onDrag(latLng); // מעדכן אזימוט (עצמאי לידית) + טווח (משותף לשתיהן) ב-MapState
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF9E2AF), shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF333333), width: 2),
+        left: screenPt.x.toDouble() - 22, top: screenPt.y.toDouble() - 22, // F-026: שטח-מגע 44x44 (היה 16x16)
+        width: 44, height: 44,
+        child: Semantics(
+          label: label, // F-027
+          child: GestureDetector(
+            onPanUpdate: (d) {
+              final latLng = _globalToLatLng(d.globalPosition);
+              if (latLng != null) onDrag(latLng); // מעדכן אזימוט (עצמאי לידית) + טווח (משותף לשתיהן) ב-MapState
+            },
+            child: Center(
+              child: SizedBox(
+                width: 16, height: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9E2AF), shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF333333), width: 2),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -216,8 +233,8 @@ class _MapScreenState extends State<MapScreen> {
 
     return Positioned.fill(
       child: Stack(children: [
-        buildHandle(startPt, state.updateRadialLosStartFromDrag),
-        buildHandle(endPt, state.updateRadialLosEndFromDrag),
+        buildHandle(startPt, state.updateRadialLosStartFromDrag, 'ידית גרירה - אזימוט/טווח התחלה'),
+        buildHandle(endPt, state.updateRadialLosEndFromDrag, 'ידית גרירה - אזימוט/טווח סיום'),
       ]),
     );
   }
@@ -239,20 +256,28 @@ class _MapScreenState extends State<MapScreen> {
       endPt = distCalc.offset(obs, rangeM, state.radarEndBearingDeg);
     }
 
-    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag) {
+    Widget buildHandle(LatLng pt, void Function(LatLng) onDrag, String label) {
       final screenPt = _mapController.camera.latLngToScreenPoint(pt);
       return Positioned(
-        left: screenPt.x.toDouble() - 8, top: screenPt.y.toDouble() - 8,
-        width: 16, height: 16,
-        child: GestureDetector(
-          onPanUpdate: (d) {
-            final latLng = _globalToLatLng(d.globalPosition);
-            if (latLng != null) onDrag(latLng);
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF22D3EE), shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF333333), width: 2),
+        left: screenPt.x.toDouble() - 22, top: screenPt.y.toDouble() - 22, // F-026: שטח-מגע 44x44 (היה 16x16)
+        width: 44, height: 44,
+        child: Semantics(
+          label: label, // F-027
+          child: GestureDetector(
+            onPanUpdate: (d) {
+              final latLng = _globalToLatLng(d.globalPosition);
+              if (latLng != null) onDrag(latLng);
+            },
+            child: Center(
+              child: SizedBox(
+                width: 16, height: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF22D3EE), shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF333333), width: 2),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -261,8 +286,8 @@ class _MapScreenState extends State<MapScreen> {
 
     return Positioned.fill(
       child: Stack(children: [
-        buildHandle(startPt, state.updateRadarStartFromDrag),
-        buildHandle(endPt, state.updateRadarEndFromDrag),
+        buildHandle(startPt, state.updateRadarStartFromDrag, 'ידית גרירה - אזימוט/טווח התחלה'),
+        buildHandle(endPt, state.updateRadarEndFromDrag, 'ידית גרירה - אזימוט/טווח סיום'),
       ]),
     );
   }
@@ -546,6 +571,7 @@ class _MapScreenState extends State<MapScreen> {
                     IconButton(
                       visualDensity: VisualDensity.compact, // כפתור צפוף יותר — 5 כפתורים + כותרת בשורה אחת בלי גלישה
                       constraints: const BoxConstraints(), // מבטל את שטח המגע המינימלי הרחב של IconButton (48x48) לטובת צפיפות
+                      padding: const EdgeInsets.all(12), // F-026: שטח-מגע ~45x45 (≥WCAG 2.5.5 44x44) בלי לשנות את גודל האייקון
                       iconSize: 21, // אייקון מעט קטן יותר מברירת המחדל (24), תואם לצפיפות הכפתורים
                       tooltip: _selectMode ? 'בטל בחירה' : 'בחר אזור על המפה',
                       icon: Icon(
@@ -594,6 +620,7 @@ class _MapScreenState extends State<MapScreen> {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44
                       iconSize: 21,
                       tooltip: state.rulerMode ? 'סיים מדידה' : 'מדד מרחק',
                       icon: Icon(
@@ -606,6 +633,7 @@ class _MapScreenState extends State<MapScreen> {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44
                       iconSize: 21,
                       tooltip: state.losMode ? 'בטל קו ראייה' : 'קו ראייה',
                       icon: Icon(
@@ -618,6 +646,7 @@ class _MapScreenState extends State<MapScreen> {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44
                       iconSize: 21,
                       tooltip: state.manualHeatMode ? 'סיים חום ידני' : 'חום ידני',
                       icon: Icon(
@@ -642,6 +671,7 @@ class _MapScreenState extends State<MapScreen> {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44
                       iconSize: 21,
                       tooltip: 'איפוס מפה',
                       icon: Icon(Icons.restart_alt, color: cs.onSurface), // אייקון "התחל מחדש" סטנדרטי, מזוהה מיד
@@ -699,7 +729,7 @@ class _MapScreenState extends State<MapScreen> {
                     visualDensity: VisualDensity.compact,
                     constraints: const BoxConstraints(),
                     iconSize: 19,
-                    padding: const EdgeInsets.all(6),
+                    padding: const EdgeInsets.all(13), // F-026: שטח-מגע ≥44x44 (היה 6, נותן 31x31)
                     tooltip: state.canUndo ? 'בטל: ${state.undoLabel}' : 'בטל פעולה',
                     icon: Icon(Icons.undo, color: state.canUndo ? cs.onSurface : cs.onSurfaceVariant.withAlpha(90)),
                     onPressed: state.canUndo ? state.performUndo : null,
@@ -708,7 +738,7 @@ class _MapScreenState extends State<MapScreen> {
                     visualDensity: VisualDensity.compact,
                     constraints: const BoxConstraints(),
                     iconSize: 19,
-                    padding: const EdgeInsets.all(6),
+                    padding: const EdgeInsets.all(13), // F-026: שטח-מגע ≥44x44 (היה 6, נותן 31x31)
                     tooltip: state.canRedo ? 'בצע שוב: ${state.redoLabel}' : 'בצע שוב',
                     icon: Icon(Icons.redo, color: state.canRedo ? cs.onSurface : cs.onSurfaceVariant.withAlpha(90)),
                     onPressed: state.canRedo ? state.performRedo : null,
@@ -1919,9 +1949,15 @@ class _ElevationCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text('גובה', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
               const Spacer(),
-              GestureDetector(
-                onTap: state.closeElevTap,
-                child: Icon(Icons.close, size: 15, color: cs.outline),
+              Semantics(
+                label: 'סגור פאנל גבהים', // F-027
+                child: GestureDetector(
+                  onTap: state.closeElevTap,
+                  child: Padding(
+                    padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44 (היה 0, רק האייקון 15x15)
+                    child: Icon(Icons.close, size: 15, color: cs.outline),
+                  ),
+                ),
               ),
             ]),
             const SizedBox(height: 6),
@@ -1993,9 +2029,15 @@ class _WeatherCard extends StatelessWidget {
             Row(children: [
               Text('מזג אוויר', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 13)),
               const Spacer(),
-              GestureDetector(
-                onTap: state.closeWeather,
-                child: Icon(Icons.close, size: 15, color: cs.outline),
+              Semantics(
+                label: 'סגור פאנל מזג אוויר', // F-027
+                child: GestureDetector(
+                  onTap: state.closeWeather,
+                  child: Padding(
+                    padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                    child: Icon(Icons.close, size: 15, color: cs.outline),
+                  ),
+                ),
               ),
             ]),
             const SizedBox(height: 6),
@@ -2071,9 +2113,15 @@ class _RulerCard extends StatelessWidget {
             const SizedBox(width: 4),
             Text('מרחק', style: TextStyle(fontWeight: FontWeight.bold, color: cs.primary, fontSize: 12)),
             const SizedBox(width: 12),
-            GestureDetector(
-              onTap: state.clearRuler,
-              child: Icon(Icons.close, size: 14, color: cs.outline),
+            Semantics(
+              label: 'מחק קו מדידה', // F-027
+              child: GestureDetector(
+                onTap: state.clearRuler,
+                child: Padding(
+                  padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                  child: Icon(Icons.close, size: 14, color: cs.outline),
+                ),
+              ),
             ),
           ]),
           const SizedBox(height: 4),
@@ -2144,9 +2192,15 @@ class _LosProfilePanel extends StatelessWidget {
                 Text('קווי ראייה',
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.primary)),
                 const Spacer(),
-                GestureDetector(
-                  onTap: state.clearLosMap, // כפתור ניקוי כל הסשנים
-                  child: Icon(Icons.close, size: 16, color: cs.outline),
+                Semantics(
+                  label: 'נקה את כל סשני קו-הראייה', // F-027
+                  child: GestureDetector(
+                    onTap: state.clearLosMap, // כפתור ניקוי כל הסשנים
+                    child: Padding(
+                      padding: const EdgeInsets.all(14), // F-026: שטח-מגע ≥44x44
+                      child: Icon(Icons.close, size: 16, color: cs.outline),
+                    ),
+                  ),
                 ),
               ]),
             ),
@@ -2200,9 +2254,15 @@ class _LosProfileCard extends StatelessWidget {
             style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cs.onSurface),
           ),
           const Spacer(),
-          GestureDetector(
-            onTap: onRemove, // לחיצה על X מוחקת סשן בודד
-            child: Icon(Icons.close, size: 13, color: cs.outline),
+          Semantics(
+            label: 'הסר סשן LOS ${session.idx}', // F-027
+            child: GestureDetector(
+              onTap: onRemove, // לחיצה על X מוחקת סשן בודד
+              child: Padding(
+                padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                child: Icon(Icons.close, size: 13, color: cs.outline),
+              ),
+            ),
           ),
         ]),
         const SizedBox(height: 2),
@@ -2373,9 +2433,15 @@ class _RadarProfilePanel extends StatelessWidget {
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: const Color(0xFF22D3EE)),
                 ),
                 const Spacer(),
-                GestureDetector(
-                  onTap: state.clearRadarProfile, // סגירה בלבד — לא נוגע בתוצאת הסריקה המלאה
-                  child: Icon(Icons.close, size: 16, color: cs.outline),
+                Semantics(
+                  label: 'סגור פרופיל חתך-צד', // F-027
+                  child: GestureDetector(
+                    onTap: state.clearRadarProfile, // סגירה בלבד — לא נוגע בתוצאת הסריקה המלאה
+                    child: Padding(
+                      padding: const EdgeInsets.all(14), // F-026: שטח-מגע ≥44x44
+                      child: Icon(Icons.close, size: 16, color: cs.outline),
+                    ),
+                  ),
                 ),
               ]),
             ),
@@ -2457,12 +2523,15 @@ class _CollapsibleLegendState extends State<_CollapsibleLegend> {
         color: cs.surface.withAlpha(230), // רקע כמעט אטום, כמו שאר הכרטיסים הצפים על המפה
         shape: const CircleBorder(), // צורת עיגול לכפתור המצומצם
         elevation: 3, // צל קל שמרים את הכפתור מעל המפה
-        child: InkWell(
-          customBorder: const CircleBorder(), // אפקט הלחיצה עוקב אחרי צורת העיגול
-          onTap: () => setState(() => _expanded = true), // לחיצה פותחת את המקרא המלא
-          child: Padding(
-            padding: const EdgeInsets.all(6), // ריפוד סביב הסמל
-            child: Text(widget.icon, style: const TextStyle(fontSize: 16)), // הסמל הייעודי של המקרא הזה
+        child: Semantics(
+          label: 'פתח מקרא: ${widget.title}', // F-027: שם-סמנטי לכפתור-אייקון בלי טקסט-גלוי
+          child: InkWell(
+            customBorder: const CircleBorder(), // אפקט הלחיצה עוקב אחרי צורת העיגול
+            onTap: () => setState(() => _expanded = true), // לחיצה פותחת את המקרא המלא
+            child: Padding(
+              padding: const EdgeInsets.all(14), // F-026: שטח-מגע ≥44x44 (היה 6, נותן 28x28)
+              child: Text(widget.icon, style: const TextStyle(fontSize: 16)), // הסמל הייעודי של המקרא הזה
+            ),
           ),
         ),
       );
@@ -2490,9 +2559,15 @@ class _CollapsibleLegendState extends State<_CollapsibleLegend> {
                       child: Text(widget.title, // כותרת המקרא שהועברה מבחוץ
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: cs.onSurface)),
                     ),
-                    InkWell(
-                      onTap: () => setState(() => _expanded = false), // לחיצה מצמצמת חזרה לסמל הקטן
-                      child: Icon(Icons.close, size: 14, color: cs.onSurfaceVariant), // אייקון סגירה קטן
+                    Semantics(
+                      label: 'סגור מקרא', // F-027: שם-סמנטי
+                      child: InkWell(
+                        onTap: () => setState(() => _expanded = false), // לחיצה מצמצמת חזרה לסמל הקטן
+                        child: Padding(
+                          padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44 (היה 0, רק האייקון 14x14)
+                          child: Icon(Icons.close, size: 14, color: cs.onSurfaceVariant), // אייקון סגירה קטן
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -2504,6 +2579,24 @@ class _CollapsibleLegendState extends State<_CollapsibleLegend> {
       ),
     );
   }
+}
+
+// F-010: התראת-שקיפות משותפת לשלושת פאנלי "עמדות שמורות"/"מסלולים שמורים" — המידע נשמר
+// ב-shared_preferences (XML רגיל, לא מוצפן). הוחלט (לא להצפין, רק להתריע) כי האפליקציה מופצת
+// למספר מוגבל של אנשים בעבודה, לא הפצה פומבית. caption קבוע-תמיד, לא דיאלוג-חד-פעמי-ניתן-לסגירה —
+// כך שהמשתמש לא "שוכח" את המגבלה אחרי שסוגר אותה פעם אחת.
+Widget _unencryptedStorageNotice(ColorScheme cs) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 3),
+    child: Row(children: [
+      Icon(Icons.info_outline, size: 11, color: cs.onSurfaceVariant),
+      const SizedBox(width: 3),
+      Expanded(
+        child: Text('המידע נשמר ללא הצפנה על המכשיר',
+            style: TextStyle(fontSize: 8.5, color: cs.onSurfaceVariant)),
+      ),
+    ]),
+  );
 }
 
 // ── כלי רדיוס-ראייה רדיאלי — כפתור אייקון-תחילה, ורק בבחירתו נפתח פאנל הפרמטרים + הבחירה על המפה ──
@@ -2695,6 +2788,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Column(children: [
+        _unencryptedStorageNotice(cs), // F-010
         Row(children: [
           Expanded(
             child: SizedBox(
@@ -2712,7 +2806,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
           ),
           IconButton(
             onPressed: _saveStation, icon: const Icon(Icons.save, size: 16),
-            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
             tooltip: 'שמור עמדה נוכחית',
           ),
         ]),
@@ -2735,13 +2829,13 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
                 _loadStation(st);
               },
               icon: const Icon(Icons.folder_open, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'טען עמדה נבחרת',
             ),
             IconButton(
               onPressed: _selectedStation == null ? null : () => _deleteStation(_selectedStation!),
               icon: const Icon(Icons.delete_outline, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'מחק עמדה נבחרת',
             ),
           ]),
@@ -2772,7 +2866,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
           ),
           IconButton(
             onPressed: _saveSettingsPreset, icon: const Icon(Icons.save, size: 16),
-            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
             tooltip: 'שמור הגדרות נוכחיות (בלי מיקום)',
           ),
         ]),
@@ -2795,13 +2889,13 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
                 _loadSettingsPreset(st);
               },
               icon: const Icon(Icons.folder_open, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'טען הגדרות נבחרות',
             ),
             IconButton(
               onPressed: _selectedSettingsPreset == null ? null : () => _deleteSettingsPreset(_selectedSettingsPreset!),
               icon: const Icon(Icons.delete_outline, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'מחק הגדרות נבחרות',
             ),
           ]),
@@ -2912,12 +3006,15 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
         color: cs.surface.withAlpha(230),
         shape: const CircleBorder(),
         elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: s.toggleRadialLosMode, // מפעיל את מצב הכלי — פותח את הפאנל המלא
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.radar, size: 20, color: cs.onSurface),
+        child: Semantics(
+          label: 'פתח כלי רדיוס ראייה רדיאלי', // F-027
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: s.toggleRadialLosMode, // מפעיל את מצב הכלי — פותח את הפאנל המלא
+            child: Padding(
+              padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44 (היה 8, נותן 36x36)
+              child: Icon(Icons.radar, size: 20, color: cs.onSurface),
+            ),
           ),
         ),
       );
@@ -2945,9 +3042,15 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
                     const SizedBox(width: 4),
                     Text('רדיוס ראייה', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
                   ]),
-                  InkWell(
-                    onTap: s.toggleRadialLosMode, // סוגר את הכלי — גם מנקה משקיף/תוצאה קודמים (ר' MapState)
-                    child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                  Semantics(
+                    label: 'סגור כלי רדיוס ראייה רדיאלי', // F-027
+                    child: InkWell(
+                      onTap: s.toggleRadialLosMode, // סוגר את הכלי — גם מנקה משקיף/תוצאה קודמים (ר' MapState)
+                      child: Padding(
+                        padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                        child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -3426,6 +3529,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Column(children: [
+        _unencryptedStorageNotice(cs), // F-010
         Row(children: [
           Expanded(
             child: SizedBox(
@@ -3443,7 +3547,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
           ),
           IconButton(
             onPressed: _saveStation, icon: const Icon(Icons.save, size: 16),
-            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
             tooltip: 'שמור עמדה נוכחית',
           ),
         ]),
@@ -3466,13 +3570,13 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                 _loadStation(st);
               },
               icon: const Icon(Icons.folder_open, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'טען עמדה נבחרת',
             ),
             IconButton(
               onPressed: _selectedStation == null ? null : () => _deleteStation(_selectedStation!),
               icon: const Icon(Icons.delete_outline, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'מחק עמדה נבחרת',
             ),
           ]),
@@ -3503,7 +3607,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
           ),
           IconButton(
             onPressed: _saveSettingsPreset, icon: const Icon(Icons.save, size: 16),
-            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+            visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
             tooltip: 'שמור הגדרות נוכחיות (בלי מיקום)',
           ),
         ]),
@@ -3526,13 +3630,13 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                 _loadSettingsPreset(st);
               },
               icon: const Icon(Icons.folder_open, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'טען הגדרות נבחרות',
             ),
             IconButton(
               onPressed: _selectedSettingsPreset == null ? null : () => _deleteSettingsPreset(_selectedSettingsPreset!),
               icon: const Icon(Icons.delete_outline, size: 16),
-              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+              visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
               tooltip: 'מחק הגדרות נבחרות',
             ),
           ]),
@@ -3551,12 +3655,15 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
         color: cs.surface.withAlpha(230),
         shape: const CircleBorder(),
         elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: s.toggleRadarMode,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.track_changes, size: 20, color: cs.onSurface), // 🎯 אייקון שונה מ-radar (רדיוס-ראייה)
+        child: Semantics(
+          label: 'פתח כלי תצפית מכ"ם דופלר', // F-027
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: s.toggleRadarMode,
+            child: Padding(
+              padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44 (היה 8, נותן 36x36)
+              child: Icon(Icons.track_changes, size: 20, color: cs.onSurface), // 🎯 אייקון שונה מ-radar (רדיוס-ראייה)
+            ),
           ),
         ),
       );
@@ -3585,9 +3692,15 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       const SizedBox(width: 4),
                       Text('תצפית מכ"ם דופלר', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
                     ]),
-                    InkWell(
-                      onTap: s.toggleRadarMode,
-                      child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                    Semantics(
+                      label: 'סגור כלי תצפית מכ"ם דופלר', // F-027
+                      child: InkWell(
+                        onTap: s.toggleRadarMode,
+                        child: Padding(
+                          padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                          child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -3862,12 +3975,15 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
         color: cs.surface.withAlpha(230),
         shape: const CircleBorder(),
         elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: s.toggleCustomRouteMode,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.route, size: 20, color: cs.onSurface), // אייקון ייחודי — לא בשימוש בכלי אחר
+        child: Semantics(
+          label: 'פתח כלי מסלול טיסה מותאם', // F-027
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: s.toggleCustomRouteMode,
+            child: Padding(
+              padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44 (היה 8, נותן 36x36)
+              child: Icon(Icons.route, size: 20, color: cs.onSurface), // אייקון ייחודי — לא בשימוש בכלי אחר
+            ),
           ),
         ),
       );
@@ -3894,9 +4010,15 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
                     const SizedBox(width: 4),
                     Text('מסלול טיסה מותאם', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
                   ]),
-                  InkWell(
-                    onTap: s.toggleCustomRouteMode,
-                    child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                  Semantics(
+                    label: 'סגור כלי מסלול טיסה מותאם', // F-027
+                    child: InkWell(
+                      onTap: s.toggleCustomRouteMode,
+                      child: Padding(
+                        padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                        child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -3960,6 +4082,7 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
                 ]),
               ],
               const Divider(height: 16),
+              _unencryptedStorageNotice(cs), // F-010
               Row(children: [
                 Expanded(
                   child: SizedBox(
@@ -3977,7 +4100,7 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
                 ),
                 IconButton(
                   onPressed: _saveRoute, icon: const Icon(Icons.save, size: 16),
-                  visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                  visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
                   tooltip: 'שמור מסלול נוכחי',
                 ),
               ]),
@@ -4000,13 +4123,13 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
                       _loadRoute(r);
                     },
                     icon: const Icon(Icons.folder_open, size: 16),
-                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
                     tooltip: 'טען מסלול נבחר',
                   ),
                   IconButton(
                     onPressed: _selectedRoute == null ? null : () => _deleteRoute(_selectedRoute!),
                     icon: const Icon(Icons.delete_outline, size: 16),
-                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(4),
+                    visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(14), // F-026: ≥44x44
                     tooltip: 'מחק מסלול נבחר',
                   ),
                 ]),
@@ -4047,7 +4170,8 @@ class _CustomRoutePanelState extends State<_CustomRoutePanel> {
         IconButton(
           onPressed: () => s.removeCustomRoutePointAt(i),
           icon: Icon(Icons.close, size: 12, color: cs.error),
-          visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(2),
+          visualDensity: VisualDensity.compact, constraints: const BoxConstraints(), padding: const EdgeInsets.all(16), // F-026: ≥44x44 (היה 2, נותן 16x16)
+          tooltip: 'הסר נקודה ${i + 1}', // F-027: לא היה tooltip כלל, בניגוד לכפתורי save/load/delete האחיים
         ),
       ]),
     );
@@ -4186,12 +4310,15 @@ class _VlosInfoButton extends StatelessWidget {
       color: cs.surface.withAlpha(230),
       shape: const CircleBorder(),
       elevation: 3,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: () => _showVlosInfoSheet(context),
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(Icons.info_outline, size: 18, color: cs.primary),
+      child: Semantics(
+        label: 'מידע על כלל טיסת VLOS', // F-027
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () => _showVlosInfoSheet(context),
+          child: Padding(
+            padding: const EdgeInsets.all(13), // F-026: שטח-מגע ≥44x44 (היה 6, נותן 30x30)
+            child: Icon(Icons.info_outline, size: 18, color: cs.primary),
+          ),
         ),
       ),
     );

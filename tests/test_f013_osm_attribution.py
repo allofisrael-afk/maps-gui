@@ -8,7 +8,7 @@
 import os
 import sys
 
-_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')  # Q-6: tests/ - רמה אחת למעלה, לא שתיים
 path = os.path.join(_PROJECT_ROOT, 'MAP.py')
 content = open(path, encoding='utf-8').read()
 

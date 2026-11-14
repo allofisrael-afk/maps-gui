@@ -107,7 +107,7 @@ FINDINGS = [
         repro="קריאה ל-/radar_doppler/evaluate_route/start ואז polling ל-status בפרודקשן Vercel.",
         expected="תוצאה עקבית, כמו los_radial/radar_doppler/start שכבר הומרו ל-chunked+Redis.",
         actual="סביר-מאוד שה-endpoint הזה שבור בפרודקשן (לא נבדק אמפירית - אין גישה ל-Vercel).",
-        status="לא נבדק (לא-רלוונטי בפועל — Web ירד, 11/11/2026)", location="web/api/weather.py (evaluate_route)",
+        status="לא נבדק (לא-רלוונטי בפועל — Web ירד, אושר-סופית Stage 7, 14/11/2026)", location="web/api/weather.py (evaluate_route)",
         requirement="ASVS V1 (secure/resilient architecture)",
         test="לא רלוונטי - דורש סביבת-Vercel אמיתית לאימות",
         alts=[
@@ -118,7 +118,9 @@ FINDINGS = [
             dict(name="לא לתקן - Desktop-only", desc="להשאיר רק ב-Desktop שכבר עובד", pros="0 עבודה", cons="פיצ'ר-חסר ב-Web", scope="אין"),
         ],
         recommended="א (chunked+Redis) אם הפיצ'ר חשוב ל-Web; אחרת ג. "
-        "**הוכרע (Stage 6, 11/11/2026): לא-רלוונטי יותר** — Web ירד לגמרי, לא יוחזר.",
+        "**הוכרע (Stage 6, 11/11/2026): לא-רלוונטי יותר** — Web ירד לגמרי, לא יוחזר. "
+        "**לבירור-ונסגר (Stage 7, 14/11/2026)**: המשתמש סימן \"לדיון\" וביקש הסבר — הוסבר (ר' פרק-לבירור בתוכנית `compiled-gliding-wren.md`) "
+        "והומלץ לסגור כ-\"אין פעולה — התייתר\"; התוכנית אושרה עם ההנחה הזו. סגור, אין שינוי-קוד.",
     ),
     dict(
         id="F-007", severity="גבוה", legal=False, category="תשתית",
@@ -159,7 +161,9 @@ FINDINGS = [
         test="לא רלוונטי - התנהגות כבר מנוטרת ע\"י security_checks.py הקיים",
         alts=[], recommended="לא נדרשת פעולה - כבר מנוטר נכון. "
         "**הוכרע (Stage 6, 11/11/2026): accepted-risk, ללא פעולה.** הערה נוספת מביקורת ASVS-L1 הפורמלית (`.qa/asvs_l1_desktop_compliance.md`): "
-        "debug=True אינו מתאים כלל לדרישת-L1 ספציפית בפרקי V13/V4 שאומתו מהמקור הרשמי — לא \"כשל-L1 פורמלי\", נשאר ממצא-אבטחה פרויקטלי נפרד.",
+        "debug=True אינו מתאים כלל לדרישת-L1 ספציפית בפרקי V13/V4 שאומתו מהמקור הרשמי — לא \"כשל-L1 פורמלי\", נשאר ממצא-אבטחה פרויקטלי נפרד. "
+        "**לבירור-ונסגר (Stage 7, 14/11/2026)**: המשתמש סימן \"לדיון\" וביקש הסבר — הוסבר (ר' פרק-לבירור בתוכנית `compiled-gliding-wren.md`) "
+        "והומלץ לסגור כ-\"accepted-risk מנוטר\"; התוכנית אושרה עם ההנחה הזו. סגור, אין שינוי-קוד.",
     ),
     dict(
         id="F-010", severity="בינוני", legal=False, category="פרטיות/אבטחה",
@@ -168,7 +172,7 @@ FINDINGS = [
         repro="adb backup על מכשיר עם האפליקציה מותקנת.",
         expected="מידע-מיקום רגיש מוצפן ב-Keystore.",
         actual="shared_preferences רגיל, לא EncryptedSharedPreferences.",
-        status="נכשל", location="maps-gui-android-src/lib/state/map_state.dart (saveStation/loadStations)",
+        status="תוקן (14/11/2026)", location="maps-gui-android-src/lib/state/map_state.dart (saveStation/loadStations)",
         requirement="MASVS-STORAGE-1",
         test="לא רלוונטי - דורש הרצה-על-מכשיר לאימות",
         alts=[
@@ -177,7 +181,10 @@ FINDINGS = [
             dict(name="להשאיר, לתעד כסיכון-מקובל", desc="כלי-אישי, לא-SaaS", pros="0 עבודה", cons="לא-עומד ב-MASVS-STORAGE", scope="אין"),
         ],
         recommended="ב (להשאיר) כברירת-מחדל לכלי-אישי; א אם מתוכננת הפצה רחבה יותר. "
-        "**הוכרע (Stage 6, 11/11/2026): accepted-risk, ללא פעולה בסבב זה** — לא נכלל ברשימת התיקונים המאושרים.",
+        "**הוכרע (Stage 6, 11/11/2026): accepted-risk, ללא פעולה בסבב זה** — לא נכלל ברשימת התיקונים המאושרים. "
+        "**תוקן (Stage 7, 14/11/2026, לפי הכרעה חדשה)**: לא הצפנה מלאה (הוחלט במפורש שלא) — נוסף widget משותף אחד "
+        "(caption+אייקון) שמציג התראה גלויה וקבועה מעל שדה-השם בכל 3 פאנלי-העמדות-השמורות (radial-LOS/radar-doppler/custom-route), "
+        "שהמידע נשמר ללא-הצפנה על המכשיר. הקשר: הפצה מוגבלת לעובדים (לא פומבית, לפי הבהרת החלטת-ריצה #5).",
     ),
     dict(
         id="F-011", severity="בינוני", legal=False, category="פונקציונלי",
@@ -266,11 +273,16 @@ FINDINGS = [
         repro="ruff check (ר' ruff_report.json).",
         expected="except ממוקד לסוג-השגיאה הצפוי.",
         actual="except Exception גורף ב-60 מקומות.",
-        status="חלקי", location="פזור ב-weather_server.py, web/api/*.py, main.py ועוד",
+        status="תוקן (14/11/2026, היקף ממוקד)", location="פזור ב-weather_server.py, web/api/*.py, main.py ועוד",
         requirement="תחזוקתיות (ISO 25010)",
         test="לא רלוונטי - לא נסקרו כולם לעומק",
         alts=[], recommended="סקירה ממוקדת בעתיד בקוד-ליבה (mpm_api.py, routes) - לא בהיקף הנוכחי. "
-        "**הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים.",
+        "**הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים. "
+        "**תוקן (Stage 7, 14/11/2026, עדיפות-1-דחוף של המשתמש, היקף ממוקד בלבד)**: 9 מופעי `except Exception` ב-`weather_server.py`+`web/api/weather.py` "
+        "(לא כל 60 המופעים בפרויקט — רק mpm_api.py+routes, לפי ההיקף המקורי של ההמלצה) צומצמו לסוגי-שגיאה ספציפיים "
+        "(`requests.RequestException`/`ValueError`/`KeyError`/`IndexError`/`OSError`/`csv.Error`/`json.JSONDecodeError` לפי המקרה). "
+        "10 אתרים אחרים נשארו catch-all מוצדק (גבול-bridge ל-Android, 3 background-job safety-nets, כל קריאות-FlightRadar24API) — "
+        "`geo_server.py`/`mpm/*.py` כבר נקיים. אומת: רגרסיה+37 mock-tests נשארו ירוק מלא, bandit נקי.",
     ),
     dict(
         id="F-018", severity="נמוך", legal=False, category="שלמות-נתונים",
@@ -279,12 +291,15 @@ FINDINGS = [
         repro="בדיקת-מבנה הקובץ/ה-keys הקיימים.",
         expected="שדה '_schema_version' או דומה.",
         actual="אין.",
-        status="נכשל", location="weather_server.py (/stations/save), map_state.dart (saveStation)",
+        status="תוקן (14/11/2026)", location="weather_server.py (/stations/save), map_state.dart (saveStation)",
         requirement="שלמות-נתונים/תאימות-לאחור",
         test="לא רלוונטי - דורש שינוי-production לתיקון",
         alts=[dict(name="הוספת _schema_version=1", desc="לכל כתיבה חדשה, טיפול-ברירת-מחדל בקריאה של קבצים-ישנים", pros="מאפשר מיגרציות עתידיות", cons="שינוי-production", scope="בינוני")],
         recommended="א - לא דחוף, לתכנן בשינוי-production עתידי. "
-        "**הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים.",
+        "**הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים. "
+        "**תוקן (Stage 7, 14/11/2026)**: `\"_schema_version\": 1` נוסף לכל רשומה חדשה בשני הצדדים — Desktop (`weather_server.py`'s `/stations/save`, "
+        "`_load_stations` מתעלם-בחן משדה חסר) ו-Android (`map_state.dart`'s `saveStation()`, נקודת-מחנק יחידה שמשרתת את כל 5 ה-toolKeys). "
+        "אומת חי (Desktop: save→list→delete אמיתי) ובקוד (Android: אישור שקריאות-load לא נשברות על רשומות-ישנות-בלי-שדה).",
     ),
     dict(
         id="F-019", severity="נמוך", legal=False, category="תחזוקתיות",
@@ -321,11 +336,12 @@ FINDINGS = [
         repro="קריאת docstring מול קוד בפועל.",
         expected="תיעוד תואם התנהגות.",
         actual="פער קוסמטי.",
-        status="נכשל", location="MAP.py:177 (docstring)",
+        status="תוקן (14/11/2026)", location="MAP.py:177 (docstring)",
         requirement="תיעוד",
         test="לא רלוונטי",
         alts=[dict(name="עדכון ה-docstring", desc="שינוי הטקסט ל'topo'", pros="תיקון טריוויאלי", cons="אין", scope="קטן")],
-        recommended="א. **הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים, למרות הטריוויאליות.",
+        recommended="א. **הוכרע (Stage 6, 11/11/2026): נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים, למרות הטריוויאליות. "
+        "**תוקן (Stage 7, 14/11/2026)**: אושר כעת — \"CartoDB Dark Matter\" הוחלף ב-\"topo (OpenTopoMap)\", תואם את הקוד בפועל.",
     ),
     dict(
         id="F-022", severity="בינוני", legal=False, category="כיסוי-בדיקות",
@@ -356,12 +372,19 @@ FINDINGS = [
         desc="לא בוצע - דורש כלים חדשים (mutmut/hypothesis) + זמן-ריצה ארוך.",
         repro="N/A", expected="mutation score+fuzzing-coverage על הליבה בסיכון-גבוה.",
         actual="לא הותקן/הורץ בסבב זה.",
-        status="לא נבדק", location="mpm/",
+        status="חלקי (14/11/2026, רק atmosphere.py)", location="mpm/",
         requirement="29119-2 Dynamic Test Processes",
         test="לא רלוונטי",
         alts=[dict(name="התקנה+הרצה מוגבלת-זמן", desc="mutmut על mpm/ בלבד, timeout סביר", pros="מודד איכות-בדיקות אמיתית", cons="זמן-ריצה, כלי-חדש", scope="בינוני")],
         recommended="שאלה פתוחה - תלוי-אישור להתקנת-כלים נוספים. "
-        "**הוכרע (Q-4 + Stage 6, 11/11/2026): לדלג בסבב הזה** — לא בסבב הנוכחי, יישקל בעתיד.",
+        "**הוכרע (Q-4 + Stage 6, 11/11/2026): לדלג בסבב הזה** — לא בסבב הנוכחי, יישקל בעתיד. "
+        "**בוצע-חלקית (Stage 7, 14/11/2026, אושר ע\"י המשתמש)**: `mutmut` 2.5.1 הותקן ב-`.qa/.venv` (3.8.1 מחייב WSL ב-Windows, לא זמין). "
+        "תקציב-זמן 12 דק' הספיק רק ל-`atmosphere.py` (~12 מוטנטים מתוך 2056 בכל mpm/ — ריצה מלאה דורשת שעות). "
+        "נמצאו 7 שורדים: 4 קבועים-פיזיקליים לא-מאומתים (R_AIR/GAMMA/G0/GRID_DZ) + 2 גבול-טרופופאוזה ב-11000מ' ב-`std_lapse()`. "
+        "הצעת-תיקון קונקרטית: בדיקה אחת ב-`tests/self_test.py` שמאמתת את `std_lapse()` ב-0מ' ו-11000מ' מדויק מול ערכי-ICAO-תקניים תתפוס את כל 7. "
+        "**תקרית-בטיחות נמצאה ותוקנה תוך-כדי**: ה-timeout-החיצוני הרג את mutmut באמצע-כתיבה פעם אחת, השאיר שינוי-CRLF ב-`atmosphere.py` ו-2 תהליכים תקועים — "
+        "שוחזר (`git checkout`, אומת-hash), נבדק-מחדש (self_test+ballistics_api, exit=0 לשניהם), תהליכים-תקועים הופסקו (אחרי אימות-בעלות). "
+        "`git status` על `mpm/` נקי. 2043 מוטנטים לא נוסו — ממצא-המשך פתוח, לא ביצוע-מלא.",
     ),
     dict(
         id="F-024", severity="נמוך", legal=False, category="שרשרת-אספקה",
@@ -369,11 +392,13 @@ FINDINGS = [
         desc="לא נוצר SBOM פורמלי (CycloneDX/SPDX).",
         repro="N/A", expected="קובץ SBOM תחת .qa/.",
         actual="לא נוצר - cyclonedx-py לא הותקן.",
-        status="לא נבדק", location="N/A",
+        status="תוקן (14/11/2026)", location="N/A",
         requirement="שרשרת-אספקה (ISO 25010)",
         test="לא רלוונטי",
         alts=[dict(name="התקנת cyclonedx-py בסביבה מבודדת", desc="הפקת SBOM מ-requirements.txt", pros="תיעוד-תלויות פורמלי", cons="כלי-חדש", scope="קטן")],
-        recommended="להוסיף בסבב-הבא אם נדרש SBOM רשמי. **הוכרע (Q-5 + Stage 6, 11/11/2026): לדלג** — אין דרישה רגולטורית פעילה.",
+        recommended="להוסיף בסבב-הבא אם נדרש SBOM רשמי. **הוכרע (Q-5 + Stage 6, 11/11/2026): לדלג** — אין דרישה רגולטורית פעילה. "
+        "**תוקן (Stage 7, 14/11/2026, אושר ע\"י המשתמש)**: `cyclonedx-py` הותקן ב-`.qa/.venv`, הופק `.qa/sbom-desktop.json` (9 רכיבים) + "
+        "`.qa/sbom-web.json` (8 רכיבים), CycloneDX 1.6, שניהם אומתו-תקינים (נפתחו-מחדש ונבדקו).",
     ),
     dict(
         id="F-025", severity="נמוך", legal=False, category="שרשרת-אספקה",
@@ -396,13 +421,16 @@ FINDINGS = [
         repro="מדידת גודל-רכיב בקוד (MAP.py/map_screen.dart).",
         expected="≥44x44dp/px.",
         actual="קטן יותר בשני הצדדים.",
-        status="נכשל", location="MAP.py (WebGpsControl), map_screen.dart (כפתורי-אייקון)",
+        status="תוקן (14/11/2026)", location="MAP.py (WebGpsControl), map_screen.dart (כפתורי-אייקון)",
         requirement="WCAG 2.5.5 / Material touch-target",
         test="לא רלוונטי - דורש מדידה חזותית",
         alts=[dict(name="הגדלת hit-area (padding) בלי לשנות אייקון חזותי", desc="שמירה על עיצוב קומפקטי + הגדלת אזור-הלחיצה", pros="לא פוגע בעיצוב", cons="דורש בדיקה חוזרת של layout", scope="בינוני")],
         recommended="תלוי בהחלטת-יעד-נגישות (F-005). "
         "**הוכרע (Stage 6, 11/11/2026)**: חלק-Web (כפתור GPS) התייתר — Web ירד לגמרי, קוד-מת כעת. חלק-Android (iconSize 19-21) **עדיין חי ופתוח** — "
-        "לא אושר לתיקון בסבב הזה (לא נכלל ברשימה המאושרת), נשאר ממצא-המשך בעדיפות-נמוכה.",
+        "לא אושר לתיקון בסבב הזה (לא נכלל ברשימה המאושרת), נשאר ממצא-המשך בעדיפות-נמוכה. "
+        "**תוקן (Stage 7, 14/11/2026, אושר ע\"י Q-1 — יעד-WCAG-AA הורחב ל-Android)**: כל אתר-המגע-הקטן באנדרואיד טופל (חלופה א, padding/hit-box בלבד, 0 שינוי ויזואלי) — "
+        "5 כפתורי-סרגל, undo/redo, 5+ toggle-עגולים, 11 כפתורי-X (החורגים-ביותר, 13-16px), כל שורות save/load/delete, 3 ידיות-גרירה, כפתורי-controls_panel.dart. "
+        "אומת: `flutter analyze` 0 אזהרות חדשות. **לא בוצעה מדידה-ויזואלית-חיה** (אין אמולטור/מכשיר זמין בסביבה) — verification מבוסס-קוד+קומפילציה, מגבלה מתועדת כמו בפיצ'ורי-Android קודמים בפרויקט.",
     ),
     dict(
         id="F-027", severity="בינוני", legal=False, category="נגישות",
@@ -410,11 +438,18 @@ FINDINGS = [
         desc="0 מופעי aria-*/role/tabindex ב-MAP.py, 0 Semantics מפורש ב-Android (רק tooltip חלקי).",
         repro="grep גלובלי.", expected="תגיות-נגישות על בקרות מותאמות.",
         actual="0 נמצאו.",
-        status="נכשל", location="MAP.py (כל ה-L.Control), maps-gui-android-src/lib/",
+        status="תוקן (14/11/2026)", location="MAP.py (כל ה-L.Control), maps-gui-android-src/lib/",
         requirement="WCAG 4.1.2 / MASVS-אין-מקביל-ישיר",
         test="לא רלוונטי",
         alts=[], recommended="תלוי בהחלטת-יעד-נגישות (F-005). "
-        "**הוכרע (Stage 6, 11/11/2026)**: חלק-Web התייתר — Web ירד לגמרי. חלק-Android **נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים, נשאר פתוח.",
+        "**הוכרע (Stage 6, 11/11/2026)**: חלק-Web התייתר — Web ירד לגמרי. חלק-Android **נדחה-מפורש בסבב זה** — לא נכלל ברשימת התיקונים המאושרים, נשאר פתוח. "
+        "**תוקן (Stage 7, 14/11/2026, אושר ע\"י Q-1 — יעד-WCAG-AA הורחב ל-Android וגם Desktop)**: "
+        "**Android** — 18 עטיפות `Semantics(label:...)` נוספו לכל מה שהיה בלי שם-סמנטי (11 כפתורי-X, 5 toggle, 3 ידיות-גרירה). "
+        "**Desktop** — שני מסלולים: (1) `main.py` — ~23 `setAccessibleName()` לווידג'טים נייטיביים של Qt (bridge בוגר ל-Windows UI Automation, סיכוי-הצלחה גבוה), "
+        "אומת חי (`.accessibleName()` נבדק על 10 ווידג'טים מייצגים). (2) `MAP.py` — `role`/`aria-label` נוספו ל-12 מתוך 16 בקרות-Leaflet (54 aria-label, 29 role=\"button\" בפועל ב-DOM, אומת חי); "
+        "4 בקרות-Web-בלבד דולגו-בכוונה (קוד-מת, לא נטען ב-target=desktop). **⚠️ מגבלה מתועדת**: אמינות-ה-accessibility-bridge של QtWebEngine (Chromium) לקוראי-מסך "
+        "(NVDA/Narrator) ידועה-כבעייתית לפי דיווחי-באג רשמיים של Qt (למשל QTBUG-90897) — זו מגבלת-framework, לא תלויה בקוד. חלק ה-Leaflet-ARIA מתועד ב-`.qa/asvs_l1_desktop_compliance.md` "
+        "כ-\"יושם, לא-מאומת מול קורא-מסך אמיתי\" — לא כ-\"עומד\". מומלץ מעבר-בדיקה ידני עם NVDA/Narrator אמיתי לפני כל הצהרת-עמידה רשמית.",
     ),
     dict(
         id="F-028", severity="נמוך", legal=False, category="רישוי",
@@ -423,10 +458,14 @@ FINDINGS = [
         repro="קריאת ToS של flightradar24.com.",
         expected="בהירות-רישוי.",
         actual="לא נבדק.",
-        status="לא נבדק", location="flight_server.py, web/api/flight.py",
+        status="עבר (הוכרע: accepted-risk מתועד, 14/11/2026)", location="flight_server.py, web/api/flight.py",
         requirement="בדיקת-ToS",
         test="לא רלוונטי",
-        alts=[], recommended="לא דחוף - שימוש קיים כבר זמן-רב בפרויקט. **הוכרע (Stage 6, 11/11/2026): ללא פעולה** — לא נכלל ברשימת התיקונים המאושרים.",
+        alts=[], recommended="לא דחוף - שימוש קיים כבר זמן-רב בפרויקט. **הוכרע (Stage 6, 11/11/2026): ללא פעולה** — לא נכלל ברשימת התיקונים המאושרים. "
+        "**נבדק (Stage 7, 14/11/2026)**: `.qa/f028_fr24_licensing.md` — חבילת `FlightRadarAPI` עצמה MIT (תקין), "
+        "**אבל** תנאי-השימוש של FlightRadar24 עצמם אוסרים scraping במפורש (§10.3, הפרת-IP) — חל טכנית על השימוש כאן בלי קשר לרישיון-החבילה. "
+        "בהקשר הפצה-מוגבלת-לעבודה (לא פומבית, לפי הבהרת החלטת-ריצה #5), הסיכון-בפועל נמוך; FR24 כבר חוסם-Cloudflare חלק מהתבנית הזו בפועל. "
+        "**המלצה: accepted-risk, ללא שינוי-קוד — לבדוק מחדש רק אם היקף-ההפצה יגדל.**",
     ),
     dict(
         id="F-029", severity="נמוך", legal=False, category="תיעוד",
@@ -438,14 +477,14 @@ FINDINGS = [
         repro="grep -n \"send_from_directory\" web/app.py מול הראיה בשורה 70 של asvs_l1_desktop_compliance.md.",
         expected="כל ראיה בביקורת-תאימות פורמלית נבדקת ב-grep/קריאה בפועל לפני כתיבה, לא רק מוסקת-מהזיכרון.",
         actual="נמצאה סתירה אחת (V13.4.1) בין הראיה הכתובה למצב-הקוד בפועל, אותרה ע\"י סריקה-חוזרת (round 4).",
-        status="נכשל (ממצא חדש, ריצה 4, 12/11/2026)", location=".qa/asvs_l1_desktop_compliance.md (שורה ~70, V13.4.1)",
+        status="תוקן (14/11/2026)", location=".qa/asvs_l1_desktop_compliance.md (שורה ~70, V13.4.1)",
         requirement="דיוק-תיעוד / מהימנות ביקורת",
         test="לא רלוונטי - תיקון-תיעוד ישיר",
         alts=[
             dict(name="תיקון טקסט-הראיה בלבד", desc="לנסח מדויק: 'route אחד (web/app.py:/) מגיש index.html, אך שם-הקובץ קבוע-בקוד ולא מגיע מקלט-משתמש, ו-_PUBLIC_DIR נפרד משורש-הריפו - .git לא נגיש משם'",
                  pros="מדויק, תיקון חד-שורתי, המסקנה (עומד) לא משתנה", cons="אין", scope="קטן"),
         ],
-        recommended="א - תיקון-טקסט בלבד, לא משנה סטטוס V13.4.1.",
+        recommended="א - תיקון-טקסט בלבד, לא משנה סטטוס V13.4.1. **תוקן (Stage 7, 14/11/2026)**: הראיה נוסחה-מדויק; המסקנה (עומד) לא השתנתה.",
     ),
     dict(
         id="F-030", severity="בינוני", legal=False, category="כיסוי-בדיקות/אמינות",
@@ -461,7 +500,7 @@ FINDINGS = [
               "a fourth concurrent 5x-loop run had one iteration exceed 120s before completing successfully.",
         expected="כל subprocess.run() בכלי-בדיקה מוגבל ב-timeout מפורש וסביר (למשל 60s לכל קובץ-בדיקה בודד), עם דיווח-ברור אם נחצה.",
         actual="0 timeout מוגדר - תלוי לגמרי בכך שהתהליך-המושק עצמו תמיד יחזור.",
-        status="נכשל (ממצא חדש, ריצה 4, 12/11/2026)", location=".qa/tests/run_regression.py:33",
+        status="תוקן (14/11/2026)", location="tests/run_regression.py:33 (הועבר מ-.qa/tests/ ב-Stage 7)",
         requirement="29119-2 (אמינות-כלי-בדיקה) / ISO 25010 Reliability",
         test="לא רלוונטי - ממצא על הכלי עצמו, לא על קוד-ייצור",
         alts=[
@@ -470,7 +509,9 @@ FINDINGS = [
             dict(name="ללא שינוי", desc="להשאיר כמו-שהוא, בהינתן שכל הרצה עד כה (כולל זו) בכל זאת הסתיימה בעצמה",
                  pros="0 עבודה", cons="אין רשת-הגנה אם קוד-עתידי שנבדק באמת ייתקע", scope="אין"),
         ],
-        recommended="א - timeout מפורש הוא תיקון-כלי-בדיקה טריוויאלי שמתאים ישירות לדרישת-הפרומפט עצמה.",
+        recommended="א - timeout מפורש הוא תיקון-כלי-בדיקה טריוויאלי שמתאים ישירות לדרישת-הפרומפט עצמה. "
+        "**תוקן (Stage 7, 14/11/2026)**: `timeout=120` נוסף, `subprocess.TimeoutExpired` נתפס ומסומן כ-[TIMEOUT] על הבדיקה הספציפית בלבד. "
+        "הקובץ עצמו הועבר אגב-כך ל-`tests/run_regression.py` (ר' Q-6).",
     ),
 ]
 

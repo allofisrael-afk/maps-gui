@@ -4,7 +4,7 @@
 import os
 import sys
 
-_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')  # Q-6: tests/ - רמה אחת למעלה, לא שתיים
 sys.path.insert(0, _PROJECT_ROOT)
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'web'))
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'web', 'lib'))

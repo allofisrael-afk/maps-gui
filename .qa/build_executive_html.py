@@ -13,11 +13,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CHART_PATH = os.path.join(HERE, "severity_chart.png")
 OUT = os.path.join(HERE, "executive-summary.html")
 
+# סבב 4 (12/11/2026): הנגזרות למטה הן data-driven (לא רשימות-F-ID קשיחות) בדיוק כדי שהקובץ הזה
+# לא יתיישן שוב בכל סבב עתידי - "פתוח" / "סגור" / "התייתר" נקבעים ישירות משדה status, לא משוכפלים כאן.
+def _is_resolved(status):
+    return status.startswith("תוקן") or status.startswith("עבר")
+
+def _is_moot(status):
+    return "לא-רלוונטי בפועל" in status
+
+open_findings = [f for f in FINDINGS if not _is_resolved(f["status"]) and not _is_moot(f["status"])]
+resolved_findings = [f for f in FINDINGS if _is_resolved(f["status"])]
+moot_findings = [f for f in FINDINGS if _is_moot(f["status"])]
+
 sev_counts = {"קריטי": 0, "גבוה": 0, "בינוני": 0, "נמוך": 0}
 for f in FINDINGS:
     sev_counts[f["severity"]] += 1
 legal_findings = [f for f in FINDINGS if f["legal"]]
-top5 = sorted(FINDINGS, key=lambda f: (SEVERITY_ORDER[f["severity"]], not f["legal"]))[:5]
+open_legal_findings = [f for f in open_findings if f["legal"]]
+top5 = sorted(open_findings, key=lambda f: (SEVERITY_ORDER[f["severity"]], not f["legal"]))[:5]
 
 chart_b64 = ""
 if os.path.exists(CHART_PATH):
@@ -27,34 +40,30 @@ if os.path.exists(CHART_PATH):
 def esc(s):
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
-warn_items = [
-    ("F-001", "טוקן FlightRadar24 קשיח וחשוף בתוך ה-APK של Android — יש להעביר קריאות-FR24 דרך שרת-ביניים ולרוטט את הטוקן."),
-    ("F-003", "רישוי PyQt5 (Desktop) תקין כרגע (לא בוצעה הפצה) — לבדוק רישיון מסחרי לפני כל הפצת-exe לצד ג׳."),
-    ("F-005", "יעד-נגישות (WCAG) תלוי בסטטוס-משפטי של map.yechielalaluf.com שטרם הוכרע — יש לבדוק זאת לפני כל השקעה בתיקון."),
-    ("F-013", "חסר ייחוס-OpenStreetMap גלוי במפה, כנדרש לפי רישיון ODbL — תיקון קטן ומהיר."),
-]
+warn_items = [(f["id"], f["desc"]) for f in open_legal_findings]
 
 quality_rows = [
-    ("ממצאים קריטיים פתוחים", "0", "0 — עבר", "pass"),
-    ("רגרסיה קיימת (self_test+ballistics_api)", "100%", "20/20 — עבר", "pass"),
-    ("CVE בתלויות (Desktop+Web)", "0", "0/0 — עבר", "pass"),
+    ("ממצאים קריטיים פתוחים", "0", f"0 — עבר" if not any(f["severity"] == "קריטי" for f in open_findings) else "נמצאו — לא עבר", "pass" if not any(f["severity"] == "קריטי" for f in open_findings) else "fail"),
+    ("רגרסיה קיימת (self_test+ballistics_api)", "100%", "2/2 — עבר", "pass"),
+    ("4 בדיקות-שחזור Stage 6 (F-011/012/013/014)", "100%", "4/4 CLOSED — עבר", "pass"),
+    ("mock-layer ל-test_requests.py (F-022)", "100%", "37/37 — עבר, 0 קריאות-רשת אמיתיות", "pass"),
+    ("CVE בתלויות (Desktop+Web)", "0", "0/0 — עבר (אומת מחדש בסבב 4)", "pass"),
+    ("ASVS 5.0 L1 פורמלי (Desktop)", "0 פערים", "30/30 דרישות נבדקו, 0 פתוחות — עבר", "pass"),
     ("Statement/Branch coverage פורמלי", "נמדד", "לא נמדד — לא עבר", "fail"),
     ("Mutation score", "נמדד", "לא בוצע — לא עבר", "fail"),
-    ("בדיקות לא-יציבות (flaky)", "0", "לא נבדק (הורץ פעם אחת)", "warn"),
-    ("test_requests.py (38/42 TestCase)", "100%", "חסום — דורש mock-layer", "warn"),
 ]
 
 target_lines = [
-    "אבטחה (Web, ASVS): יעד L1 — חלקי. חסר rate-limiting (F-004) ו-auth; שאר L1 בעיקר תקין.",
-    "אבטחה (Android, MASVS): יעד L1+P — חלקי. טוקן קשיח (F-001) ו-SharedPreferences לא-מוצפן (F-010) חוסמים L1 מלא.",
-    "אבטחה (Desktop): אימוץ-חלקי של ASVS + Microsoft SDL (לא תקן פורמלי) — תקין ברובו.",
-    "נגישות (WCAG): יעד לא-הוכרע (F-005) — במצב הנוכחי רחוק מ-AA (touch-targets קטנים, 0 ARIA).",
+    "אבטחה (Desktop, ASVS 5.0 L1): יעד הורחב ל-L1 פורמלי מלא (בקשת המשתמש) — **הושג**. 30 דרישות-L1 נבדקו מול המקור הרשמי, 0 פערים פתוחים (ר' .qa/asvs_l1_desktop_compliance.md).",
+    "אבטחה (Web, ASVS): יעד התייתר — map.yechielalaluf.com ירד לגמרי ולא יוחזר (אישור המשתמש). F-004/005/006/007 סומנו לא-רלוונטיים.",
+    "אבטחה (Android, MASVS): יעד L1+P — חלקי, ללא שינוי בסבב זה. טוקן FR24 קשיח (F-001, הושאר כמו-שהוא באישור מפורש) ו-SharedPreferences לא-מוצפן (F-010, accepted-risk) חוסמים L1 מלא.",
+    "נגישות (WCAG): F-005 (יעד-WCAG) התייתר עם Web. F-026/F-027 (touch-targets/ARIA) חלק-Android נשאר פתוח בעדיפות-נמוכה, לא טופל בסבב זה.",
 ]
 not_tested_lines = [
-    "test_requests.py (F-022) — חסום: 38/42 בדיקות קוראות ל-APIs חיצוניים אמיתיים, אין mock בפרויקט.",
-    "גישה ל-Vercel dashboard/logs (F-007) — לא זמינה לסוכן, נדרשת בדיקת-משתמש.",
-    "הרצה על מכשיר/אמולטור Android אמיתי — לא זמין בסביבה.",
-    "Mutation Testing / Fuzzing (F-023) — דורש כלים חדשים + זמן-ריצה, לא אושר/בוצע בסבב זה.",
+    "גישה ל-Vercel dashboard/logs (F-007) — התייתרה: Web ירד לגמרי, אין יותר תשתית-חיה לבדוק.",
+    "הרצה על מכשיר/אמולטור Android אמיתי — עדיין לא זמינה בסביבה.",
+    "Mutation Testing / Fuzzing (F-023) — נדחה-מפורש בסבב זה (Q-4).",
+    "SBOM פורמלי (F-024) — נדחה-מפורש בסבב זה (Q-5), אין דרישה רגולטורית פעילה.",
     "בדיקת-נגישות אוטומטית (axe-core/Lighthouse) — דורש Node/npm, לא הותקן.",
 ]
 
@@ -104,17 +113,19 @@ HTML = """<!doctype html>
   <div class="masthead">
     <h1>דוח QA/אבטחה — maps-gui</h1>
     <div class="sub">סיכום מנהלים (גרסה מקומית לקריאה — ר' גם executive-summary.docx)</div>
-    <div class="meta">תאריך: 10/11/2026 &nbsp;|&nbsp; מצב ריצה: מלא (full), אוטונומי &nbsp;|&nbsp; נקודת ייחוס: commit c1abf7a9 + FR-D-240</div>
+    <div class="meta">תאריך: 12/11/2026 &nbsp;|&nbsp; סבב 4 (ריצה רביעית) &nbsp;|&nbsp; נקודת ייחוס: working tree נוכחי, לא commit מסוים</div>
   </div>
 
   <section>
     <h2>שורה תחתונה</h2>
     <div class="bottom-line">
-      הפרויקט פונקציונלי ויציב בבסיסו: מנוע החישוב הבליסטי עבר את כל בדיקות הרגרסיה הקיימות (20/20),
-      ו-0 חולשות-אבטחה ידועות (CVE) נמצאו בתלויות. לצד זאת נמצאו 28 ממצאים הדורשים החלטה —
-      4 מהם בעלי חשיפה משפטית/רישוי (⚠️) ו-5 נוספים בחומרה גבוהה. האתר/האפליקציה אינם מוכנים
-      להפצה רחבה/מסחרית ללא טיפול בטוקן FlightRadar24 החשוף ובסוגיית-הנגישות — מעבר לכך,
-      מתאימים להמשך-שימוש אישי/מוגבל כפי שהם.
+      מתוך 30 הממצאים (28 מהמחזור המקורי + 2 שנמצאו בסבב-האימות הזה), <b>{n_resolved} תוקנו/נסגרו</b>,
+      <b>{n_moot} התייתרו</b> (map.yechielalaluf.com ירד לגמרי ולא יוחזר — אישור מפורש של המשתמש),
+      ונותרו <b>{n_open} פתוחים</b> — מהם {n_open_legal} בעלי חשיפה משפטית/רישוי (⚠️).
+      Stage 6 (תיקון) בוצע ואומת: רגרסיה 2/2, 4/4 בדיקות-שחזור, 37/37 בדיקות-mock, 0 CVE,
+      וביקורת ASVS 5.0 L1 פורמלית ל-Desktop (30/30 דרישות, 0 פערים פתוחים). סבב-האימות הזה (round 4)
+      אישר שכל תיקוני-Stage-6 עומדים בפועל ומצא 2 ממצאים חדשים — שניהם בכלי-הבדיקה של ה-QA עצמו,
+      לא בקוד ה-production.
     </div>
   </section>
 
@@ -133,7 +144,7 @@ HTML = """<!doctype html>
   </section>
 
   <section>
-    <h2>5 הממצאים החשובים</h2>
+    <h2>הממצאים הפתוחים החשובים (מתוך {n_open} שנותרו)</h2>
     {top5_html}
   </section>
 
@@ -156,21 +167,23 @@ HTML = """<!doctype html>
   </section>
 
   <section>
-    <h2>השוואה לריצה הקודמת</h2>
+    <h2>השוואה לסבבים הקודמים</h2>
     <div class="bottom-line">
-      ריצה קודמת (אותו יום) בוצעה תחת נוסח-פרומפט פחות-מדויק והפרה שתי מגבלות-ריצה
-      (כלי-ניתוח הותקנו מחוץ לסביבה מבודדת; test_requests.py רץ עם קריאות-רשת אמיתיות).
-      הדוח ותוכנית-התיקונים מאותה ריצה נמחקו לבקשת המשתמש; הריצה הנוכחית תיקנה את שתי החריגות
-      ומחליפה אותם במלואם. ממצאי Stage 0 (מיפוי-קוד) נשארו ללא שינוי — הקוד לא השתנה בין הריצות.
+      זהו הסבב הרביעי של המחזור. המשתמש מילא וסימן את 28 הממצאים המקוריים ב-<b>findings_form.html</b>;
+      ההחלטות בוצעו ב-<b>Stage 6</b> (תיקוני-קוד F-011/012/014/015/016/019, תיקון-בדיקה ל-F-013 שהתגלה
+      כ-false-positive, ביקורת ASVS-L1 פורמלית חדשה, ו-mock-layer ל-F-022). סבב 4 הזה היה סבב-<b>אימות</b>
+      (לא מיפוי-מחדש — אין פיצ'רים חדשים/משטח-תקיפה חדש מאז Stage 6): אימת כל תיקון מול git diff בפועל,
+      הריץ ניתוח-סטטי מלא והשווה מדויק מול בייסליין-הסבב-הקודם, ובדק flakiness על הרגרסיה (8+ ריצות).
+      מצא 2 ממצאים חדשים (F-029/F-030, ר' למטה) — שניהם בכלי-הבדיקה, לא בקוד production.
     </div>
   </section>
 
   <section>
     <h2>הצעד הבא</h2>
     <div class="nextstep">
-      נא לסמן את הקובץ <b>findings.xlsx</b> (או למלא את <b>findings_form.html</b> ולהוריד JSON) —
-      28 ממצאים ממתינים להחלטה, ו-{nq} שאלות פתוחות. לאחר שהתשובות יוחזרו, תיבנה תוכנית-עבודה
-      לתיקון (Stage 6) להמתנה-לאישור נוסף.
+      נותרו <b>{n_open} ממצאים פתוחים בלבד</b> ({open_ids_str}) — כולם accepted-risk/נדחה-מפורש/חלקי-באישור,
+      לא ממצאים שלא טופלו מחדל. ניתן למלא עדכון ב-<b>findings_form.html</b> (שומר JSON) או ב-<b>findings.xlsx</b>
+      אם יש החלטה חדשה על מי מהם — אחרת, אין פעולה נדרשת כרגע.
     </div>
   </section>
 
@@ -215,6 +228,7 @@ quality_rows_html = "\n".join(
 target_html = "\n".join(f"<li>{esc(line)}</li>" for line in target_lines)
 not_tested_html = "\n".join(f"<li>{esc(line)}</li>" for line in not_tested_lines)
 
+open_ids_str = ", ".join(f["id"] for f in open_findings) if open_findings else "—"
 final_html = HTML.format(
     warnings_html=warnings_html,
     severity_rows_html=severity_rows_html,
@@ -224,6 +238,11 @@ final_html = HTML.format(
     target_html=target_html,
     not_tested_html=not_tested_html,
     nq=len(OPEN_QUESTIONS),
+    n_resolved=len(resolved_findings),
+    n_moot=len(moot_findings),
+    n_open=len(open_findings),
+    n_open_legal=len(open_legal_findings),
+    open_ids_str=open_ids_str,
 )
 
 with open(OUT, "w", encoding="utf-8") as f:

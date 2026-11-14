@@ -903,7 +903,9 @@ class MapState extends ChangeNotifier {
     final key = '${toolKey}_stations';
     final list = (prefs.getStringList(key) ?? []).map((s) => jsonDecode(s) as Map<String, dynamic>).toList();
     list.removeWhere((s) => s['name'] == name); // מחליף עמדה קודמת באותו שם, לא יוצר כפילות
-    list.add({'name': name, 'params': params});
+    // _schema_version: מזהה-גרסת-פורמט (F-018) — רשומות ישנות בלי השדה נטענות כ-v1 מראש (קוד-הטעינה קורא רק את 'params',
+    // לא נוגע בשדה הזה), כדי לאפשר מיגרציה-עתידית מבוקרת אם מבנה-ה-params ישתנה
+    list.add({'name': name, 'params': params, '_schema_version': 1});
     if (list.length > _maxStationsPerTool) list.removeAt(0); // חרג מהתקרה — מוחק את הישנה ביותר
     await prefs.setStringList(key, list.map((s) => jsonEncode(s)).toList());
   }

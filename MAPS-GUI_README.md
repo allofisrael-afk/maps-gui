@@ -1,5 +1,5 @@
 # מפה אינטראקטיבית — תיעוד מלא
-**תאריך עדכון:** 12/11/2026 | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
+**תאריך עדכון:** 14/11/2026 | **פרויקט:** maps-gui | **מיקום:** `d:\PY-IS\maps-gui`
 
 זהו תיעוד **טכני** (ל-Claude/מפתחים). למדריך תפעולי למשתמש-קצה של אפליקציית ה-Android, ר' `מדריך-הפעלה-Android.md`.
 
@@ -317,6 +317,24 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 ---
 
 ## 11. היסטוריית שינויים עיקריים
+
+### Stage 7 — תוכנית-עבודה חדשה לפי מילוי-תשובות על 30 ממצאים (14/11/2026)
+
+המשתמש מילא טופס-תשובות **חדש** (לא חזרה על Stage 6) שמכריע על כל 30 הממצאים שנותרו אחרי סבב-האימות ("ריצה 4"). ההכרעה המשמעותית-ביותר: **יעד-נגישות WCAG 2.x AA הורחב במפורש ל-Android וגם Desktop** (לא רק Web, שכבר ירד לגמרי) — הופך כמה ממצאים שנדחו-במפורש ב-Stage 6 (F-021/F-023/F-024/F-026/F-027) לעבודה מאושרת. F-017 (except רחב) אושר בעדיפות-1-דחוף. Q-6 התהפכה: `.qa/tests/`→`tests/` הרגיל. שני ממצאים (F-006/F-009) שסומנו "לדיון" הוסברו למשתמש בתוכנית ונסגרו-ללא-פעולה לפי הסכמה. התוכנית המלאה בוצעה ע"י 4 forks מקבילים.
+
+**F-017 (עדיפות-1-דחוף של המשתמש, `weather_server.py`+`web/api/weather.py`)**: 9 מופעי `except Exception:` גנרי צומצמו לסוגי-שגיאה ספציפיים (`requests.RequestException`/`ValueError`/`KeyError`/`IndexError`/`OSError`/`csv.Error`/`json.JSONDecodeError` לפי המקרה) — **היקף ממוקד בכוונה**, לא כל ~60 המופעים בפרויקט, רק mpm_api.py+routes. 10 אתרים אחרים (גבול-bridge ל-Android, 3 background-job safety-nets, כל קריאות-FlightRadar24API) נשארו catch-all מוצדק — נבדקו-ואומתו פרטנית. **אומת**: רגרסיה+37 mock-tests נשארו ירוק-מלא (היפוך-לאדום היה הסימן ל"צמצום-שגוי" — לא קרה), bandit נקי.
+
+**תיקוני-תיעוד/schema טריוויאליים**: `MAP.py` docstring תוקן ("CartoDB Dark Matter"→"topo"). `asvs_l1_desktop_compliance.md`'s V13.4.1 ראיה נוסחה-מדויק (המסקנה לא השתנתה). `run_regression.py` קיבל `timeout=120` עם טיפול-TimeoutExpired נכון. `weather_server.py`'s `/stations/save` קיבל `"_schema_version": 1` (אומת חי ב-round-trip אמיתי).
+
+**Android (`maps-gui-android-src/lib/`)**: `map_state.dart`'s `saveStation()` — schema-version לכל 5 הכלים. `map_screen.dart` — התראת-אחסון-לא-מוצפן (widget משותף, 3 פאנלים); **טרגטי-מגע ≥44×44 (WCAG 2.5.5)** על 5 כפתורי-סרגל, undo/redo, 5+ toggle-עגולים, **11 כפתורי-X** (החורג-הכי-חמור, 13-16px), כל שורות save/load/delete, 3 ידיות-גרירה — padding/hit-box בלבד, 0 שינוי ויזואלי; **18 עטיפות `Semantics`** נוספו לכל מה שהיה בלי שם-סמנטי. `controls_panel.dart`/`ballistics_panel.dart` — אותו טיפול. אומת: `flutter analyze` 0 אזהרות חדשות (32 ממצאים, כולם אותרו-פרטנית לקוד-לא-נוגע). לא בוצעה מדידה-ויזואלית-חיה (אין אמולטור זמין) — מגבלה מתועדת כרגיל בפרויקט הזה.
+
+**Desktop (`main.py`+`MAP.py`)**: ~23 `setAccessibleName()` לווידג'טים נייטיביים של Qt (אומת חי, `.accessibleName()` על 10 ווידג'טים מייצגים). 12 מתוך 16 בקרות-Leaflet קיבלו `role`/`aria-label` (54 aria-label, 29 role="button" בפועל ב-DOM, אומת חי; 4 בקרות-Web-בלבד דולגו-בכוונה). **⚠️ מגבלה אמיתית ומתועדת** (אומתה מול דיווחי-באג רשמיים של Qt, לא הונחה): ה-accessibility-bridge של QtWebEngine לקוראי-מסך (NVDA/Narrator) ידוע-כבעייתי ב-framework-עצמו — חלק-ה-Leaflet-ARIA מתועד כ-"יושם, לא-מאומת מול קורא-מסך אמיתי", לא כ-"עומד". מומלץ מעבר-בדיקה ידני לפני הצהרת-עמידה.
+
+**Q-6 — העברת כל חבילת-הבדיקות**: `tests/` הראשית מכילה כעת גם `run_regression.py`+4 בדיקות-שחזור+`test_requests_mocked.py` (הועברו מ-`.qa/tests/`, שלא קיים יותר). כל פקודת-הרצה מעכשיו היא `python tests/run_regression.py` וכו' — לא `.qa/tests/...`.
+
+**F-023/F-024/F-028 (כלי-QA/מחקר)**: Mutation testing על `mpm/` — חלקי (רק `atmosphere.py`, תקציב-זמן לא הספיק לכל 2056 המוטנטים), 7 שורדים אמיתיים נמצאו (4 קבועים-פיזיקליים + 2 גבול-טרופופאוזה) עם הצעת-תיקון קונקרטית. תקרית-בטיחות (timeout חיצוני פגע ב-mutmut) נמצאה-ותוקנה תוך-כדי, `mpm/` אומת-נקי. SBOM (CycloneDX) הופק לשני requirements.txt. דוח-רישוי FlightRadar24API: החבילה MIT, אך ToS-של-FR24-עצמם אוסר scraping — accepted-risk בהקשר הפצה-מוגבלת.
+
+**0 git commit/push** — לפי מדיניות-הפרויקט. ר' `MAPS-GUI_SRS.md` FR-D-245 עד FR-D-251.
 
 ### Stage 6 — תיקון לפי ממצאי מחזור ה-QA/אבטחה המלא (11-12/11/2026)
 

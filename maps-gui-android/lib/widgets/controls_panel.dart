@@ -33,7 +33,7 @@ class _ActionBtn extends StatelessWidget {
       backgroundColor: active ? cs.primaryContainer : null,
       foregroundColor: active ? cs.onPrimaryContainer : null,
       visualDensity: VisualDensity.compact,
-      minimumSize: const Size.fromHeight(36),
+      minimumSize: const Size.fromHeight(44), // F-026: שטח-מגע ≥44 (WCAG 2.5.5)
     ),
   );
 }
@@ -104,7 +104,7 @@ class _FlightSearchState extends State<_FlightSearch> {
             onPressed: state.flightLoading ? null : _search,
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              minimumSize: const Size(48, 36),
+              minimumSize: const Size(48, 44), // F-026: שטח-מגע ≥44 (WCAG 2.5.5)
               padding: EdgeInsets.zero,
             ),
             child: state.flightLoading
@@ -208,7 +208,7 @@ class _LocationSectionState extends State<_LocationSection> {
               ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.my_location, size: 16),
           label: Text(state.locationLoading ? 'מאתר...' : 'מיקום עצמי', style: const TextStyle(fontSize: 12)),
-          style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(36)),
+          style: FilledButton.styleFrom(visualDensity: VisualDensity.compact, minimumSize: const Size.fromHeight(44)), // F-026
         ),
         if (state.locationError != null)
           Padding(
@@ -299,7 +299,7 @@ class _LocationSectionState extends State<_LocationSection> {
             onPressed: state.citySearchLoading ? null : () => _searchCity(),
             style: FilledButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              minimumSize: const Size(48, 36),
+              minimumSize: const Size(48, 44), // F-026: שטח-מגע ≥44 (WCAG 2.5.5)
               padding: EdgeInsets.zero,
             ),
             child: state.citySearchLoading

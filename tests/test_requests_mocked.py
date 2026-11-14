@@ -13,7 +13,7 @@ flight_server.py — אבל נתב ב-process דרך app.test_client() של Flas
 נוספת (_block_real_sockets) חוסמת כל ניסיון חיבור-socket אמיתי במהלך כל הריצה — כך שאפילו
 אם מוק כלשהו "התפספס", הבדיקה תיכשל בצורה רועשת במקום לשלוח בקשה אמיתית בפועל.
 
-הרצה: python .qa/tests/test_requests_mocked.py  — מתוך שורש הפרויקט, עם ה-.venv הראשי
+הרצה: python tests/test_requests_mocked.py  — מתוך שורש הפרויקט, עם ה-.venv הראשי
 (לא .qa/.venv!) מופעל, כי צריך את התלויות האמיתיות של הפרויקט (flask, requests, FlightRadar24 וכו').
 
 הערה: LOAD_TEST_CASES (בדיקות-עומס מקבילות) לא נכללות כאן בכוונה — הן בודקות concurrency
@@ -29,7 +29,7 @@ from unittest import mock
 import requests
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(_TESTS_DIR))  # .qa/tests -> .qa -> שורש הפרויקט
+_PROJECT_ROOT = os.path.dirname(_TESTS_DIR)  # Q-6 (14/11/2026): tests/ -> שורש הפרויקט (רמה אחת, לא שתיים כמו ב-.qa/tests/ הישן)
 sys.path.insert(0, _PROJECT_ROOT)  # כדי לייבא geo_server/weather_server/flight_server/test_requests/ports מהשורש
 
 

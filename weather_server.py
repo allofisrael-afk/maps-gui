@@ -60,7 +60,7 @@ def geocode_region_nominatim(region):
             boundary["rings"] = rings
 
         return lat, lon, boundary
-    except Exception as e:
+    except (requests.RequestException, ValueError, KeyError, IndexError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         logging.error(f"שגיאה בגיאוקודינג דרך Nominatim: {e}")
         return None, None, None
 
@@ -82,7 +82,7 @@ def _extract_boundary_rings(geojson):
                 for ring in polygon:
                     rings.append([[pt[1], pt[0]] for pt in ring])
             return rings
-    except Exception:
+    except (KeyError, TypeError, IndexError):  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         pass
     return []
 
@@ -153,7 +153,7 @@ def get_weather():
             logging.error(f"שגיאה בקבלת נתוני מזג האוויר: {data.get('message', 'שגיאה לא ידועה')}")
             return jsonify({"error": data.get("message", "Error fetching weather data")}), response.status_code
 
-    except Exception as e:
+    except (requests.RequestException, ValueError, KeyError, IndexError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         error_message = f"שגיאה בשרת: {e}"
         logging.error(error_message)  # רישום שגיאה
         return jsonify({"error": error_message}), 500
@@ -184,7 +184,7 @@ def get_heatmap_data():
             if data:
                 logging.info(f"heatmap_data: נטענו {len(data)} נקודות מ-{csv_path}")
                 return jsonify(data)
-        except Exception as e:
+        except (OSError, csv_module.Error) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
             logging.error(f"שגיאה בקריאת {csv_path}: {e}")
 
     # fallback — נתונים סטטיים כשאין CSV
@@ -247,7 +247,7 @@ def get_elevation():
             else:
                 logging.error(f"שגיאה בשליפת גבהים לאחר 3 ניסיונות: {e}")
                 return jsonify({"error": str(e)}), 500
-        except Exception as e:
+        except (requests.exceptions.HTTPError, ValueError, KeyError, IndexError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
             logging.error(f"שגיאה בשליפת גבהים: {e}")
             return jsonify({"error": str(e)}), 500
 
@@ -342,7 +342,7 @@ def get_temp_grid():
                 else:
                     logging.error(f"שגיאה בשליפת רשת טמפרטורות לאחר 3 ניסיונות: {e}")
                     return jsonify({"error": str(e)}), 500
-            except Exception as e:
+            except (requests.exceptions.HTTPError, ValueError, IndexError, TypeError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
                 logging.error(f"שגיאה בשליפת רשת טמפרטורות: {e}")
                 return jsonify({"error": str(e)}), 500
 
@@ -484,7 +484,7 @@ def _fetch_elevations(locations):
                 time.sleep(0.5 * (attempt + 1))  # 0.5/1 שנ' — כמו /elevation
             else:
                 return None, {'error': str(e)}
-        except Exception as e:
+        except (requests.exceptions.HTTPError, ValueError, KeyError, IndexError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
             return None, {'error': str(e)}
     return None, {'error': 'נכשל אחרי 3 ניסיונות'}
 
@@ -535,7 +535,7 @@ def line_of_sight():
         )
         r.raise_for_status()
         elevs = r.json().get('elevation', [])
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         return jsonify({'error': str(e)}), 500
 
     if len(elevs) < len(pts):
@@ -1643,7 +1643,7 @@ def _load_stations():
         with open(_STATIONS_FILE, encoding='utf-8') as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         logging.error(f"שגיאה בקריאת {_STATIONS_FILE}: {e}")
         return {}  # קובץ פגום — מתייחסים כאילו אין עמדות שמורות, לא קורסים
 
@@ -1682,7 +1682,8 @@ def save_station():
         data = _load_stations()
         tool_list = data.setdefault(tool, [])
         tool_list[:] = [s for s in tool_list if s.get('name') != name]  # מסיר עמדה קודמת באותו שם, אם קיימת — לא כפילות
-        tool_list.append({'name': name, 'params': params})
+        # F-018: _schema_version מאפשר מיגרציה עתידית של מבנה params בלי לשבור קבצים ישנים (שפשוט חסרים את המפתח, לא נכשלים)
+        tool_list.append({'name': name, '_schema_version': 1, 'params': params})
         if len(tool_list) > _STATIONS_MAX_PER_TOOL:  # חרג מהתקרה — מוחק את הישנה ביותר (הראשונה ברשימה)
             del tool_list[0]
         _save_stations(data)

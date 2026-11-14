@@ -317,12 +317,15 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
         color: cs.surface.withAlpha(230),
         shape: const CircleBorder(),
         elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: () => setState(() => _open = true),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(Icons.rocket_launch, size: 20, color: cs.onSurface),
+        child: Semantics(
+          label: 'פתח כלי מסלול בליסטי', // F-027
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => setState(() => _open = true),
+            child: Padding(
+              padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44 (היה 8, נותן 36x36)
+              child: Icon(Icons.rocket_launch, size: 20, color: cs.onSurface),
+            ),
           ),
         ),
       );
@@ -343,7 +346,16 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
                 const SizedBox(width: 4),
                 Text('מסלול בליסטי (MPM)', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: cs.onSurface)),
               ]),
-              InkWell(onTap: () => setState(() => _open = false), child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant)),
+              Semantics(
+                label: 'סגור כלי מסלול בליסטי', // F-027
+                child: InkWell(
+                  onTap: () => setState(() => _open = false),
+                  child: Padding(
+                    padding: const EdgeInsets.all(15), // F-026: שטח-מגע ≥44x44
+                    child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant),
+                  ),
+                ),
+              ),
             ]),
             Text('⚠ פגז generic_155 — להדגמה בלבד', style: TextStyle(fontSize: 8.5, color: cs.error)),
             _header('תותח'),

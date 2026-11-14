@@ -676,6 +676,7 @@
                     var btn = L.DomUtil.create('button', 'layer-btn', container);  // יצירת כפתור בתוך המיכל
                     btn.innerHTML  = layer.label;  // תווית הכפתור
                     btn.dataset.key = layer.key;   // שמירת המפתח כ-data attribute לשימוש בclickה
+                    btn.setAttribute('aria-label', 'שכבת בסיס: ' + layer.label.replace(/^[^\s]+\s/, ''));  // נגישות — הסרת אייקון-emoji מהתווית המוקראת (F-027, Q-1)
 
                     if (layer.key === 'topo') {
                         btn.classList.add('active');  // סימון ברירת המחדל כפעיל
@@ -712,10 +713,12 @@
                 _undoBtnEl = L.DomUtil.create('button', 'undo-redo-btn', container);
                 _undoBtnEl.innerHTML = '↶';           // חץ חזרה — Undo
                 _undoBtnEl.title = 'בטל פעולה (Ctrl+Z)';
+                _undoBtnEl.setAttribute('aria-label', 'בטל פעולה');  // נגישות (F-027, Q-1)
 
                 _redoBtnEl = L.DomUtil.create('button', 'undo-redo-btn', container);
                 _redoBtnEl.innerHTML = '↷';           // חץ קדימה — Redo
                 _redoBtnEl.title = 'בצע שוב (Ctrl+Y)';
+                _redoBtnEl.setAttribute('aria-label', 'בצע פעולה שוב');  // נגישות (F-027, Q-1)
 
                 // מניעת הגלשת לחיצות/גלילה למפה מאחורי הפקד
                 L.DomEvent.disableClickPropagation(container);
@@ -748,6 +751,7 @@
                     var d = L.DomUtil.create('div', '');
                     d.style.cssText = 'background:rgba(30,30,46,.82);color:#cdd6f4;padding:4px 8px;'
                         + 'border-radius:7px;font-size:11px;font-family:monospace;pointer-events:none;';
+                    d.setAttribute('role', 'status');  // נגישות — תצוגת-מידע בלבד, לא כפתור (F-027, Q-1)
                     this._d = d;
                     m.on('zoomend moveend', this._upd, this);
                     this._upd();
@@ -774,6 +778,7 @@
                         + 'border-left:2px solid #cdd6f4;border-right:2px solid #cdd6f4;'
                         + 'border-top:1px solid #cdd6f4;"></div>'
                         + '<span>' + kmTxt + ' / ' + nmTxt + '</span></div>';
+                    this._d.setAttribute('aria-label', 'קנה מידה: ' + kmTxt + ' / ' + nmTxt);  // נגישות — מתעדכן עם המפה (F-027, Q-1)
                 }
             });
             new ScaleBar().addTo(map);
@@ -1063,7 +1068,8 @@
         // יוצר div של מקרא הניתן לצמצום לסמל עגול קטן — משותף לשני מקראות השכבות (NOTAM/תיאום).
         // getExpanded/setExpanded הן פונקציות-גישה למשתנה הגלובלי הספציפי של המקרא הזה, כדי
         // שהמצב המורחב/מצומצם ישרוד ציור מחדש (redraw) של השכבה עצמה.
-        function _makeCollapsibleLegend(iconHtml, bodyHtml, getExpanded, setExpanded) {
+        function _makeCollapsibleLegend(iconHtml, bodyHtml, getExpanded, setExpanded, ariaLabel) {
+            // ariaLabel: נגישות (F-027, Q-1) — תווית-מקרא לקורא-מסך, מועברת ע"י כל קורא (NOTAM/תיאום-כטב"ם/CTR)
             var d = L.DomUtil.create('div', '');  // אלמנט ה-div שישמש את ה-Control של Leaflet
             L.DomEvent.disableClickPropagation(d);  // מונע ממחוות עכבר/מגע על המקרא להגיע גם למפה עצמה (כלים אחרים כמו סרגל/הצבת נקודה)
 
@@ -1077,12 +1083,21 @@
                         + '<div style="flex:1;">' + bodyHtml + '</div>'
                         + '<span class="_legendCollapseBtn" style="cursor:pointer;opacity:.65;font-size:13px;flex-shrink:0;">&#10005;</span>'
                         + '</div>';
+                    d.setAttribute('role', 'region');  // נגישות (F-027, Q-1) — מצב מורחב: אזור-תוכן, לא כפתור
+                    d.setAttribute('aria-label', ariaLabel || 'מקרא');
+                    var collapseBtn = d.querySelector('._legendCollapseBtn');  // כפתור ה-X בפועל במצב מורחב
+                    if (collapseBtn) {
+                        collapseBtn.setAttribute('role', 'button');
+                        collapseBtn.setAttribute('aria-label', 'סגור מקרא');
+                    }
                 } else {
                     // מצב מצומצם — עיגול קטן בלבד, לא חוסם את תצוגת המפה
                     d.style.cssText = 'background:rgba(30,30,46,.92);color:#cdd6f4;width:30px;height:30px;'
                         + 'border-radius:50%;border:1px solid #45475a;display:flex;align-items:center;'
                         + 'justify-content:center;font-size:15px;cursor:pointer;';
                     d.innerHTML = iconHtml;
+                    d.setAttribute('role', 'button');  // נגישות (F-027, Q-1) — מצב מצומצם: לחיצה מרחיבה את המקרא
+                    d.setAttribute('aria-label', ariaLabel || 'מקרא');
                 }
             }
 
@@ -1122,7 +1137,8 @@
                     + '<div style="color:#a6adc8;margin-top:4px;">אזור פעילות/הגבלה מוכרזת — להימנעות, לא לטיסה חופשית. לחץ על צורה לפרטים.</div>';
                 return _makeCollapsibleLegend('&#9992;', bodyHtml,  // סמל מטוס לעיגול המצומצם
                     function() { return notamLegendExpanded; },
-                    function(v) { notamLegendExpanded = v; });
+                    function(v) { notamLegendExpanded = v; },
+                    'מקרא אזורי פעילות טיסה NOTAM');  // נגישות (F-027, Q-1)
             }
         });
 
@@ -1271,7 +1287,8 @@
                     + '<div style="color:#a6adc8;">כל שימוש באזור מחייב תיאום ואישור מראש מיחידת הנת"א הרלוונטית — לא אזור חופשי לטיסה. לחץ על צורה לפרטים.</div>';
                 return _makeCollapsibleLegend('&#128737;', bodyHtml,  // סמל מגן לעיגול המצומצם
                     function() { return uasCoordLegendExpanded; },
-                    function(v) { uasCoordLegendExpanded = v; });
+                    function(v) { uasCoordLegendExpanded = v; },
+                    'מקרא אזורי תיאום כטבם');  // נגישות (F-027, Q-1)
             }
         });
 
@@ -1350,7 +1367,8 @@
                     + '<div style="color:#a6adc8;">גבול המרחב המבוקר הקבוע של השדה, ממקור AIP רשמי — לא נגזר מהודעות NOTAM. לחץ על צורה לפרטים.</div>';
                 return _makeCollapsibleLegend('&#128752;', bodyHtml,  // סמל מטוס-ממריא לעיגול המצומצם — שונה מסמל ה-NOTAM (&#9992;) כדי לא להתבלבל בין השכבות
                     function() { return airportCtrLegendExpanded; },
-                    function(v) { airportCtrLegendExpanded = v; });
+                    function(v) { airportCtrLegendExpanded = v; },
+                    'מקרא גבולות CTR שדות תעופה');  // נגישות (F-027, Q-1)
             }
         });
 
@@ -2331,23 +2349,31 @@
             var nameInput = L.DomUtil.create('input', '', row1);
             nameInput.type = 'text'; nameInput.placeholder = 'שם עמדה';
             nameInput.style.cssText = 'flex:1;font-size:10px;padding:2px 3px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-width:0;';
+            nameInput.setAttribute('aria-label', 'שם עמדה שמורה');  // נגישות — שדה עם placeholder בלבד (F-027, Q-1)
             var saveBtn = L.DomUtil.create('a', '', row1);
             saveBtn.href = '#'; saveBtn.title = 'שמור עמדה נוכחית תחת השם שהוזן';
             saveBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
             saveBtn.innerHTML = '&#128190;';  // 💾
+            saveBtn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+            saveBtn.setAttribute('aria-label', 'שמור עמדה נוכחית תחת השם שהוזן');
 
             var row2 = L.DomUtil.create('div', '', parentEl);
             row2.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
             var stationSelect = L.DomUtil.create('select', '', row2);
             stationSelect.style.cssText = 'flex:1;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-width:0;';
+            stationSelect.setAttribute('aria-label', 'עמדה שמורה לטעינה/מחיקה');  // נגישות (F-027, Q-1)
             var loadBtn = L.DomUtil.create('a', '', row2);
             loadBtn.href = '#'; loadBtn.title = 'טען עמדה נבחרת';
             loadBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
             loadBtn.innerHTML = '&#128194;';  // 📂
+            loadBtn.setAttribute('role', 'button');  // נגישות (F-027, Q-1)
+            loadBtn.setAttribute('aria-label', 'טען עמדה נבחרת');
             var delBtn = L.DomUtil.create('a', '', row2);
             delBtn.href = '#'; delBtn.title = 'מחק עמדה נבחרת';
             delBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
             delBtn.innerHTML = '&#128465;';  // 🗑
+            delBtn.setAttribute('role', 'button');  // נגישות (F-027, Q-1)
+            delBtn.setAttribute('aria-label', 'מחק עמדה נבחרת');
 
             function _refreshList() {
                 fetch('http://localhost:5002/stations/list?tool=' + toolKey)
@@ -2450,6 +2476,8 @@
                     'width:28px;height:28px;font-size:15px;background:white;color:#333;text-decoration:none;' +
                     'border-radius:4px;cursor:pointer;flex-shrink:0;opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה (map.whenReady, בהמשך)
                 btn.innerHTML = '&#128065;';  // קוד Unicode לאייקון 👁
+                btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+                btn.setAttribute('aria-label', 'כלי קו ראייה');
                 _losBtnEl = btn;              // שמירת הפניה לשינוי צבע ב-toggleLos
                 // stopPropagation — מניעת הגעת הלחיצה ל-map.on('click') שהייתה בוחרת נקודת LOS
                 L.DomEvent.on(btn, 'click', function(e) {
@@ -2784,6 +2812,8 @@
                     'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
                     'opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה (map.whenReady, בהמשך)
                 btn.innerHTML = '&#128225;';  // 📡 — שונה מ-👁 של כלי קו-הראייה הרגיל
+                btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+                btn.setAttribute('aria-label', 'כלי רדיוס ראייה רדיאלי');
                 _radialLosBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
@@ -2840,11 +2870,13 @@
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
+                runBtn.setAttribute('aria-label', 'הפעל חישוב רדיוס ראייה רדיאלי');  // נגישות — מבדיל מכפתורי "הפעל חישוב" של כלים אחרים (F-027, Q-1)
                 runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
                 L.DomEvent.on(runBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _runRadialLos(); });
 
                 var cancelBtn = L.DomUtil.create('button', '', panelBody);
                 cancelBtn.textContent = 'בטל';
+                cancelBtn.setAttribute('aria-label', 'בטל חישוב רדיוס ראייה רדיאלי');  // נגישות (F-027, Q-1)
                 cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
                 L.DomEvent.on(cancelBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _cancelRadialLos(); });
                 _radialCancelBtnEl = cancelBtn;
@@ -3373,6 +3405,8 @@
                     'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
                     'opacity:0.4;pointer-events:none;';  // מנוטרל עד שהמפה מוכנה
                 btn.innerHTML = '&#127919;';  // 🎯 — שונה מ-📡 של רדיוס-הראייה ומ-👁 של קו-הראייה
+                btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+                btn.setAttribute('aria-label', 'כלי תצפית מכם דופלר');
                 _radarBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
@@ -3507,11 +3541,13 @@
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
+                runBtn.setAttribute('aria-label', 'הפעל חישוב תצפית מכם דופלר');  // נגישות — מבדיל מכפתורי "הפעל חישוב" של כלים אחרים (F-027, Q-1)
                 runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#22d3ee;cursor:pointer;margin-top:3px;';
                 L.DomEvent.on(runBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _runRadarDoppler(); });
 
                 var cancelBtn = L.DomUtil.create('button', '', panelBody);
                 cancelBtn.textContent = 'בטל';
+                cancelBtn.setAttribute('aria-label', 'בטל חישוב תצפית מכם דופלר');  // נגישות (F-027, Q-1)
                 cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
                 L.DomEvent.on(cancelBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _cancelRadarDoppler(); });
                 _radarCancelBtnEl = cancelBtn;
@@ -3748,6 +3784,7 @@
                 altInput.type = 'number'; altInput.placeholder = 'גובה (מ\')';
                 altInput.value = (p.alt !== null && p.alt !== undefined) ? p.alt : '';
                 altInput.style.cssText = 'width:55px;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';
+                altInput.setAttribute('aria-label', 'גובה נקודה ' + (i + 1));  // נגישות — placeholder בלבד, לכל נקודה בנפרד (F-027, Q-1)
                 L.DomEvent.on(altInput, 'change', function() {
                     var v = parseFloat(altInput.value);
                     customRoutePoints[i].alt = isNaN(v) ? null : v;  // עדכון גובה ידני לנקודה — לא גורר ציור מחדש (רק המספר משתנה)
@@ -3755,6 +3792,8 @@
                 var delBtn = L.DomUtil.create('a', '', row);
                 delBtn.href = '#'; delBtn.innerHTML = '&#10005;'; delBtn.title = 'הסר נקודה זו';
                 delBtn.style.cssText = 'flex-shrink:0;cursor:pointer;color:#e74c3c;font-size:11px;';
+                delBtn.setAttribute('role', 'button');  // נגישות (F-027, Q-1)
+                delBtn.setAttribute('aria-label', 'הסר נקודה ' + (i + 1));
                 L.DomEvent.on(delBtn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
                     customRoutePoints.splice(i, 1);
@@ -3840,6 +3879,8 @@
                 btn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:26px;height:26px;' +
                     'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;';
                 btn.innerHTML = '&#129517;';  // 🧭 מצפן — אייקון ייחודי, לא בשימוש בשום כלי אחר בפרויקט
+                btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+                btn.setAttribute('aria-label', 'כלי מסלול טיסה מותאם');
                 _customRouteBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
@@ -3857,6 +3898,7 @@
                 var textarea = L.DomUtil.create('textarea', '', panelBody);
                 textarea.rows = 3; textarea.placeholder = 'N3127.551 E3359.569';
                 textarea.style.cssText = 'font-size:10px;padding:3px;border:1px solid #ccc;border-radius:3px;direction:ltr;resize:vertical;';
+                textarea.setAttribute('aria-label', 'נקודות מסלול, שורה אחת לכל נקודה');  // נגישות — placeholder בלבד (F-027, Q-1)
 
                 var addFromTextBtn = L.DomUtil.create('button', '', panelBody);
                 addFromTextBtn.textContent = 'הוסף מטקסט';
@@ -3926,9 +3968,11 @@
                 var nameInput = L.DomUtil.create('input', '', saveRow);
                 nameInput.type = 'text'; nameInput.placeholder = 'שם מסלול';
                 nameInput.style.cssText = 'flex:1;font-size:10px;padding:2px 3px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-width:0;';
+                nameInput.setAttribute('aria-label', 'שם מסלול שמור');  // נגישות — placeholder בלבד (F-027, Q-1)
                 var saveBtn = L.DomUtil.create('a', '', saveRow);
                 saveBtn.href = '#'; saveBtn.title = 'שמור מסלול נוכחי תחת השם שהוזן'; saveBtn.innerHTML = '&#128190;';
                 saveBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                saveBtn.setAttribute('role', 'button'); saveBtn.setAttribute('aria-label', 'שמור מסלול נוכחי תחת השם שהוזן');  // נגישות (F-027, Q-1)
                 L.DomEvent.on(saveBtn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
                     var name = nameInput.value.trim();
@@ -3951,10 +3995,12 @@
                 loadRow.style.cssText = 'display:flex;align-items:center;gap:3px;margin-top:2px;';
                 var routeSelect = L.DomUtil.create('select', '', loadRow);
                 routeSelect.style.cssText = 'flex:1;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-width:0;';
+                routeSelect.setAttribute('aria-label', 'מסלול שמור לטעינה/מחיקה');  // נגישות (F-027, Q-1)
                 _customRouteSelect = routeSelect;
                 var loadBtn = L.DomUtil.create('a', '', loadRow);
                 loadBtn.href = '#'; loadBtn.title = 'טען מסלול נבחר'; loadBtn.innerHTML = '&#128194;';
                 loadBtn.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                loadBtn.setAttribute('role', 'button'); loadBtn.setAttribute('aria-label', 'טען מסלול נבחר');  // נגישות (F-027, Q-1)
                 L.DomEvent.on(loadBtn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
                     var name = routeSelect.value;
@@ -3969,6 +4015,7 @@
                 var delBtn2 = L.DomUtil.create('a', '', loadRow);
                 delBtn2.href = '#'; delBtn2.title = 'מחק מסלול נבחר'; delBtn2.innerHTML = '&#128465;';
                 delBtn2.style.cssText = 'flex-shrink:0;cursor:pointer;font-size:13px;';
+                delBtn2.setAttribute('role', 'button'); delBtn2.setAttribute('aria-label', 'מחק מסלול נבחר');  // נגישות (F-027, Q-1)
                 L.DomEvent.on(delBtn2, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
                     var name = routeSelect.value;
@@ -4519,6 +4566,8 @@
                     'font-size:14px;background:white;color:#333;text-decoration:none;border-radius:4px;cursor:pointer;flex-shrink:0;' +
                     'opacity:0.4;pointer-events:none;';
                 btn.innerHTML = '&#128165;';  // 💥 — לא חופף לאייקוני הכלים האחרים (👁📡🎯🧭)
+                btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
+                btn.setAttribute('aria-label', 'כלי מסלול בליסטי');
                 _ballisticsBtnEl = btn;
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
@@ -4787,6 +4836,9 @@
                 var header = L.DomUtil.create('div', '', d);
                 header.style.cssText = 'font-weight:bold;';
                 header.innerHTML = '&#8505; כלל טיסת VLOS';
+                d.setAttribute('role', 'button');  // נגישות — div לחיץ-להרחבה, לא כפתור native (F-027, Q-1)
+                d.setAttribute('aria-label', 'הסבר כלל טיסת VLOS, לחץ להרחבה');
+                d.setAttribute('aria-expanded', 'false');
                 var body = L.DomUtil.create('div', '', d);
                 body.style.cssText = 'display:none;color:#a6adc8;margin-top:5px;white-space:pre-line;';
                 body.textContent =
@@ -4802,7 +4854,9 @@
                     'פנים ארצי, פרק ב\'-09.';
                 L.DomEvent.on(d, 'click', function(e) {
                     L.DomEvent.stopPropagation(e);
-                    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+                    var nowExpanded = body.style.display === 'none';  // המצב *אחרי* הלחיצה הזו
+                    body.style.display = nowExpanded ? 'block' : 'none';
+                    d.setAttribute('aria-expanded', nowExpanded ? 'true' : 'false');  // נגישות (F-027, Q-1)
                 });
                 L.DomEvent.disableClickPropagation(d);
                 return d;

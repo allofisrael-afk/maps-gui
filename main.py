@@ -1043,6 +1043,7 @@ class MapApp(QMainWindow):
         lbl_version = QLabel(f"V{APP_VERSION}")  # תג גרסה — מקור: קובץ VERSION בשורש הפרויקט
         lbl_version.setObjectName("versionLabel")  # שם לעיצוב QSS — עמום יותר מ-sectionLabel
         lbl_version.setToolTip("גרסת האפליקציה (Desktop) — זהה לגרסה המוצגת באנדרואיד כשהבנייה מסונכרנת")
+        lbl_version.setAccessibleName("גרסת האפליקציה")  # נגישות: accessibleName עבור קוראי-מסך (F-027, Q-1)
         servers_header_row.addWidget(lbl_version)
         servers_header_row.addStretch()  # דוחף את הכותרת+התג שמאלה, לא נמתחים לרוחב הפאנל
         top_layout.addLayout(servers_header_row)
@@ -1052,6 +1053,7 @@ class MapApp(QMainWindow):
         self.manage_servers_button = QPushButton("הפעל שרתים")  # כפתור הפעלה/עצירת שרתים
         self.manage_servers_button.setFixedSize(140, 34)  # גודל עקבי עם שאר הכפתורים
         self.manage_servers_button.setToolTip("הפעל / עצור את GeoServer ו-WeatherServer")  # tooltip מסביר תפקיד
+        self.manage_servers_button.setAccessibleName("הפעל / עצור את GeoServer ו-WeatherServer")  # נגישות (F-027, Q-1)
         self.manage_servers_button.clicked.connect(self.toggle_servers)  # חיבור לפונקציה המנהלת הפעלה/עצירה
         servers_row.addWidget(self.manage_servers_button)
 
@@ -1059,9 +1061,11 @@ class MapApp(QMainWindow):
         self.geo_status_dot = QLabel("⬤")  # נורת סטטוס GeoServer — ⬤ מעוצב ב-QSS
         self.geo_status_dot.setToolTip("GeoServer")  # tooltip מזהה את השרת
         self.geo_status_dot.setObjectName("dotOff")  # צבע ברירת מחדל: כבוי (QSS)
+        self.geo_status_dot.setAccessibleName("מחוון סטטוס GeoServer: כבוי")  # נגישות — מתעדכן גם ב-toggle_servers (F-027, Q-1)
         self.weather_status_dot = QLabel("⬤")  # נורת סטטוס WeatherServer
         self.weather_status_dot.setToolTip("WeatherServer")  # tooltip מזהה את השרת
         self.weather_status_dot.setObjectName("dotOff")  # צבע ברירת מחדל: כבוי
+        self.weather_status_dot.setAccessibleName("מחוון סטטוס WeatherServer: כבוי")  # נגישות — מתעדכן גם ב-toggle_servers (F-027, Q-1)
         status_col.addWidget(self.geo_status_dot)
         status_col.addWidget(self.weather_status_dot)
         servers_row.addLayout(status_col)
@@ -1070,6 +1074,7 @@ class MapApp(QMainWindow):
         self.dashboard_button = QPushButton("📊 דשבורד תהליכים")  # פותח חלון מעקב חי אחר תהליכי השרתים
         self.dashboard_button.setFixedSize(140, 34)  # גודל עקבי עם שאר הכפתורים
         self.dashboard_button.setToolTip("מעקב חי: סטטוס תהליכים, CPU/זיכרון, מטריקות API ויומן")  # tooltip
+        self.dashboard_button.setAccessibleName("מעקב חי: סטטוס תהליכים, CPU/זיכרון, מטריקות API ויומן")  # נגישות (F-027, Q-1)
         self.dashboard_button.clicked.connect(self.open_process_dashboard)  # חיבור לפתיחת הדשבורד
         top_layout.addWidget(self.dashboard_button)
 
@@ -1087,6 +1092,7 @@ class MapApp(QMainWindow):
         self.load_map_button.setFixedSize(140, 34)  # גודל עקבי
         self.load_map_button.setEnabled(False)  # נעול עד להפעלת השרתים
         self.load_map_button.setToolTip("יצירת מפה חדשה או איפוס המפה הנוכחית")  # tooltip
+        self.load_map_button.setAccessibleName("יצירת מפה חדשה או איפוס המפה הנוכחית")  # נגישות (F-027, Q-1)
         self.load_map_button.clicked.connect(self.create_map_from_file)  # חיבור לפונקציית יצירת המפה
         top_layout.addWidget(self.load_map_button)
 
@@ -1094,6 +1100,7 @@ class MapApp(QMainWindow):
         self.home_button = QPushButton("ישראל")  # חזרה למרכז המפה מעל ישראל
         self.home_button.setFixedSize(140, 34)  # רוחב מלא לאחר הוצאת "נקה סמנים" לאזור המפה
         self.home_button.setToolTip("מרכז את המפה מעל ישראל")  # tooltip
+        self.home_button.setAccessibleName("מרכז את המפה מעל ישראל")  # נגישות (F-027, Q-1)
         self.home_button.setEnabled(False)  # נעול עד ליצירת מפה
         self.home_button.clicked.connect(self.center_map_israel)  # חיבור לפונקציית מרכוז
         top_layout.addWidget(self.home_button)
@@ -1102,6 +1109,7 @@ class MapApp(QMainWindow):
         self.clear_markers_button = QPushButton("נקה סמנים")
         self.clear_markers_button.setFixedHeight(36)
         self.clear_markers_button.setToolTip("מחיקת כל הסמנים וה-InfoWindows מהמפה")
+        self.clear_markers_button.setAccessibleName("מחיקת כל הסמנים וה-InfoWindows מהמפה")  # נגישות (F-027, Q-1)
         self.clear_markers_button.setEnabled(False)
         self.clear_markers_button.clicked.connect(self.clear_map_markers)
 
@@ -1118,6 +1126,7 @@ class MapApp(QMainWindow):
         self.Find_a_location = QPushButton("דקור נ.צ")  # כפתור להצגת/הסתרת שדות הקלט
         self.Find_a_location.setFixedSize(140, 34)  # גודל עקבי
         self.Find_a_location.setToolTip("הזן קואורדינטות או שם עיר כדי לדקור נקודה על המפה")  # tooltip
+        self.Find_a_location.setAccessibleName("הזן קואורדינטות או שם עיר כדי לדקור נקודה על המפה")  # נגישות (F-027, Q-1)
         self.Find_a_location.setEnabled(False)  # נעול עד ליצירת מפה
         self.Find_a_location.clicked.connect(self.toggle_lat_lon_inputs)  # חיבור להצגת/הסתרת שדות
         top_layout.addWidget(self.Find_a_location)
@@ -1184,6 +1193,7 @@ class MapApp(QMainWindow):
         self.heatmap_button.setEnabled(False)  # נעול עד ליצירת מפה
         self.heatmap_button.setCheckable(True)  # מצב דו-כיווני: לחיצה ראשונה מפעילה בחירה, שנייה מוחקת
         self.heatmap_button.setToolTip("לחץ ואז גרור על המפה לבחירת אזור — שכבת חום טמפרטורה ברזולוציה 5 ק\"מ")
+        self.heatmap_button.setAccessibleName("שכבת חום טמפרטורה — לחץ ואז גרור על המפה לבחירת אזור")  # נגישות (F-027, Q-1)
         self.heatmap_button.clicked.connect(self.toggle_heatmap)  # חיבור לפונקציית toggle ב-JavaScript
         top_layout.addWidget(self.heatmap_button)
 
@@ -1196,6 +1206,7 @@ class MapApp(QMainWindow):
         self.opacity_slider.setValue(60)  # ערך ברירת מחדל: 60%
         self.opacity_slider.setEnabled(False)  # נעול עד להפעלת מפת החום
         self.opacity_slider.setToolTip("שליטה בשקיפות שכבת מפת החום")  # tooltip
+        self.opacity_slider.setAccessibleName("שקיפות שכבת מפת החום")  # נגישות — אין תווית מחוברת, slider בלבד (F-027, Q-1)
         self.opacity_slider.valueChanged.connect(self.update_heatmap_opacity)  # שולח opacity ל-JS בכל שינוי
         opacity_row.addWidget(opacity_lbl)
         opacity_row.addWidget(self.opacity_slider)
@@ -1230,12 +1241,14 @@ class MapApp(QMainWindow):
         self.heatmap_pick_button.setFixedSize(90, 30)
         self.heatmap_pick_button.setEnabled(False)
         self.heatmap_pick_button.setToolTip("לחץ על המפה כדי להוסיף נקודות חום ידנית")
+        self.heatmap_pick_button.setAccessibleName("בחר נקודות חום — לחץ על המפה כדי להוסיף ידנית")  # נגישות (F-027, Q-1)
         self.heatmap_pick_button.setCheckable(True)
         self.heatmap_pick_button.clicked.connect(self.toggle_heatmap_picker)
         self.heatmap_clear_points_button = QPushButton("נקה")
         self.heatmap_clear_points_button.setFixedSize(44, 30)
         self.heatmap_clear_points_button.setEnabled(False)
         self.heatmap_clear_points_button.setToolTip("נקה את כל נקודות החום שנבחרו")
+        self.heatmap_clear_points_button.setAccessibleName("נקה את כל נקודות החום שנבחרו")  # נגישות — מבדיל מכפתורי "נקה" אחרים (F-027, Q-1)
         self.heatmap_clear_points_button.clicked.connect(self.clear_heatmap_points)
         heat_pick_row.addWidget(self.heatmap_pick_button)
         heat_pick_row.addWidget(self.heatmap_clear_points_button)
@@ -1246,6 +1259,7 @@ class MapApp(QMainWindow):
         self.elevation_button.setEnabled(False)  # נעול עד ליצירת מפה — אין טעם לטעון גבהים ללא מפה
         self.elevation_button.setCheckable(True)  # כפתור דו-מצבי: לחיצה ראשונה מפעילה, שנייה מכבה
         self.elevation_button.setToolTip("לחץ ואז גרור על המפה לבחירת אזור — כחול=נמוך, אדום=גבוה")  # הסבר ל-tooltip בריחוף
+        self.elevation_button.setAccessibleName("שכבת גבהים — לחץ ואז גרור על המפה לבחירת אזור")  # נגישות (F-027, Q-1)
         self.elevation_button.clicked.connect(self.toggle_elevation_layer)  # חיבור לפונקציית הפעלה/כיבוי
         top_layout.addWidget(self.elevation_button)  # הוספת הכפתור לפאנל הכלים
 
@@ -1286,6 +1300,8 @@ class MapApp(QMainWindow):
         self.notam_menu_button.setEnabled(False)  # נעול עד ליצירת מפה
         self.notam_menu_button.setToolTip(
             'אזורי פעילות/הגבלת טיסה מוכרזים (NOTAM) — להימנעות/מודעות, לא "מותר לך לטוס כאן". אפשר לסמן כמה קטגוריות')
+        self.notam_menu_button.setAccessibleName(  # נגישות (F-027, Q-1)
+            'תפריט קטגוריות NOTAM — אזורי פעילות/הגבלת טיסה מוכרזים, להימנעות/מודעות בלבד')
         self.notam_menu_button.setPopupMode(QToolButton.InstantPopup)  # לחיצה אחת פותחת את התפריט, לא לחיצה-והחזקה
         notam_menu = QMenu(self.notam_menu_button)  # ה"כותרת" של הכפתור עצמו משמשת ככותרת התפריט — אין צורך בכותרת נפרדת בתוך ה-QMenu
         self.notam_checkboxes = {}  # id קטגוריה -> QCheckBox, לשימוש בכל שאר הפונקציות (איפוס/נעילה/וכו')
@@ -1311,6 +1327,8 @@ class MapApp(QMainWindow):
         self.uas_coord_button.setCheckable(True)
         self.uas_coord_button.setToolTip(
             'אזורים שניתן לבקש לפעול בהם — כל אזור דורש אישור יחידת הנת"א מראש, לא אזור חופשי לטיסה')
+        self.uas_coord_button.setAccessibleName(  # נגישות (F-027, Q-1)
+            'שכבת אזורי תיאום כטב"ם — כל אזור דורש אישור יחידת הנת"א מראש')
         self.uas_coord_button.clicked.connect(self.toggle_uas_coord_layer)
         top_layout.addWidget(self.uas_coord_button)
 
@@ -1320,6 +1338,7 @@ class MapApp(QMainWindow):
         self.airport_ctr_button.setCheckable(True)
         self.airport_ctr_button.setToolTip(
             'גבול המרחב המבוקר (CTR) הקבוע של השדה, ממקור AIP רשמי — לא נגזר מהודעות NOTAM ("אזורי פיקוח שדות תעופה" למעלה)')
+        self.airport_ctr_button.setAccessibleName('שכבת גבולות CTR שדות תעופה')  # נגישות (F-027, Q-1)
         self.airport_ctr_button.clicked.connect(self.toggle_airport_ctr_layer)
         top_layout.addWidget(self.airport_ctr_button)
 
@@ -1332,6 +1351,7 @@ class MapApp(QMainWindow):
         self.ruler_button.setEnabled(False)
         self.ruler_button.setCheckable(True)
         self.ruler_button.setToolTip('לחץ על המפה להוספת נקודות מדידה — מציג מרחק בק"מ ו-NM')
+        self.ruler_button.setAccessibleName('מדידת מרחק — לחץ על המפה להוספת נקודות מדידה')  # נגישות (F-027, Q-1)
         self.ruler_button.clicked.connect(self.toggle_ruler)
         top_layout.addWidget(self.ruler_button)
 
@@ -1339,6 +1359,7 @@ class MapApp(QMainWindow):
         self.ruler_clear_button.setFixedSize(140, 30)
         self.ruler_clear_button.setEnabled(False)
         self.ruler_clear_button.setToolTip("מחק את קו המדידה מהמפה")
+        self.ruler_clear_button.setAccessibleName("מחק את קו המדידה מהמפה")  # נגישות — מבדיל מכפתורי "נקה" אחרים (F-027, Q-1)
         self.ruler_clear_button.clicked.connect(self.clear_ruler)
         top_layout.addWidget(self.ruler_clear_button)
 
@@ -1358,6 +1379,7 @@ class MapApp(QMainWindow):
         self.flight_input.setFixedHeight(30)  # גובה עקבי
         self.flight_input.setEnabled(False)  # נעול עד להפעלת שרת הטיסות
         self.flight_input.setToolTip("הכנס מספר טיסה או callsign (לדוגמה: LY001, ELY001)")  # tooltip
+        self.flight_input.setAccessibleName("מספר טיסה או callsign")  # נגישות — שדה עם placeholder בלבד, לא תווית קבועה (F-027, Q-1)
         self.flight_input.lineEdit().returnPressed.connect(self.fetch_and_draw_flight)  # Enter מפעיל חיפוש
         self._load_flight_history()  # טעינת מספרי טיסות אחרונים מ-QSettings
         top_layout.addWidget(self.flight_input)
@@ -1367,11 +1389,13 @@ class MapApp(QMainWindow):
         self.show_flight_button.setFixedSize(90, 30)  # גודל מותאם לשורה
         self.show_flight_button.setEnabled(False)  # נעול עד להפעלת שרת הטיסות
         self.show_flight_button.setToolTip("שלוף את מסלול הטיסה מ-FlightRadar24 והצג על המפה")  # tooltip
+        self.show_flight_button.setAccessibleName("שלוף את מסלול הטיסה מ-FlightRadar24 והצג על המפה")  # נגישות (F-027, Q-1)
         self.show_flight_button.clicked.connect(self.fetch_and_draw_flight)  # חיבור לפונקציית שליפה
         self.clear_flight_button = QPushButton("נקה")  # כפתור ניקוי המסלול מהמפה
         self.clear_flight_button.setFixedSize(44, 30)  # גודל צר
         self.clear_flight_button.setEnabled(False)  # נעול עד שיש מסלול
         self.clear_flight_button.setToolTip("הסר את מסלול הטיסה מהמפה")  # tooltip
+        self.clear_flight_button.setAccessibleName("הסר את מסלול הטיסה מהמפה")  # נגישות — מבדיל מכפתורי "נקה" אחרים (F-027, Q-1)
         self.clear_flight_button.clicked.connect(self.clear_flight_route)  # חיבור לניקוי
         flight_btn_row.addWidget(self.show_flight_button)
         flight_btn_row.addWidget(self.clear_flight_button)
@@ -1386,6 +1410,7 @@ class MapApp(QMainWindow):
         self.toggle_log_button.setIconSize(QSize(20, 20))  # אייקון קצת קטן מהכפתור
         self.toggle_log_button.setIcon(QIcon(os.path.join("ICONS", "bell_icon.png")))  # אייקון פעמון
         self.toggle_log_button.setToolTip("הצג / הסתר לוגים")  # tooltip
+        self.toggle_log_button.setAccessibleName("הצג / הסתר לוגים")  # נגישות — כפתור-אייקון בלי טקסט גלוי (F-027, Q-1)
         self.toggle_log_button.clicked.connect(self.toggle_log_view)  # חיבור לפתיחת/סגירת הלוג
 
         self.badge_label = QLabel("", self.toggle_log_button)  # badge מספרי מעל כפתור הפעמון
@@ -1398,11 +1423,13 @@ class MapApp(QMainWindow):
         self.save_log_button.setIconSize(QSize(20, 20))  # אייקון קצת קטן מהכפתור
         self.save_log_button.setIcon(QIcon(os.path.join("ICONS", "save_log.png")))  # אייקון שמירה
         self.save_log_button.setToolTip("שמור לוגים לקובץ טקסט")  # tooltip
+        self.save_log_button.setAccessibleName("שמור לוגים לקובץ טקסט")  # נגישות — כפתור-אייקון בלי טקסט גלוי (F-027, Q-1)
         self.save_log_button.clicked.connect(self.save_logs_to_file)  # חיבור לשמירת הלוגים
 
         self.clear_log_button = QPushButton("נקה")  # כפתור ניקוי לוגים מהתצוגה
         self.clear_log_button.setFixedSize(40, 28)  # רוחב מצומצם
         self.clear_log_button.setToolTip("נקה את תצוגת הלוגים")  # tooltip
+        self.clear_log_button.setAccessibleName("נקה את תצוגת הלוגים")  # נגישות — מבדיל מכפתורי "נקה" אחרים (F-027, Q-1)
         self.clear_log_button.clicked.connect(self.clear_logs)  # חיבור לניקוי
 
         icon_layout.addWidget(self.toggle_log_button)
@@ -1650,6 +1677,7 @@ class MapApp(QMainWindow):
             self.log_process_action("GeoServer", "הפעלת", success=True)
             self.geo_status_dot.setObjectName("dotOn")  # נורת סטטוס ירוקה — GeoServer פעיל
             self.geo_status_dot.setStyle(self.geo_status_dot.style())  # רענון QSS לאחר שינוי objectName
+            self.geo_status_dot.setAccessibleName("מחוון סטטוס GeoServer: פעיל")  # נגישות — עדכון-מצב לקורא-מסך (F-027)
         except Exception as e:
             self.log_process_action("GeoServer", "הפעלת", success=False)
             self.log_action(f"שגיאה בהפעלת GeoServer: {e}", is_success=False)
@@ -1660,6 +1688,7 @@ class MapApp(QMainWindow):
             self.log_action("WeatherServer הופעל בהצלחה.", is_success=True)
             self.weather_status_dot.setObjectName("dotOn")  # נורת סטטוס ירוקה — WeatherServer פעיל
             self.weather_status_dot.setStyle(self.weather_status_dot.style())  # רענון QSS
+            self.weather_status_dot.setAccessibleName("מחוון סטטוס WeatherServer: פעיל")  # נגישות — עדכון-מצב לקורא-מסך (F-027)
         except Exception as e:
             self.log_action(f"שגיאה בהפעלת WeatherServer: {e}", is_success=False)
 
@@ -1724,12 +1753,14 @@ class MapApp(QMainWindow):
                 self.log_action("GeoServer נעצר בהצלחה.", is_success=True)
                 self.geo_status_dot.setObjectName("dotOff")  # נורה אפורה — כבוי
                 self.geo_status_dot.setStyle(self.geo_status_dot.style())  # רענון QSS
+                self.geo_status_dot.setAccessibleName("מחוון סטטוס GeoServer: כבוי")  # נגישות — עדכון-מצב לקורא-מסך (F-027)
             if self.weather_server_process:  # עצירה רק אם התהליך קיים
                 self._terminate_process_tree(self.weather_server_process)  # עצירת התהליך וכל צאצאיו
                 self.weather_server_process = None  # ניקוי הפניה
                 self.log_action("WeatherServer נעצר בהצלחה.", is_success=True)
                 self.weather_status_dot.setObjectName("dotOff")  # נורה אפורה — כבוי
                 self.weather_status_dot.setStyle(self.weather_status_dot.style())  # רענון QSS
+                self.weather_status_dot.setAccessibleName("מחוון סטטוס WeatherServer: כבוי")  # נגישות — עדכון-מצב לקורא-מסך (F-027)
             if self.flight_server_process:  # עצירה רק אם התהליך קיים
                 self._terminate_process_tree(self.flight_server_process)  # עצירת התהליך וכל צאצאיו
                 self.flight_server_process = None  # ניקוי הפניה

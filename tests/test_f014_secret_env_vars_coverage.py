@@ -3,7 +3,7 @@
 import os
 import sys
 
-_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')  # Q-6: tests/ - רמה אחת למעלה, לא שתיים
 sys.path.insert(0, _PROJECT_ROOT)
 
 import security_checks  # noqa: E402
