@@ -153,6 +153,7 @@ licenses. These terms are the reason the Desktop application is not distributed 
 | The OpenSky Network | Android (fallback) | OpenSky terms of use (UNVERIFIED) | The OpenSky Network |
 | Israel Airports Authority NOTAM site (brin.iaa.gov.il) | Desktop, Android | Site terms UNVERIFIED | Israel Airports Authority |
 | Israel eAIP, AD 2.17 (airport CTR boundaries) | Desktop, Android (static data) | UNVERIFIED | Israel eAIP |
+| Recommendation ITU-R P.838-3 (rain specific-attenuation model; coefficients from Tables 1-4) | Desktop radar-tracking tool (`radar_track.py`) | (c) ITU; free download; used under owner decision D8 (docs/DEPENDENCIES.md) | Rain attenuation model: Recommendation ITU-R P.838-3 (ITU) |
 
 ## 6. Fonts
 

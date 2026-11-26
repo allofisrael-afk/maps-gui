@@ -2926,6 +2926,7 @@
                 var _prevDrag = radarObs;  // מיקום לפני הגרירה — לצורך Undo
                 radarObs = radarObsMk.getLatLng();
                 _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                _radarTrackOnRadarMoved();  // בדיקת מעקב מכ"ם (אם מוצגת) רצה מחדש מהמיקום החדש — FR-D-261 שלב א1
                 if (!_isRestoringUndo) {
                     _pushUndo('מכ"ם דופלר: הזזת משקיף', _makeMarkerMoveRestore(
                         function(v) { radarObs = v; if (radarObsMk) radarObsMk.setLatLng(v); },
@@ -2934,6 +2935,7 @@
                 }
             });
             _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+            _radarTrackOnRadarMoved();  // מכ"ם הוצב מחדש — בדיקת מעקב מכ"ם (אם מוצגת) רצה מחדש מהמיקום החדש
             if (!_isRestoringUndo) {
                 _pushUndo('מכ"ם דופלר: מיקום משקיף', _makePlacementRestore(
                     _placeRadarObserver, clearRadarDopplerResult,
@@ -3223,6 +3225,580 @@
             _routeEvalLayers.forEach(function(l) { map.removeLayer(l); });
             _routeEvalLayers = [];
             if (flightPolyline && !map.hasLayer(flightPolyline)) { flightPolyline.addTo(map); }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // ── כלי שביעי: בדיקת מעקב מכ"ם אחרי מסלול בליסטי (SRS FR-D-259.., שלב א1) ──
+        // משתמש במכ"ם שהוצב בכלי הדופלר (🎯) ובכל הפרמטרים שלו, ובמסלול הבליסטי האחרון שחושב
+        // (ballisticsLastPath — מסלול בודד או פתרון ירי). החישוב בשרת (/radar_track/start), ה-polling
+        // דרך /radar_doppler/status הקיים. job נפרד מזה של כלי הדופלר — שני הכלים לא מפריעים זה לזה.
+        // ══════════════════════════════════════════════════════════════════
+        var _radarTrackLayers    = [];    // קטעי המסלול הצבועים לפי סטטוס
+        var _radarTrackLastPath  = null;  // המסלול שנבדק לאחרונה — לחישוב מחדש בגרירת המכ"ם
+        var _radarTrackInfoEl    = null;  // אלמנט הסיכום בפאנל (נקבע ע"י מי שהפעיל את הבדיקה)
+        var _radarTrackJobId     = null;  // ה-job הפעיל בשרת (null = אין)
+        var _radarTrackPollTimer = null;  // טיימר ה-polling
+        var _radarTrackTimelineEl = null; // ה-canvas של ציר הזמן (שלב א2)
+        var _rtScanInputs = {};          // שדות הגדרות הסריקה והמעקב בטאב הבליסטי (שלב א2) — שם -> אלמנט
+        var _rtViewEls = {};             // שלב א3: מתג המניפה, גרף הצד, פרופיל השטח וכותרתו (נקבעים בבניית הטאב)
+        var _radarTrackFanLayers = [];    // קווי ה-LOS של המניפה
+        var _radarTrackLastResult = null; // התוצאה האחרונה — למניפה, לגרף הצד ולייצוא
+        var _radarTrackLastOpts = null;   // שלב א4: מקור המסלול שנבדק לאחרונה ({source, alt_ref, rcs_m2, label})
+        var _RT_R_EARTH = 6371000.0, _RT_K = 0.13;  // רדיוס כדור הארץ ומקדם הרפרקציה — זהים למנוע (radar_track.py)
+        function _rtDrop(d) { return d * d / (2 * _RT_R_EARTH) * (1 - _RT_K); }  // ירידת קו הראייה בגלל עקמומיות+רפרקציה
+
+        function _radarTrackDrawFan(res) {
+            // מניפת LOS: קו מהמכ"ם לכל נקודה (מדולל עד ~60 קווים), בצבע המצב; לחיצה פותחת פרופיל שטח
+            _radarTrackFanLayers.forEach(function(l) { map.removeLayer(l); });  // ניקוי מניפה קודמת
+            _radarTrackFanLayers = [];  // איפוס
+            if (!res || !_rtViewEls.fan || !_rtViewEls.fan.checked) return;  // אין תוצאה, או שהמתג כבוי
+            var pts = res.points, step = Math.max(1, Math.ceil(pts.length / 60));  // דילול — מפה קריאה
+            for (var i = 0; i < pts.length; i += step) {  // כל נקודה n-ית
+                (function(p) {  // סגירה — p קבוע לכל קו
+                    var ln = L.polyline([[res.radar.lat, res.radar.lon], [p.lat, p.lon]],
+                        {color: _RADAR_TRACK_COLORS[p.track_state || p.status] || '#6c7086', weight: 1, opacity: 0.45}).addTo(map);  // קו דק ושקוף
+                    ln.bindTooltip('שנ\' ' + p.t + ' — לחץ לפרופיל שטח', {sticky: true});  // רמז
+                    ln.on('click', function() { _radarTrackShowProfile(p); });  // פרופיל
+                    _radarTrackFanLayers.push(ln);  // לניקוי
+                })(pts[i]);
+            }
+        }
+
+        function _radarTrackDrawSide(canvas, res) {
+            // גרף צד: מרחק קרקעי מהמכ"ם (ציר אופקי, מימין לשמאל) מול גובה מעל פני הים. מצייר את גובה השטח
+            // החוסם בכיוון של כל נקודה (אפור), את גבולות שדה-הראייה האנכי (תכלת מקווקו), את תקרת המכ"ם
+            // (סגול מקווקו), את המכ"ם עצמו ואת נקודות המסלול בצבע המצב — רואים במבט אחד היכן המסלול יוצא מהכיסוי
+            if (!canvas || !res) return;  // אין מה לצייר
+            canvas.style.display = 'block';  // מציגים
+            var W = 250, H = 120, dpr = window.devicePixelRatio || 1;  // מידות
+            canvas.width = W * dpr; canvas.height = H * dpr;  // רזולוציה
+            var ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);  // הכנה
+            var pts = res.points, Hm = res.radar.h_msl, beam = res.beam;  // נתונים
+            var dmax = 0, amax = Hm, amin = Hm;  // טווחי הצירים
+            pts.forEach(function(p) { dmax = Math.max(dmax, p.dist_km * 1000); amax = Math.max(amax, p.alt); amin = Math.min(amin, p.alt); });  // מהמסלול
+            dmax = Math.max(1000, dmax * 1.08); amax = amax + (amax - amin) * 0.1 + 50; amin = Math.max(-100, amin - (amax - amin) * 0.05 - 50);  // שוליים
+            var L0 = 30, R0 = W - 6, T0 = 6, B0 = H - 16;  // שולי האזור המצויר (משאירים מקום לתוויות)
+            function X(d) { return R0 - d / dmax * (R0 - L0); }  // מרחק -> פיקסל (0 בימין)
+            function Y(a) { return B0 - (a - amin) / (amax - amin) * (B0 - T0); }  // גובה -> פיקסל
+            ctx.save(); ctx.beginPath(); ctx.rect(L0, T0, R0 - L0, B0 - T0); ctx.clip();  // ציור רק בתוך האזור
+            pts.forEach(function(p) {  // גובה השטח החוסם בכיוון של כל נקודה
+                if (p.horizon_deg == null) return;  // אין נתון (מחוץ לטווח וכו')
+                var d = p.dist_km * 1000, hm = Hm + d * Math.tan(p.horizon_deg * Math.PI / 180) + _rtDrop(d);  // גובה קו האופק במרחק הנקודה
+                ctx.fillStyle = 'rgba(120,100,80,0.35)'; ctx.fillRect(X(d) - 1, Y(hm), 2, B0 - Y(hm));  // עמודה חומה
+            });
+            ctx.setLineDash([3, 3]);  // קווים מקווקווים לאזור הכיסוי
+            [beam.v_lo_deg, beam.v_hi_deg].forEach(function(e) {  // שני גבולות שדה הראייה
+                ctx.strokeStyle = '#22d3ee'; ctx.beginPath();  // תכלת
+                for (var k = 0; k <= 40; k++) {  // לאורך המרחק
+                    var d = dmax * k / 40, a = Hm + d * Math.tan(Math.max(-89, Math.min(89, e)) * Math.PI / 180) + _rtDrop(d);  // גובה הקרן
+                    if (k === 0) ctx.moveTo(X(d), Y(a)); else ctx.lineTo(X(d), Y(a));  // קו
+                }
+                ctx.stroke();  // ציור
+            });
+            var C = beam.ceiling_km * 1000;  // תקרת המכ"ם
+            ctx.strokeStyle = '#a855f7'; ctx.beginPath();  // סגול
+            for (var k = 0; k <= 40; k++) {  // קשת התקרה בין שני גבולות שדה הראייה
+                var e = (beam.v_lo_deg + (beam.v_hi_deg - beam.v_lo_deg) * k / 40) * Math.PI / 180;  // זווית
+                var d = C * Math.cos(e), a = Hm + C * Math.sin(e) + _rtDrop(d);  // נקודה על הקשת
+                if (k === 0) ctx.moveTo(X(d), Y(a)); else ctx.lineTo(X(d), Y(a));  // קו
+            }
+            ctx.stroke(); ctx.setLineDash([]);  // ציור, וחזרה לקו רציף
+            pts.forEach(function(p) {  // נקודות המסלול
+                ctx.fillStyle = _RADAR_TRACK_COLORS[p.track_state || p.status] || '#6c7086';  // צבע המצב
+                ctx.fillRect(X(p.dist_km * 1000) - 1, Y(p.alt) - 1, 3, 3);  // נקודה
+            });
+            ctx.restore();  // סוף החיתוך
+            ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(X(0), Y(Hm), 3, 0, 2 * Math.PI); ctx.fill();  // המכ"ם
+            ctx.fillStyle = '#333'; ctx.font = '9px Arial';  // תוויות
+            ctx.textAlign = 'right'; ctx.fillText('0', R0, H - 4);  // מרחק אפס (ימין)
+            ctx.textAlign = 'left'; ctx.fillText((dmax / 1000).toFixed(1) + ' ק"מ', L0, H - 4);  // המרחק המרבי (שמאל)
+            ctx.textAlign = 'right'; ctx.fillText(Math.round(amax) + ' מ\'', L0 - 2, T0 + 8); ctx.fillText(Math.round(amin) + ' מ\'', L0 - 2, B0);  // גבהים
+        }
+
+        function _radarTrackShowProfile(p) {
+            // פרופיל שטח בין המכ"ם לנקודה שנלחצה: שטח "אפקטיבי" (גובה פחות ירידת העקמומיות), קו הראייה
+            // (ירוק = פנוי, אדום = חסום) וסימון המקום שבו הוא נחסם — מסביר לעין למה נקודה חסומה
+            var res = _radarTrackLastResult, els = _rtViewEls;  // התוצאה והאלמנטים
+            if (!res || !els.profile) return;  // אין תוצאה או שהטאב לא נבנה
+            els.profInfo.textContent = 'פרופיל שטח לשנ\' ' + p.t + '…';  // משוב מיידי
+            var body = Object.assign(_radarCommonBody(), {lat: res.radar.lat, lon: res.radar.lon, point: {lat: p.lat, lon: p.lon, alt: p.alt}});  // הבקשה
+            fetch('http://localhost:5002/radar_track/profile', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+            .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })  // שגיאה עם הסבר
+            .then(function(pr) {
+                els.profInfo.textContent = 'LOS לשנ\' ' + p.t + ' (' + (pr.dist_m / 1000).toFixed(2) + ' ק"מ): ' +
+                    (pr.visible ? 'פנוי ✔' : 'חסום ע"י שטח ב-' + (pr.block_dist_m / 1000).toFixed(2) + ' ק"מ ✖');  // כותרת
+                var c = els.profile; c.style.display = 'block';  // מציגים
+                var W = 250, H = 90, dpr = window.devicePixelRatio || 1;  // מידות
+                c.width = W * dpr; c.height = H * dpr;  // רזולוציה
+                var ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);  // הכנה
+                var eff = pr.elevs.map(function(e, i) { return e == null ? null : e - pr.drops[i]; });  // שטח אפקטיבי
+                var tgtEff = pr.target_alt - _rtDrop(pr.dist_m);  // הנקודה, באותה מערכת
+                var vals = eff.filter(function(v) { return v != null; }).concat([pr.radar_h_msl, tgtEff]);  // כל הערכים
+                var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals), pad = (hi - lo) * 0.1 + 10;  // טווח הציר האנכי
+                lo -= pad; hi += pad;  // שוליים
+                function X(d) { return W - 4 - d / pr.dist_m * (W - 8); }  // מרחק -> פיקסל (המכ"ם מימין)
+                function Y(a) { return H - 4 - (a - lo) / (hi - lo) * (H - 8); }  // גובה -> פיקסל
+                ctx.fillStyle = '#c8b28a'; ctx.beginPath(); ctx.moveTo(X(0), H);  // שטח חום
+                pr.dists.forEach(function(d, i) { if (eff[i] != null) ctx.lineTo(X(d), Y(eff[i])); });  // פני השטח
+                ctx.lineTo(X(pr.dist_m), H); ctx.closePath(); ctx.fill();  // סגירה
+                ctx.strokeStyle = pr.visible ? '#00cc44' : '#ff3300'; ctx.lineWidth = 2;  // צבע קו הראייה
+                ctx.beginPath(); ctx.moveTo(X(0), Y(pr.radar_h_msl)); ctx.lineTo(X(pr.dist_m), Y(tgtEff)); ctx.stroke();  // קו הראייה
+                if (pr.block_dist_m != null) {  // נקודת החסימה
+                    ctx.fillStyle = '#ff3300'; ctx.beginPath(); ctx.arc(X(pr.block_dist_m), Y(pr.radar_h_msl + (tgtEff - pr.radar_h_msl) * pr.block_dist_m / pr.dist_m), 3, 0, 2 * Math.PI); ctx.fill();  // עיגול אדום
+                }
+                ctx.lineWidth = 1;  // חזרה לעובי רגיל
+            })
+            .catch(function(e) { els.profInfo.textContent = 'פרופיל: ' + e.message; });  // שגיאה
+        }
+
+        function _radarTrackExportCsv() {
+            // ייצוא שורה לכל נקודה — אותו מנגנון כמו טבלת הירי (Blob + הורדה); בדסקטופ main.py שואל היכן לשמור
+            var res = _radarTrackLastResult;  // התוצאה האחרונה
+            if (!res) { alert('הרץ קודם בדיקת מעקב מכ"ם'); return; }  // אין מה לייצא
+            var cols = ['t', 'lat', 'lon', 'alt', 'dist_km', 'slant_km', 'bearing_deg', 'elev_deg', 'horizon_deg',
+                        'radial_ms', 'speed_ms', 'ceiling_km', 'ang_rate_dps', 'aspect_deg', 'rcs_m2', 'rain_db',
+                        'status', 'reason', 'track_state'];  // העמודות (aspect/rcs/rain — שלב א5)
+            var rows = res.points.map(function(p) { return cols.map(function(c) { return p[c] != null ? p[c] : ''; }).join(','); });  // שורה לכל נקודה
+            var csv = '\ufeff' + cols.join(',') + '\n' + rows.join('\n');  // BOM — כדי ש-Excel יזהה UTF-8
+            var blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});  // הקובץ
+            var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'radar_track.csv';  // קישור הורדה
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);  // הפעלה וניקוי
+        }
+        var _RADAR_TRACK_COLORS = {  // אותם צבעים כמו הערכת המסלול הקיימת, לעקביות חזותית, ועוד מצבי המעקב
+            detected: '#00cc44', doppler_blind: '#ff9500', blocked: '#ff3300', out_of_range: '#6c7086',
+            tracked: '#00cc44', coasting: '#86efac', detected_untracked: '#3b82f6'  // במעקב / דעיכה / גילוי בלי מעקב
+        };
+        var _RADAR_TRACK_REASONS = {  // סיבה -> טקסט בעברית, לפופאפ ולסיכום
+            ok: 'מזוהה', terrain: 'חסום ע"י שטח', elevation: 'מחוץ לשדה-הראייה האנכי',
+            sector: 'מחוץ לסקטור המערך', radar_range: 'מעבר לתקרת המכ"ם', min_range: 'בתוך אזור העיוור הקרוב',
+            doppler: 'עיוור לדופלר', out_of_range: 'מחוץ לטווח הבדיקה',
+            angular_rate: 'מהיר מדי לאנטנת המעקב', end: 'עד סוף המסלול',  // סיבות של שלב א2
+            rain: 'נחלש בגשם מעבר לטווח'  // שלב א5: בטווח ביבש, מחוץ לטווח בגשם
+        };
+        var _RADAR_TRACK_STATES = {  // מצב מעקב -> טקסט בעברית
+            tracked: 'במעקב', coasting: 'דעיכה (מעקב בלי גילוי)', detected_untracked: 'גילוי בלי מעקב'
+        };
+        var _RADAR_SCAN_NAMES = { rotating: 'אנטנה מסתובבת', phased: 'מערך-מופע', tracker: 'מכ"ם מעקב ייעודי' };  // לסיכום
+
+        function _radarTrackScanBody() {
+            // אוסף את הגדרות הסריקה והמעקב מהטאב הבליסטי; אם הטאב עוד לא נבנה — השרת ישתמש בברירות המחדל
+            var out = {};  // התוצאה
+            Object.keys(_rtScanInputs).forEach(function(k) {  // כל שדה
+                var el = _rtScanInputs[k];  // האלמנט
+                if (el.tagName === 'SELECT') { out[k] = el.value; return; }  // בחירה — כטקסט
+                var v = parseFloat(el.value);  // מספר
+                if (!isNaN(v)) out[k] = v;  // רק ערך תקין; אחרת השרת משתמש בברירת המחדל
+            });
+            return out;  // לגוף הבקשה
+        }
+
+        function _radarTrackDrawTimeline(canvas, res) {
+            // ציר זמן: פס צבעוני לאורך שניות המעוף לפי מצב, קו לבן בפתיחת המעקב, ומספרי זמן בקצוות
+            if (!canvas) return;  // אין canvas
+            if (!res.track) { canvas.style.display = 'none'; return; }  // מצב "גילוי" — אין ציר זמן
+            canvas.style.display = 'block';  // מציגים
+            var W = 250, H = 40, dpr = window.devicePixelRatio || 1;  // מידות, וחדות במסכים צפופים
+            canvas.width = W * dpr; canvas.height = H * dpr;  // רזולוציה פנימית
+            var ctx = canvas.getContext('2d');  // הקשר הציור
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);  // ציור ביחידות CSS
+            ctx.clearRect(0, 0, W, H);  // ניקוי
+            var tl = res.track.timeline;  // המקטעים
+            var t0 = tl[0].t0, t1 = tl[tl.length - 1].t1, span = Math.max(1e-6, t1 - t0);  // טווח הזמן
+            function x(t) { return W - 4 - (t - t0) / span * (W - 8); }  // זמן -> פיקסל; מימין לשמאל, כמו כיוון הקריאה בעברית
+            tl.forEach(function(s) {  // כל מקטע
+                ctx.fillStyle = _RADAR_TRACK_COLORS[s.state] || '#6c7086';  // צבע המצב
+                ctx.fillRect(x(s.t1), 6, Math.max(1, x(s.t0) - x(s.t1)), 16);  // הפס
+            });
+            if (res.track.first_track_t != null) {  // נפתח מעקב
+                var xf = x(res.track.first_track_t);  // מיקום הפתיחה
+                ctx.fillStyle = '#111'; ctx.fillRect(xf - 1, 2, 2, 24);  // קו כהה
+            }
+            ctx.fillStyle = '#333'; ctx.font = '9px Arial';  // טקסט
+            ctx.textAlign = 'right'; ctx.fillText(t0.toFixed(0) + ' שנ\'', W - 2, 36);  // התחלה (ימין)
+            ctx.textAlign = 'left'; ctx.fillText(t1.toFixed(1) + ' שנ\'', 2, 36);  // סוף (שמאל)
+            if (res.track.warning_time_s != null) {  // זמן התרעה
+                ctx.textAlign = 'center'; ctx.fillText('התרעה: ' + res.track.warning_time_s.toFixed(1) + ' שנ\'', W / 2, 36);  // באמצע, ספרה אחת
+            }
+        }
+
+        function _radarCommonBody() {
+            // אוסף את פרמטרי המכ"ם מהפאנל של כלי הדופלר — אותם שדות כמו _runRouteEvaluation, אבל ה-RCS
+            // נלקח מהשדה הידני (_radarRcsInput): למסלול בליסטי אין "סוג כלי טיס" לגזור ממנו RCS
+            function num(el, def) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }  // ערך מספרי או ברירת-מחדל
+            return {
+                range_km: num(_radarRangeInput, 50), min_range_km: num(_radarMinRangeInput, 1),  // טווח ואזור עיוור
+                h_antenna: num(_radarHAntInput, 15), ridge_margin_deg: num(_radarMarginInput, 0),  // גובה אנטנה ומרווח רכס
+                vertical_center_deg: num(_radarVCenterInput, 0), vertical_width_deg: num(_radarVWidthInput, 10),  // שדה ראייה אנכי
+                power_kw: num(_radarPowerInput, 100), gain_dbi: num(_radarGainInput, 30),  // הספק ורווח
+                freq_mhz: (_radarFreqSelect ? parseFloat(_radarFreqSelect.value) : 3000),  // תדר
+                sensitivity_dbm: num(_radarSensInput, -100), rcs_m2: num(_radarRcsInput, 2),  // רגישות ו-RCS
+                prf_hz: num(_radarPrfInput, 1000), mdv_kt: num(_radarMdvInput, 20),  // PRF ו-MDV
+                lobing_enabled: !!(_radarLobingCheck && _radarLobingCheck.checked),  // ריבוד
+                reflectivity: (_radarReflSelect ? _radarReflSelect.value : 'land'),  // סוג משטח
+                antenna_type: (_radarAntennaSelect ? _radarAntennaSelect.value : 'generic'),  // סוג אנטנה
+                boresight_deg: num(_radarBoresightInput, 0), max_scan_deg: num(_radarMaxScanInput, 60),  // מערך-מופעים
+            };
+        }
+
+        function _clearRadarTrack() {
+            // מסיר את ציור הבדיקה ועוצר job פעיל — נקרא לפני בדיקה חדשה ובכל חישוב מסלול חדש
+            _radarTrackLayers.forEach(function(l) { map.removeLayer(l); });  // הסרת הקטעים
+            _radarTrackLayers = [];  // איפוס
+            _radarTrackLastResult = null;  // שלב א3: אין תוצאה תקפה
+            _radarTrackDrawFan(null);  // מסיר את מניפת ה-LOS
+            ['side', 'profile'].forEach(function(k) { if (_rtViewEls[k]) _rtViewEls[k].style.display = 'none'; });  // מסתיר גרפים ישנים
+            if (_rtViewEls.profInfo) _rtViewEls.profInfo.textContent = '';  // מנקה את כותרת הפרופיל
+            if (_radarTrackPollTimer) { clearInterval(_radarTrackPollTimer); _radarTrackPollTimer = null; }  // עצירת polling
+            if (_radarTrackJobId) {  // job שעדיין רץ בשרת — מבקשים ביטול כדי לא לבזבז מכסת גבהים
+                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + _radarTrackJobId, {method: 'POST'}).catch(function() {});
+                _radarTrackJobId = null;  // כבר לא פעיל
+            }
+        }
+
+        function _radarTrackRun(path, infoEl, timelineEl, opts) {
+            // מפעיל בדיקת מעקב מכ"ם על מסלול נתון — דורש מכ"ם מוצב (כלי 🎯) ומסלול עם זמן.
+            // opts (שלב א4): source/alt_ref/rcs_m2/label — מקור המסלול, ייחוס הגובה, RCS מיוחד ותווית לסיכום
+            if (!radarObs) { alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\"ם דופלר" (🎯) — הפרמטרים שלו ישמשו לבדיקה'); return; }
+            if (!path || path.length < 2) { alert('אין מסלול לבדיקה — בחר מקור מסלול בטאב "מעקב מכ\"ם"'); return; }
+            _clearRadarTrack();  // בדיקה קודמת (אם יש) מבוטלת ונמחקת
+            _radarTrackLastPath = path;  // לחישוב מחדש בגרירה
+            _radarTrackLastOpts = opts || {source: 'ballistic', alt_ref: 'msl'};  // המקור — לגרירה, לסיכום ולניקוי
+            _radarTrackInfoEl = infoEl;  // לשם נכתוב את הסיכום
+            _radarTrackTimelineEl = timelineEl || _radarTrackTimelineEl;  // ציר הזמן (שלב א2) — נשמר גם לחישוב מחדש בגרירה
+            var body = Object.assign(_radarCommonBody(), _radarTrackScanBody(), _rtEnvBody(), {  // פרמטרי המכ"ם + סריקה ומעקב + RCS וגשם (א5) + מיקום + מסלול
+                lat: radarObs.lat, lon: radarObs.lng,  // מיקום המכ"ם
+                trajectory: path.map(function(p) { return {t: p.t, lat: p.lat, lon: p.lon, alt: (p.alt != null ? p.alt : p.alt_msl)}; }),  // רק השדות הדרושים; הגובה לפי alt_ref
+                alt_ref: _radarTrackLastOpts.alt_ref || 'msl',  // שלב א4: מעל פני הים / מעל הקרקע
+            });
+            if (_radarTrackLastOpts.rcs_m2) body.rcs_m2 = _radarTrackLastOpts.rcs_m2;  // שלב א4: RCS לפי סוג המטוס (FR24) גובר על השדה הידני
+            if (infoEl) infoEl.textContent = '🎯 בודק מעקב מכ"ם…';  // משוב מיידי
+            fetch('http://localhost:5002/radar_track/start', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+            })
+            .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })  // שגיאת קלט מגיעה עם הסבר
+            .then(function(d) {
+                _radarTrackJobId = d.job_id;  // ה-job החדש
+                _radarTrackPollTimer = setInterval(_radarTrackPoll, 1000);  // בדיקת סטטוס כל שנייה
+            })
+            .catch(function(e) { if (infoEl) infoEl.textContent = '🎯 שגיאה: ' + e.message; });  // הודעה בפאנל
+        }
+
+        function _radarTrackPoll() {
+            // בודק את מצב ה-job; מצייר ומסכם בסיום
+            if (!_radarTrackJobId) return;  // אין job פעיל
+            var jobId = _radarTrackJobId;  // נשמר — אם בינתיים התחילה בדיקה חדשה, מתעלמים מתשובה ישנה
+            fetch('http://localhost:5002/radar_doppler/status?job_id=' + jobId)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (jobId !== _radarTrackJobId) return;  // תשובה ל-job שכבר הוחלף
+                var el = _radarTrackInfoEl;  // אלמנט הסיכום
+                if (d.status === 'running') {  // עדיין רץ — מציג התקדמות
+                    if (el) el.textContent = '🎯 ' + (d.note || (d.batches_total ? ('שולף גבהי שטח… ' + d.batches_done + '/' + d.batches_total) : 'מחשב…'));
+                    return;  // ממתין ל-tick הבא
+                }
+                clearInterval(_radarTrackPollTimer); _radarTrackPollTimer = null;  // הסתיים — עוצרים polling
+                _radarTrackJobId = null;  // אין job פעיל
+                if (d.status === 'done') {  // הצליח
+                    _radarTrackDraw(d.result);  // ציור
+                    if (el) el.textContent = _radarTrackSummaryText(d.result);  // סיכום
+                    _radarTrackDrawTimeline(_radarTrackTimelineEl, d.result);  // ציר הזמן (רק במצב מעקב)
+                    _radarTrackLastResult = d.result;  // שלב א3: למניפה, לגרף הצד ולייצוא
+                    _radarTrackDrawFan(d.result);  // מניפת LOS (אם המתג פעיל)
+                    _radarTrackDrawSide(_rtViewEls.side, d.result);  // גרף הצד
+                } else if (d.status === 'error') {  // נכשל
+                    if (el) el.textContent = '🎯 שגיאה: ' + (d.error || 'לא ידועה');  // הסיבה
+                } else if (el) {  // בוטל
+                    el.textContent = '';  // מנקה
+                }
+            })
+            .catch(function() {});  // כשל רשת בבדיקה בודדת — ה-tick הבא ינסה שוב
+        }
+
+        function _radarTrackSummaryText(res) {
+            // טקסט הסיכום לפאנל: נצפה?, כיסוי, גילוי ראשון, זמן אובדן לפי סיבה, ונתוני דגימת השטח
+            var s = res.summary;  // הסיכום מהשרת
+            var lines = [];  // שורות הסיכום
+            if (_radarTrackLastOpts && _radarTrackLastOpts.label) lines.push('מקור: ' + _radarTrackLastOpts.label);  // שלב א4: מה נבדק
+            if (res.track) {  // מצב מעקב (שלב א2) — המדדים של המעקב קודם
+                var k = res.track, sc = res.scan;  // מדדי המעקב והתצורה
+                lines.push('🎯 ' + (_RADAR_SCAN_NAMES[sc.mode] || sc.mode) + ', ' + sc.m + ' מתוך ' + sc.n + ': ' +
+                    (k.track_initiated ? 'מעקב נפתח ✔ בשנ\' ' + k.first_track_t.toFixed(1) + ' — זמן התרעה ' + k.warning_time_s.toFixed(1) + ' שנ\''
+                                       : 'מעקב לא נפתח ✖'));  // השורה הראשית
+                lines.push('במעקב ' + k.tracked_pct + '% מזמן המעוף | ' + k.opportunities + ' הזדמנויות, ' + k.opp_detected + ' גילויים');  // היקף
+                if (k.tracks.length) lines.push('מעקבים: ' + k.tracks.map(function(tr) {  // כל מעקב
+                    return tr.t_start.toFixed(1) + '–' + tr.t_end.toFixed(1) + ' שנ\' (' + (_RADAR_TRACK_REASONS[tr.end_reason] || tr.end_reason) + ')';  // טווח זמן (ספרה אחת) וסיבת סיום
+                }).join(' · '));
+            }
+            var env = res.env || {}, envParts = [];  // שלב א5: תנאים שבהם חושב
+            if (env.rcs_mode === 'aspect') envParts.push('RCS לפי זווית (' + env.rcs_nose + '/' + env.rcs_side + '/' + env.rcs_tail + ' מ"ר)');  // חרטום/צד/זנב
+            if (env.rain_rate_mmh > 0) envParts.push('גשם ' + env.rain_rate_mmh + ' מ"מ/שעה עד ' + env.rain_top_m + ' מ\' (ITU-R P.838-3)');  // גשם + ציון מקור
+            if (envParts.length) lines.push(envParts.join(' · '));  // שורה אחת
+            lines.push((res.track ? 'פיזיקה: ' : '🎯 מכ"ם: ') + (s.detected_any ? 'נצפה ✔' : 'לא נצפה כלל ✖') +
+                         ' | כיסוי ' + s.coverage_pct + '% מזמן המעוף (' + s.duration_s + ' שנ\')');  // הכיסוי הפיזיקלי (שלב א1)
+            if (s.first_detection) {  // נצפה לפחות פעם אחת
+                var f = s.first_detection;  // הגילוי הראשון
+                lines.push('גילוי ראשון: שנ\' ' + f.t + ', טווח ' + f.slant_km + ' ק"מ, גובה ' + Math.round(f.alt) + ' מ\'');  // מתי ואיפה
+            }
+            var lost = [];  // סיבות אובדן
+            Object.keys(s.reason_seconds).forEach(function(k) {  // כל סיבה
+                if (k !== 'ok' && s.reason_seconds[k] > 0) lost.push([k, s.reason_seconds[k]]);  // רק סיבות כישלון
+            });
+            lost.sort(function(a, b) { return b[1] - a[1]; });  // מהגדולה לקטנה
+            if (lost.length) lines.push('אובדן: ' + lost.map(function(x) { return (_RADAR_TRACK_REASONS[x[0]] || x[0]) + ' ' + x[1].toFixed(1) + ' שנ\''; }).join(' · '));  // לפי סיבה
+            var t = res.terrain;  // נתוני דגימת השטח
+            lines.push('שטח: ' + t.cells + ' תאי-גובה (' + t.cached + ' מהמטמון' + (t.missing ? ', ' + t.missing + ' חסרים' : '') + ')');  // שקיפות
+            return lines.join('\n');  // הטקסט המלא
+        }
+
+        function _radarTrackDraw(res) {
+            // מצייר את המסלול בקטעים צבועים לפי סטטוס הנקודה בקצה כל קטע, עם פופאפ מפורט
+            _radarTrackLayers.forEach(function(l) { map.removeLayer(l); });  // ניקוי ציור קודם
+            _radarTrackLayers = [];  // איפוס
+            var pts = res.points;  // נקודות ההערכה
+            function popupFor(p) {  // תוכן הפופאפ לנקודה
+                return '<div style="direction:rtl;font-family:Arial;font-size:12px;min-width:170px;">' +
+                    (p.track_state ? '<div style="font-weight:bold;">' + (_RADAR_TRACK_STATES[p.track_state] || '') + '</div>' : '') +  // מצב המעקב (שלב א2)
+                    '<div style="font-weight:bold;margin-bottom:3px;">' + (_RADAR_TRACK_REASONS[p.reason] || p.status) + '</div>' +
+                    (p.ang_rate_dps != null ? '<div>קצב זוויתי: ' + p.ang_rate_dps + '°/שנ\'</div>' : '') +  // שלב א2
+                    '<div>זמן: ' + p.t + ' שנ\' | גובה: ' + Math.round(p.alt) + ' מ\'</div>' +
+                    '<div>טווח אלכסוני: ' + p.slant_km + ' ק"מ | עילוי: ' + p.elev_deg + '°</div>' +
+                    '<div>מהירות רדיאלית: ' + p.radial_ms + ' מ\'/ש\' (מתוך ' + p.speed_ms + ')</div>' +
+                    (p.ceiling_km != null ? '<div>תקרת מכ"ם בכיוון: ' + p.ceiling_km + ' ק"מ</div>' : '') +
+                    (p.rcs_m2 != null ? '<div>זווית הסתכלות: ' + p.aspect_deg + '° | RCS: ' + p.rcs_m2 + ' מ"ר</div>' : '') +  // שלב א5
+                    (p.rain_db != null ? '<div>הנחתת גשם (הלוך-חזור): ' + p.rain_db + ' dB</div>' : '') +  // שלב א5
+                    '</div>';
+            }
+            for (var i = 1; i < pts.length; i++) {  // קטע בין כל שתי נקודות עוקבות
+                var a = pts[i - 1], b = pts[i];  // קצוות הקטע
+                var key = b.track_state || b.status;  // במצב מעקב — לפי מצב המעקב; אחרת לפי הסטטוס הפיזיקלי
+                var seg = L.polyline([[a.lat, a.lon], [b.lat, b.lon]],
+                    {color: _RADAR_TRACK_COLORS[key] || '#6c7086', weight: 6, opacity: 0.9}).addTo(map);  // מעל קו המסלול הכתום
+                seg.bindPopup(popupFor(b));  // פופאפ לפי הנקודה בקצה
+                (function(pt) { seg.on('click', function() { _radarTrackShowProfile(pt); }); })(b);  // שלב א3: לחיצה גם מציירת פרופיל שטח לנקודה
+                _radarTrackLayers.push(seg);  // לניקוי
+            }
+        }
+
+        function _radarTrackOnRadarMoved() {
+            // נקרא כשהמכ"ם זז (גרירה/הצבה מחדש): אם יש בדיקה מוצגת או רצה — מריצים אותה מחדש מהמיקום החדש
+            if (_radarTrackLastPath && (_radarTrackLayers.length || _radarTrackJobId)) {  // יש מה לעדכן
+                _radarTrackRun(_radarTrackLastPath, _radarTrackInfoEl, _radarTrackTimelineEl, _radarTrackLastOpts);  // אותו מסלול ואותו מקור, מיקום מכ"ם חדש
+            }
+        }
+
+        // ── שלב א4: מקורות מסלול — בליסטי, FR24, מסלול מצויר, שיוט במעגל, קובץ CSV ──
+        var _rtSrc = {loiterCenter: null, loiterLayer: null, csvPoints: null};  // שדות הטאב ומצב המקורות
+        var _KT_MS = 0.514444;  // קשר -> מ'/ש'
+        var _FT_M = 0.3048;     // רגל -> מטר
+
+        function _rtHav(a, b) {  // מרחק במטרים בין שתי נקודות {lat, lon} — אותה נוסחה כמו בשרת
+            var r = Math.PI / 180, dlat = (b.lat - a.lat) * r, dlon = (b.lon - a.lon) * r;  // הפרשים ברדיאנים
+            var h = Math.sin(dlat / 2) * Math.sin(dlat / 2) + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dlon / 2) * Math.sin(dlon / 2);  // Haversine
+            return 2 * _RT_R_EARTH * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));  // מטרים
+        }
+
+        function _rtTimesBySpeed(verts, speedMs) {
+            // נותן זמן לכל קודקוד לפי מרחק מצטבר ומהירות קבועה — למקורות בלי זמן (מסלול מצויר, FR24 בלי ts)
+            var t = 0;  // זמן מצטבר
+            return verts.map(function(v, i) {  // כל קודקוד
+                if (i > 0) t += _rtHav(verts[i - 1], v) / Math.max(0.1, v.spd_ms || speedMs);  // זמן הקטע לפי מהירות הקודקוד או הקבועה
+                return {t: t, lat: v.lat, lon: v.lon, alt: v.alt};  // נקודה עם זמן
+            });
+        }
+
+        function _rtParseCsv(text) {
+            // קורא CSV של מסלול: עמודות זמן [שנ'], רוחב, אורך, גובה [מ']. שורת כותרת מזוהה לפי שמות
+            // (t/time, lat, lon/lng, alt/alt_m/alt_msl), ובלעדיה הסדר הוא t,lat,lon,alt. נקודה לא תקינה מדולגת.
+            var rows = text.replace(/\r/g, '').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length; });  // שורות לא ריקות
+            if (!rows.length) return [];  // קובץ ריק
+            var idx = {t: 0, lat: 1, lon: 2, alt: 3};  // ברירת המחדל
+            var first = rows[0].replace(/^\ufeff/, '').split(/[,;\t]/).map(function(h) { return h.trim().toLowerCase(); });  // הכותרת האפשרית
+            if (first.some(function(h) { return /[a-z]/.test(h); })) {  // יש אותיות — זו כותרת
+                function find(names) { for (var i = 0; i < first.length; i++) if (names.indexOf(first[i]) >= 0) return i; return -1; }  // חיפוש עמודה
+                idx = {t: find(['t', 'time', 't_s', 'time_s']), lat: find(['lat', 'latitude']), lon: find(['lon', 'lng', 'longitude']),
+                        alt: find(['alt', 'alt_m', 'alt_msl', 'altitude', 'height'])};  // מיפוי לפי שם
+                rows = rows.slice(1);  // בלי הכותרת
+                if (idx.t < 0 || idx.lat < 0 || idx.lon < 0 || idx.alt < 0) return null;  // חסרה עמודה — שגיאה
+            }
+            var pts = [];  // הנקודות
+            rows.forEach(function(r) {  // כל שורה
+                var c = r.split(/[,;\t]/);  // עמודות
+                var q = {t: parseFloat(c[idx.t]), lat: parseFloat(c[idx.lat]), lon: parseFloat(c[idx.lon]), alt: parseFloat(c[idx.alt])};  // ערכים
+                if ([q.t, q.lat, q.lon, q.alt].every(function(v) { return isFinite(v); })) pts.push(q);  // רק שורה תקינה
+            });
+            return pts;  // המסלול
+        }
+
+        function _rtPickLoiterCenter(labelEl) {
+            // הלחיצה הבאה על המפה קובעת את מרכז השיוט; מציג מעגל תצוגה מקדימה ברדיוס שבשדה
+            labelEl.textContent = 'לחץ על המפה…';  // הוראה
+            map.once('click', function(e) {  // לחיצה אחת בלבד
+                _rtSrc.loiterCenter = e.latlng;  // המרכז
+                labelEl.textContent = e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4);  // הצגה
+                _rtDrawLoiterPreview();  // מעגל
+            });
+        }
+
+        function _rtDrawLoiterPreview() {
+            // מעגל מקווקו שמראה את מסלול השיוט לפני הבדיקה
+            if (_rtSrc.loiterLayer) { map.removeLayer(_rtSrc.loiterLayer); _rtSrc.loiterLayer = null; }  // ניקוי קודם
+            if (!_rtSrc.loiterCenter || !_rtSrc.loiterRadius) return;  // אין מרכז או שהטאב לא נבנה
+            _rtSrc.loiterLayer = L.circle(_rtSrc.loiterCenter, {radius: parseFloat(_rtSrc.loiterRadius.value) || 1000,
+                color: '#14b8a6', weight: 2, dashArray: '5,5', fill: false}).addTo(map);  // התצוגה המקדימה
+        }
+
+        function _rtBuildTrajectory() {
+            // בונה את המסלול לפי המקור שנבחר. מחזיר {points, opts} או null (אחרי הודעה למשתמש)
+            var src = _rtSrc.sel ? _rtSrc.sel.value : 'ballistic';  // המקור
+            var altRef = _rtSrc.altRef ? _rtSrc.altRef.value : 'msl';  // גובה מעל הקרקע/הים — רק למקורות שבהם זה רלוונטי
+            function num(el, d) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? d : v; }  // ערך מספרי או ברירת מחדל
+            if (src === 'ballistic') {  // המסלול האחרון שחושב (מסלול בודד או פתרון ירי)
+                if (!ballisticsLastPath || ballisticsLastPath.length < 2) { alert('חשב קודם מסלול בטאב "מסלול בודד" או "פתרון ירי"'); return null; }  // אין
+                return {points: ballisticsLastPath.map(function(p) { return {t: p.t, lat: p.lat, lon: p.lon, alt: p.alt_msl}; }),
+                         opts: {source: 'ballistic', alt_ref: 'msl', label: 'מסלול בליסטי'}};  // תמיד מעל פני הים
+            }
+            if (src === 'fr24') {  // טיסה שנטענה בכלי מעקב הטיסות
+                var fr = _lastFlightRouteData;  // נתוני הטיסה האחרונה
+                var tr = fr && fr.trail ? fr.trail.filter(function(p) { return p.lat != null && p.lng != null; }) : [];  // נקודות תקינות
+                if (tr.length < 2) { alert('חפש קודם טיסה עם מסלול בכלי מעקב הטיסות (FR24)'); return null; }  // אין
+                var pts;  // הנקודות עם זמן
+                var withTs = tr.filter(function(p) { return p.ts != null; });  // נקודות עם זמן אמיתי
+                if (withTs.length >= 2) {  // יש זמנים — משתמשים בהם
+                    var ts0 = Math.min.apply(null, withTs.map(function(p) { return p.ts; }));  // הזמן הראשון
+                    pts = withTs.map(function(p) { return {t: p.ts - ts0, lat: p.lat, lon: p.lng, alt: (p.alt || 0) * _FT_M}; });  // רגל -> מטר
+                } else {  // אין זמנים — לפי מרחק ומהירות כל נקודה
+                    pts = _rtTimesBySpeed(tr.map(function(p) { return {lat: p.lat, lon: p.lng, alt: (p.alt || 0) * _FT_M, spd_ms: (p.spd || 0) * _KT_MS}; }), 120);  // 120 מ'/ש' אם אין מהירות
+                }
+                var rcs = _rtSrc.frRcs && _rtSrc.frRcs.checked ? _rcsForAircraftType(fr.aircraft_icao) : null;  // RCS לפי סוג המטוס, כמו בהערכת המסלול הקיימת
+                return {points: pts, opts: {source: 'fr24', alt_ref: 'msl', rcs_m2: rcs,
+                         label: 'טיסה ' + (fr.callsign || fr.flight || '') + (rcs ? ' (RCS ' + rcs + ' מ"ר לפי ' + (fr.aircraft || fr.aircraft_icao || '?') + ')' : '') +
+                                (withTs.length >= 2 ? '' : ' — בלי זמני FR24, הזמן חושב לפי מהירות')}};  // שקיפות
+            }
+            if (src === 'custom') {  // מסלול שצויר בכלי "מסלול טיסה מותאם"
+                if (customRoutePoints.length < 2) { alert('צייר קודם מסלול (לפחות 2 נקודות) בכלי "מסלול טיסה מותאם"'); return null; }  // אין
+                var defAlt = num(_rtSrc.customAlt, 300);  // גובה לנקודות בלי גובה
+                var verts = customRoutePoints.map(function(p) { return {lat: p.lat, lon: p.lng, alt: p.alt != null ? p.alt : defAlt}; });  // הקודקודים
+                verts.push(verts[0]);  // סגירת הלולאה — כמו שהכלי מצייר אותה
+                return {points: _rtTimesBySpeed(verts, num(_rtSrc.customSpeed, 90) * _KT_MS),
+                         opts: {source: 'custom', alt_ref: altRef, label: 'מסלול מצויר, ' + num(_rtSrc.customSpeed, 90) + ' קשר'}};  // זמן לפי מהירות קבועה
+            }
+            if (src === 'loiter') {  // שיוט במעגל
+                if (!_rtSrc.loiterCenter) { alert('בחר קודם מרכז לשיוט (כפתור "בחר מרכז על המפה")'); return null; }  // אין מרכז
+                var R = num(_rtSrc.loiterRadius, 1500), alt = num(_rtSrc.loiterAlt, 300), laps = Math.max(1, Math.round(num(_rtSrc.loiterLaps, 2)));  // פרמטרים
+                var dir = _rtSrc.loiterDir && _rtSrc.loiterDir.value === 'ccw' ? -1 : 1;  // כיוון
+                var c = _rtSrc.loiterCenter, vs = [];  // מרכז וקודקודים
+                for (var k = 0; k <= laps * 36; k++) {  // קודקוד כל 10°
+                    var pt = _destPointJs(c, (dir * k * 10 + 360000) % 360, R);  // נקודה על המעגל
+                    vs.push({lat: pt.lat, lon: pt.lng, alt: alt});  // קודקוד
+                }
+                return {points: _rtTimesBySpeed(vs, num(_rtSrc.loiterSpeed, 60) * _KT_MS),
+                         opts: {source: 'loiter', alt_ref: altRef, label: 'שיוט: רדיוס ' + R + ' מ\', ' + laps + ' סיבובים'}};  // זמן לפי מהירות
+            }
+            if (src === 'csv') {  // קובץ שנטען
+                if (!_rtSrc.csvPoints || _rtSrc.csvPoints.length < 2) { alert('טען קודם קובץ CSV של מסלול'); return null; }  // אין
+                return {points: _rtSrc.csvPoints, opts: {source: 'csv', alt_ref: altRef, label: 'קובץ CSV (' + _rtSrc.csvPoints.length + ' נקודות)'}};  // כמו שהוא
+            }
+            return null;  // לא אמור לקרות
+        }
+
+        // ── שלב א5: RCS לפי זווית, גשם ופרופילי מכ"ם ──
+        var _rtEnvInputs = {};     // שדות ה-RCS והגשם בטאב
+        var _rtProfileFields = {}; // שם פרמטר -> אלמנט, לכל מה שנכנס לפרופיל מכ"ם
+
+        function _rtEnvBody() {
+            // אוסף את שדות ה-RCS והגשם לגוף הבקשה (ערך לא תקין — השרת משתמש בברירת המחדל)
+            var out = {};  // התוצאה
+            Object.keys(_rtEnvInputs).forEach(function(k) {  // כל שדה
+                var el = _rtEnvInputs[k];  // האלמנט
+                if (el.tagName === 'SELECT') { out[k] = el.value; return; }  // בחירה
+                var v = parseFloat(el.value); if (!isNaN(v)) out[k] = v;  // מספר תקין בלבד
+            });
+            return out;  // לגוף הבקשה
+        }
+
+        function _rtBuildProfileFieldMap() {
+            // כל השדות של פרופיל מכ"ם: פרמטרי המכ"ם מכלי הדופלר, הסריקה והמעקב, ומודל ה-RCS. הגשם לא נכלל —
+            // הוא תנאי סביבה, לא תכונה של המכ"ם. שמות המפתחות זהים לשמות בגוף הבקשה לשרת
+            var m = {
+                range_km: _radarRangeInput, min_range_km: _radarMinRangeInput, h_antenna: _radarHAntInput, ridge_margin_deg: _radarMarginInput,
+                vertical_center_deg: _radarVCenterInput, vertical_width_deg: _radarVWidthInput, power_kw: _radarPowerInput, gain_dbi: _radarGainInput,
+                freq_mhz: _radarFreqSelect, sensitivity_dbm: _radarSensInput, rcs_m2: _radarRcsInput, prf_hz: _radarPrfInput, mdv_kt: _radarMdvInput,
+                lobing_enabled: _radarLobingCheck, reflectivity: _radarReflSelect, antenna_type: _radarAntennaSelect,
+                boresight_deg: _radarBoresightInput, max_scan_deg: _radarMaxScanInput,
+                rcs_mode: _rtEnvInputs.rcs_mode, rcs_nose: _rtEnvInputs.rcs_nose, rcs_side: _rtEnvInputs.rcs_side, rcs_tail: _rtEnvInputs.rcs_tail
+            };  // מכ"ם + RCS
+            Object.keys(_rtScanInputs).forEach(function(k) { m[k] = _rtScanInputs[k]; });  // סריקה ומעקב
+            Object.keys(m).forEach(function(k) { if (!m[k]) delete m[k]; });  // שדה שלא נבנה (פאנל שלא נטען) — לא נכלל
+            return m;  // המפה
+        }
+
+        function _rtExportProfileJson() {
+            // מייצא את הפרופיל הנוכחי לקובץ JSON — כך אפשר להחזיק נתונים מחוץ לפרויקט, ולא בקוד שמופץ (החלטה 6)
+            var params = {};  // הערכים
+            Object.keys(_rtProfileFields).forEach(function(k) {  // כל שדה
+                var el = _rtProfileFields[k];  // האלמנט
+                params[k] = el.type === 'checkbox' ? el.checked : el.value;  // תיבה או ערך
+            });
+            var doc = {format: 'maps-gui-radar-profile', version: 1, params: params};  // מבנה הקובץ
+            var blob = new Blob([JSON.stringify(doc, null, 2)], {type: 'application/json'});  // הקובץ
+            var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'radar_profile.json';  // קישור
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);  // הורדה (בדסקטופ — חלון שמירה, FR-D-270)
+        }
+
+        function _rtImportProfileJson(text) {
+            // טוען פרופיל מקובץ JSON לשדות. מחזיר הודעה לתצוגה. שדה לא מוכר — מתעלמים; תדר שלא ברשימה — מתווסף
+            var doc;  // התוכן
+            try { doc = JSON.parse(text); } catch (e) { return 'הקובץ אינו JSON תקין'; }  // פענוח
+            if (!doc || doc.format !== 'maps-gui-radar-profile' || !doc.params) return 'זה לא קובץ פרופיל מכ"ם של maps-gui';  // סוג הקובץ
+            var n = 0;  // כמה שדות נטענו
+            Object.keys(doc.params).forEach(function(k) {  // כל ערך בקובץ
+                var el = _rtProfileFields[k], v = doc.params[k];  // השדה והערך
+                if (!el) return;  // לא מוכר — מדלגים
+                if (el.type === 'checkbox') { el.checked = (v === true || v === 'true'); }  // תיבה
+                else {
+                    if (el.tagName === 'SELECT' && !Array.from(el.options).some(function(o) { return o.value === String(v); })) {  // ערך שאינו ברשימה
+                        if (k !== 'freq_mhz') return;  // רק תדר מותר להוסיף; בחירה אחרת לא מוכרת — מדלגים
+                        var o = document.createElement('option'); o.value = String(v); o.textContent = v + ' MHz'; el.appendChild(o);  // תדר חדש
+                    }
+                    el.value = v;  // הערך
+                }
+                if (el.tagName === 'SELECT' || el.type === 'checkbox') el.dispatchEvent(new Event('change'));  // מפעיל מאזינים (הצגת שדות)
+                n++;  // נספר
+            });
+            if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה מעודכנת
+            return 'נטענו ' + n + ' שדות מהפרופיל ✔';  // הודעה
+        }
+
+        function _rtRunRocket(infoEl, timelineEl) {
+            // שלב א6: מחשב קודם מסלול רקטה בשרת (/ballistics/rocket), מצייר אותו, ואז מריץ עליו את בדיקת המעקב
+            if (!radarObs) { alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\"ם דופלר" (🎯)'); return; }  // אין מכ"ם
+            var gt = _ballisticsGetGunTarget();  // המשגר (התותח שהוצב)
+            if (!gt || !gt.gun) { alert('הצב קודם משגר — "✏️ תותח" בכלי הבליסטי'); return; }  // אין משגר
+            function num(el, d) { var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? d : v; }  // ערך או ברירת מחדל
+            var rocket = {mass_kg: num(_rtSrc.rkMass, 40), prop_kg: num(_rtSrc.rkProp, 12), burn_s: num(_rtSrc.rkBurn, 2),
+                          thrust_n: num(_rtSrc.rkThrust, 12000), diam_m: num(_rtSrc.rkDiam, 0.15), cd: num(_rtSrc.rkCd, 0.4)};  // הפרמטרים
+            var common = _ballisticsGetCommonParams() || {};  // המטאו שנבחר בפאנל
+            if (infoEl) infoEl.textContent = '🚀 מחשב מסלול רקטה…';  // משוב
+            fetch('http://localhost:5002/ballistics/rocket', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({gun: gt.gun, elev_deg: num(_rtSrc.rkElev, 45), azimuth_deg: num(_rtSrc.rkAz, 0), rocket: rocket, met: common.met})})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.ok) { if (infoEl) infoEl.textContent = '🚀 ' + (d.message || d.error || 'שגיאה'); return; }  // שגיאה מהמודל
+                if (_rtSrc.rocketLayer) map.removeLayer(_rtSrc.rocketLayer);  // מסלול רקטה קודם
+                _rtSrc.rocketLayer = L.polyline(d.path.map(function(p) { return [p.lat, p.lon]; }), {color: '#cba6f7', weight: 3, dashArray: '6,4'}).addTo(map);  // המסלול, מקווקו סגול
+                var label = 'רקטה: טווח ' + (d.impact.range_m / 1000).toFixed(1) + ' ק"מ, שיא ' + Math.round(d.apex ? d.apex.alt_m : 0) + ' מ\', ' +
+                            'סוף בעירה בשנ\' ' + d.burnout.t + ' ב-' + Math.round(d.burnout.v_ms) + ' מ\'/ש\'';  // תיאור לסיכום
+                _radarTrackRun(d.path.map(function(p) { return {t: p.t, lat: p.lat, lon: p.lon, alt: p.alt_msl}; }), infoEl, timelineEl,
+                               {source: 'rocket', alt_ref: 'msl', label: label});  // בדיקת המעקב
+            })
+            .catch(function(e) { if (infoEl) infoEl.textContent = '🚀 שגיאת רשת: ' + e.message; });  // רשת
+        }
+
+        function _rtRunFromSource(infoEl, timelineEl) {
+            // כפתור "בדוק מעקב מכ"ם": בונה את המסלול מהמקור שנבחר ומריץ
+            if (_rtSrc.sel && _rtSrc.sel.value === 'rocket') { _rtRunRocket(infoEl, timelineEl); return; }  // רקטה — אסינכרוני (חישוב בשרת)
+            var b = _rtBuildTrajectory();  // המסלול
+            if (b) _radarTrackRun(b.points, infoEl, timelineEl, b.opts);  // הרצה
         }
 
         var _radarLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
@@ -4118,6 +4694,12 @@
             if (ballisticsApexMk)   { map.removeLayer(ballisticsApexMk);   ballisticsApexMk   = null; }
             if (ballisticsCollMk)   { map.removeLayer(ballisticsCollMk);   ballisticsCollMk   = null; }
             ballisticsLastPath = null;
+            if (!_radarTrackLastOpts || _radarTrackLastOpts.source === 'ballistic') {  // שלב א4: רק בדיקה של מסלול בליסטי שייכת למסלול הקודם
+                _clearRadarTrack();  // בדיקת מעקב מכ"ם שייכת למסלול הקודם — לא רלוונטית יותר
+                _radarTrackLastPath = null;  // גרירת המכ"ם לא תריץ אותה מחדש
+                if (_radarTrackInfoEl) _radarTrackInfoEl.textContent = '';  // מנקה את הסיכום הישן
+                if (_radarTrackTimelineEl) _radarTrackTimelineEl.style.display = 'none';  // מסתיר את ציר הזמן הישן
+            }
         }
 
         function _ballisticsDrawPath(path, impact) {
@@ -4336,6 +4918,210 @@
                     info.textContent = 'הגבהה מינימלית לכיסוי שטח: ' + _ballisticsFmtAngle(d.qe_min) + ' — הוצבה כ-qe_min בטאב "פתרון ירי"';
                 })
                 .catch(function(e) { info.textContent = 'שגיאת רשת: ' + e.message; });
+            });
+        }
+
+        function _ballisticsBuildRadarTab(body) {
+            // טאב "🎯 מעקב מכ"ם" (כלי שביעי, SRS FR-D-259..): בורר מקור המסלול (שלב א4), הגדרות סריקה ומעקב,
+            // הפעלה ותוצאות. הממשק של שלבים א1-א3 הועבר לכאן מטאב "מסלול בודד", כי חלק מהמקורות אינם בליסטיים
+            var top = L.DomUtil.create('div', '', body);  // עמודת התוכן
+            top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';  // כמו שאר הטאבים
+            var note = L.DomUtil.create('div', '', top);  // הסבר קצר
+            note.style.cssText = 'font-size:8.5px;color:#888;';  // טקסט משני
+            note.textContent = 'המכ"ם והפרמטרים שלו נלקחים מכלי "תצפית מכ"ם דופלר" (🎯). רעיוני/חינוכי — לא מבוסס מערכת אמיתית.';  // הבהרה
+            _rtSrc.sel = _ballisticsMkSelect('מקור המסלול', [['מסלול בליסטי אחרון', 'ballistic'], ['רקטה (מודל דחיפה)', 'rocket'], ['טיסה מ-FR24 שנטענה', 'fr24'],
+                ['מסלול מצויר', 'custom'], ['שיוט במעגל', 'loiter'], ['קובץ CSV', 'csv']], 0,
+                'בליסטי: המסלול האחרון מטאב "מסלול בודד" או "פתרון ירי". מצויר: מהכלי "מסלול טיסה מותאם"', top);  // בורר המקור (החלטות 3-4)
+            _rtSrc.altRef = _ballisticsMkSelect('גובה המסלול', [['מעל פני הים', 'msl'], ['מעל הקרקע', 'agl']], 1,
+                'למסלול מצויר, לשיוט ול-CSV. "מעל הקרקע" מוסיף לכל קודקוד את גובה הקרקע שלו (עד 600 קודקודים)', top);  // ייחוס הגובה
+            // ---- מסלול מצויר ----
+            _rtSrc.customSpeed = _ballisticsMkField('מהירות [קשר]', 90, 1, 1, 2000, 'מהירות קבועה לאורך כל המסלול המצויר', top, null);  // מהירות
+            _rtSrc.customAlt = _ballisticsMkField('גובה לנקודות בלי גובה [מ\']', 300, 10, -400, 20000, 'נקודה שלא הוזן לה גובה בכלי המסלול מקבלת את הגובה הזה', top, null);  // גובה ברירת מחדל
+            // ---- רקטה (שלב א6) — המשגר הוא התותח שהוצב בכלי הבליסטי, והמטאו לפי הבחירה בפאנל ----
+            var rkNote = L.DomUtil.create('div', '', top);  // הסבר
+            rkNote.style.cssText = 'font-size:8.5px;color:#888;';  // טקסט משני
+            rkNote.textContent = 'המשגר = התותח שהוצב (✏️ תותח). דחף קבוע ואחריו מעוף בליסטי — מודל רעיוני, לא מערכת אמיתית.';  // הבהרה
+            _rtSrc.rkElev = _ballisticsMkField('זווית שיגור [°]', 45, 1, 5, 89, 'זווית ההגבהה של המשגר', top, null);  // הגבהה
+            _rtSrc.rkAz = _ballisticsMkField('אזימוט [°]', 0, 1, 0, 360, 'כיוון השיגור (0 = צפון)', top, null);  // כיוון
+            _rtSrc.rkMass = _ballisticsMkField('מסה בשיגור [ק"ג]', 40, 1, 1, 100000, 'כולל הדלק', top, null);  // מסה
+            _rtSrc.rkProp = _ballisticsMkField('מסת דלק [ק"ג]', 12, 0.5, 0.1, 100000, 'נשרפת באופן אחיד לאורך זמן הבעירה', top, null);  // דלק
+            _rtSrc.rkBurn = _ballisticsMkField('זמן בעירה [שנ\']', 2, 0.1, 0.05, 600, 'כמה זמן המנוע דוחף', top, null);  // בעירה
+            _rtSrc.rkThrust = _ballisticsMkField('דחף [N]', 12000, 100, 1, 1e8, 'דחף קבוע בזמן הבעירה', top, null);  // דחף
+            _rtSrc.rkDiam = _ballisticsMkField('קוטר [מ\']', 0.15, 0.01, 0.01, 5, 'לחישוב שטח החתך בגרר', top, null);  // קוטר
+            _rtSrc.rkCd = _ballisticsMkField('מקדם גרר Cd', 0.4, 0.05, 0, 3, 'קבוע לאורך כל המעוף (פישוט)', top, null);  // Cd
+            // ---- שיוט במעגל ----
+            var loiterRow = L.DomUtil.create('div', '', top);  // שורת המרכז
+            loiterRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';  // פריסה
+            var loiterBtn = L.DomUtil.create('button', '', loiterRow);  // כפתור בחירת מרכז
+            loiterBtn.textContent = '📍 בחר מרכז על המפה';  // תווית
+            loiterBtn.style.cssText = 'font-size:9px;padding:1px 4px;border-radius:3px;border:1px solid #14b8a6;background:#e6fffb;cursor:pointer;';  // עיצוב
+            var loiterLbl = L.DomUtil.create('span', '', loiterRow); loiterLbl.textContent = 'לא נבחר';  // המרכז שנבחר
+            L.DomEvent.on(loiterBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _rtPickLoiterCenter(loiterLbl); });  // בחירה
+            _rtSrc.loiterRadius = _ballisticsMkField('רדיוס [מ\']', 1500, 50, 50, 100000, 'רדיוס מעגל השיוט', top, _rtDrawLoiterPreview);  // רדיוס (מעדכן את התצוגה המקדימה)
+            _rtSrc.loiterAlt = _ballisticsMkField('גובה [מ\']', 300, 10, -400, 20000, 'גובה השיוט', top, null);  // גובה
+            _rtSrc.loiterSpeed = _ballisticsMkField('מהירות [קשר]', 60, 1, 1, 2000, 'מהירות לאורך המעגל', top, null);  // מהירות
+            _rtSrc.loiterLaps = _ballisticsMkField('מספר סיבובים', 2, 1, 1, 50, 'כמה פעמים להקיף את המרכז', top, null);  // סיבובים
+            _rtSrc.loiterDir = _ballisticsMkSelect('כיוון', [['עם כיוון השעון', 'cw'], ['נגד כיוון השעון', 'ccw']], 0, '', top);  // כיוון
+            // ---- קובץ CSV ----
+            var csvRow = L.DomUtil.create('div', '', top);  // שורת הקובץ
+            csvRow.style.cssText = 'display:flex;flex-direction:column;gap:2px;font-size:9px;color:#666;';  // פריסה
+            var csvInput = L.DomUtil.create('input', '', csvRow); csvInput.type = 'file'; csvInput.accept = '.csv,.txt';  // בחירת קובץ
+            csvInput.style.cssText = 'font-size:9px;max-width:240px;';  // עיצוב
+            var csvLbl = L.DomUtil.create('span', '', csvRow);  // מצב הטעינה
+            csvLbl.textContent = 'עמודות: t [שנ\'], lat, lon, alt [מ\'] — עם שורת כותרת או בסדר הזה';  // הוראה
+            L.DomEvent.on(csvInput, 'change', function() {  // קובץ נבחר
+                var f = csvInput.files && csvInput.files[0]; if (!f) return;  // אין קובץ
+                var rd = new FileReader();  // קורא מקומי — הקובץ לא נשלח לשום מקום חוץ מהשרת המקומי
+                rd.onload = function() {  // נקרא
+                    var pts = _rtParseCsv(String(rd.result));  // פענוח
+                    _rtSrc.csvPoints = pts && pts.length >= 2 ? pts : null;  // רק מסלול תקין
+                    csvLbl.textContent = pts === null ? 'חסרה עמודה (t, lat, lon, alt) בשורת הכותרת' :
+                        (pts.length >= 2 ? 'נטענו ' + pts.length + ' נקודות ✔' : 'לא נמצאו מספיק נקודות תקינות');  // תוצאה
+                };
+                rd.readAsText(f);  // קריאה כטקסט
+            });
+            // ---- FR24 ----
+            var frRow = L.DomUtil.create('label', '', top);  // שורת ה-RCS האוטומטי
+            frRow.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;color:#666;cursor:pointer;';  // תיבה + טקסט
+            _rtSrc.frRcs = L.DomUtil.create('input', '', frRow); _rtSrc.frRcs.type = 'checkbox'; _rtSrc.frRcs.checked = true;  // מופעל כברירת מחדל
+            L.DomUtil.create('span', '', frRow).textContent = 'RCS לפי סוג המטוס (במקום השדה בכלי הדופלר)';  // הסבר
+            function _rtRefreshSource() {  // מציג רק את השדות של המקור שנבחר
+                var s = _rtSrc.sel.value;  // המקור
+                function show(el, on) { (el.tagName === 'INPUT' || el.tagName === 'SELECT' ? el.parentElement : el).style.display = on ? 'flex' : 'none'; }  // שורה שלמה
+                show(_rtSrc.altRef, s === 'custom' || s === 'loiter' || s === 'csv');  // ייחוס גובה
+                show(_rtSrc.customSpeed, s === 'custom'); show(_rtSrc.customAlt, s === 'custom');  // מסלול מצויר
+                rkNote.style.display = s === 'rocket' ? 'block' : 'none';  // הסבר הרקטה
+                [_rtSrc.rkElev, _rtSrc.rkAz, _rtSrc.rkMass, _rtSrc.rkProp, _rtSrc.rkBurn, _rtSrc.rkThrust, _rtSrc.rkDiam, _rtSrc.rkCd]
+                    .forEach(function(el) { show(el, s === 'rocket'); });  // שדות הרקטה
+                [loiterRow].forEach(function(el) { el.style.display = s === 'loiter' ? 'flex' : 'none'; });  // שורת המרכז
+                [_rtSrc.loiterRadius, _rtSrc.loiterAlt, _rtSrc.loiterSpeed, _rtSrc.loiterLaps, _rtSrc.loiterDir].forEach(function(el) { show(el, s === 'loiter'); });  // שדות השיוט
+                csvRow.style.display = s === 'csv' ? 'flex' : 'none';  // קובץ
+                frRow.style.display = s === 'fr24' ? 'flex' : 'none';  // FR24
+                if (s !== 'loiter' && _rtSrc.loiterLayer) { map.removeLayer(_rtSrc.loiterLayer); _rtSrc.loiterLayer = null; }  // התצוגה המקדימה רק בשיוט
+                if (s === 'loiter') _rtDrawLoiterPreview();  // חזרה לשיוט — מציגים שוב
+            }
+            L.DomEvent.on(_rtSrc.sel, 'change', _rtRefreshSource);  // שינוי מקור
+            _rtRefreshSource();  // מצב התחלתי
+            // כפתור בדיקת מעקב מכ"ם (כלי שביעי, שלב א1) — בודק את המסלול האחרון שחושב מול המכ"ם של כלי 🎯
+            var rtBtn = L.DomUtil.create('button', '', top);  // הכפתור
+            rtBtn.textContent = '🎯 בדוק מעקב מכ"ם';  // תווית
+            rtBtn.title = 'משתמש במכ"ם ובפרמטרים מכלי "תצפית מכ"ם דופלר" (🎯) ובמקור המסלול שנבחר למעלה';  // הסבר בריחוף
+            rtBtn.style.cssText = 'font-size:10px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#94e2d5;cursor:pointer;';  // עיצוב כמו שאר הכפתורים
+            // ---- הגדרות סריקה ומעקב (שלב א2) — מקופלות כברירת מחדל, כדי לא להעמיס על הטאב ----
+            var rtCfg = L.DomUtil.create('details', '', top);  // אזור מתקפל
+            rtCfg.style.cssText = 'font-size:9px;border:1px solid #ddd;border-radius:3px;padding:2px 4px;';  // מסגרת עדינה
+            var rtCfgSum = L.DomUtil.create('summary', '', rtCfg);  // כותרת האזור
+            rtCfgSum.textContent = '⚙ הגדרות סריקה ומעקב';  // הטקסט
+            rtCfgSum.style.cssText = 'cursor:pointer;color:#555;';  // סמן לחיצה
+            _rtScanInputs.track_mode = _ballisticsMkSelect('מצב בדיקה', [['מעקב (סריקה + M מתוך N)', 'track'], ['גילוי לכל נקודה', 'detection']], 0,
+                'מעקב: המכ"ם רואה רק כשהאלומה עוברת על המטרה, ומעקב נפתח אחרי M גילויים מתוך N. גילוי: כל נקודה נבדקת בנפרד', rtCfg);  // מתג המצב (החלטה 1)
+            _rtScanInputs.scan_mode = _ballisticsMkSelect('סוג סריקה', [['אנטנה מסתובבת', 'rotating'], ['מערך-מופע (סקטור)', 'phased'], ['מכ"ם מעקב ייעודי', 'tracker']], 0,
+                'הסקטור של מערך-מופע נלקח מכלי הדופלר (כיוון פנים וזווית סריקה מרבית)', rtCfg);  // שלושת מצבי הסריקה (החלטה 7)
+            _rtScanInputs.rot_period_s = _ballisticsMkField('זמן סיבוב [שנ\']', 4, 0.1, 0.2, 60, 'כמה שניות לוקח לאנטנה סיבוב מלא', rtCfg, null);  // אנטנה מסתובבת
+            _rtScanInputs.scan_phase_deg = _ballisticsMkField('כיוון אלומה בהתחלה [°]', 0, 1, 0, 360, 'לאן מכוונת האלומה ברגע הירי (0 = צפון). משפיע על זמן הגילוי', rtCfg, null);  // פאזה
+            _rtScanInputs.revisit_s = _ballisticsMkField('זמן ביקור [שנ\']', 0.5, 0.05, 0.02, 30, 'כל כמה שניות מערך-המופע חוזר לכל כיוון בסקטור', rtCfg, null);  // מערך-מופע
+            _rtScanInputs.track_rate_hz = _ballisticsMkField('קצב עדכון מעקב [Hz]', 10, 1, 0.5, 100, 'כמה עדכונים בשנייה אחרי שהמכ"ם ננעל', rtCfg, null);  // מעקב ייעודי
+            _rtScanInputs.max_ang_rate_dps = _ballisticsMkField('קצב סיבוב מרבי [°/שנ\']', 30, 1, 0.1, 360, 'מטרה שזזה זוויתית מהר מזה "בורחת" מהאלומה', rtCfg, null);  // מעקב ייעודי
+            _rtScanInputs.cue_delay_s = _ballisticsMkField('השהיית הכוונה [שנ\']', 1, 0.1, 0, 30, 'הזמן מגילוי המטרה ועד שמכ"ם המעקב מתחיל לעקוב', rtCfg, null);  // מעקב ייעודי
+            _rtScanInputs.track_m = _ballisticsMkField('M — גילויים לפתיחה', 2, 1, 1, 10, 'כמה גילויים נדרשים כדי לפתוח מעקב', rtCfg, null);  // M
+            _rtScanInputs.track_n = _ballisticsMkField('N — מתוך הזדמנויות', 3, 1, 1, 10, 'בתוך כמה הזדמנויות אחרונות צריכים להיות M הגילויים', rtCfg, null);  // N
+            _rtScanInputs.coast_s = _ballisticsMkField('זמן דעיכה [שנ\']', 8, 0.5, 0.1, 120, 'כמה שניות בלי גילוי המעקב שורד לפני שהוא נשבר', rtCfg, null);  // coast
+            function _rtRefreshScanFields() {  // מציג רק את השדות שרלוונטיים לסוג הסריקה ולמצב
+                var mode = _rtScanInputs.scan_mode.value, isTrack = _rtScanInputs.track_mode.value === 'track';  // הבחירות
+                var show = {  // שדה -> האם להציג
+                    scan_mode: isTrack, rot_period_s: isTrack && mode === 'rotating', scan_phase_deg: isTrack && mode === 'rotating',
+                    revisit_s: isTrack && mode === 'phased', track_rate_hz: isTrack && mode === 'tracker',
+                    max_ang_rate_dps: isTrack && mode === 'tracker', cue_delay_s: isTrack && mode === 'tracker',
+                    track_m: isTrack, track_n: isTrack, coast_s: isTrack
+                };
+                Object.keys(show).forEach(function(k) { _rtScanInputs[k].parentElement.style.display = show[k] ? 'flex' : 'none'; });  // הסתרה/הצגה של השורה כולה
+            }
+            L.DomEvent.on(_rtScanInputs.scan_mode, 'change', _rtRefreshScanFields);  // שינוי סוג סריקה
+            L.DomEvent.on(_rtScanInputs.track_mode, 'change', _rtRefreshScanFields);  // שינוי מצב
+            _rtRefreshScanFields();  // מצב התחלתי
+            // ---- שלב א5: RCS לפי זווית וגשם ----
+            var rtEnv = L.DomUtil.create('details', '', top);  // אזור מתקפל
+            rtEnv.style.cssText = 'font-size:9px;border:1px solid #ddd;border-radius:3px;padding:2px 4px;';  // מסגרת עדינה
+            var rtEnvSum = L.DomUtil.create('summary', '', rtEnv); rtEnvSum.textContent = '⚙ RCS וגשם';  // כותרת
+            rtEnvSum.style.cssText = 'cursor:pointer;color:#555;';  // סמן לחיצה
+            _rtEnvInputs.rcs_mode = _ballisticsMkSelect('RCS', [['קבוע (השדה בכלי הדופלר)', 'fixed'], ['לפי זווית הסתכלות', 'aspect']], 0,
+                'לפי זווית: RCS שונה כשרואים את המטרה מהחרטום, מהצד או מהזנב — מעבר הדרגתי ביניהם', rtEnv);  // החלטה 5
+            var rcsPreset = _ballisticsMkSelect('מילוי מהיר (משוער)', [['—', ''], ['פגז', '0.005,0.02,0.01'], ['רקטה', '0.02,0.3,0.05'],
+                ['רחפן קטן', '0.01,0.03,0.01'], ['מטוס קל', '0.5,3,1']], 0, 'ערכים משוערים לצורך המחשה בלבד — לא נתוני מערכת אמיתית', rtEnv);  // נוחות בלבד
+            _rtEnvInputs.rcs_nose = _ballisticsMkField('חרטום [מ"ר]', 0.01, 0.001, 0.0001, 10000, 'RCS כשהמטרה מתקרבת ישר אל המכ"ם', rtEnv, null);  // 0°
+            _rtEnvInputs.rcs_side = _ballisticsMkField('צד [מ"ר]', 0.05, 0.001, 0.0001, 10000, 'RCS כשהמטרה חוצה בניצב', rtEnv, null);  // 90°
+            _rtEnvInputs.rcs_tail = _ballisticsMkField('זנב [מ"ר]', 0.02, 0.001, 0.0001, 10000, 'RCS כשהמטרה מתרחקת מהמכ"ם', rtEnv, null);  // 180°
+            L.DomEvent.on(rcsPreset, 'change', function() {  // מילוי שלושת השדות
+                if (!rcsPreset.value) return;  // "—"
+                var v = rcsPreset.value.split(',');  // חרטום,צד,זנב
+                _rtEnvInputs.rcs_nose.value = v[0]; _rtEnvInputs.rcs_side.value = v[1]; _rtEnvInputs.rcs_tail.value = v[2];  // מילוי
+            });
+            var rainPreset = _ballisticsMkSelect('גשם — מילוי מהיר', [['יבש', '0'], ['קל (2.5)', '2.5'], ['בינוני (10)', '10'], ['כבד (25)', '25'], ['סוער (50)', '50']], 0, '', rtEnv);  // נוחות
+            _rtEnvInputs.rain_rate_mmh = _ballisticsMkField('עוצמת גשם [מ"מ/שעה]', 0, 0.5, 0, 200, '0 = יבש. ההשפעה משמעותית בעיקר בתדרים גבוהים (פס X ומעלה)', rtEnv, null);  // החלטה 10
+            L.DomEvent.on(rainPreset, 'change', function() { _rtEnvInputs.rain_rate_mmh.value = rainPreset.value; });  // מילוי
+            _rtEnvInputs.rain_top_m = _ballisticsMkField('תקרת הגשם [מ\']', 3000, 100, 100, 10000, 'הגשם מניחים אחיד מהקרקע ועד הגובה הזה', rtEnv, null);  // גובה
+            _rtEnvInputs.polarization = _ballisticsMkSelect('קיטוב', [['אופקי', 'h'], ['אנכי', 'v'], ['מעגלי', 'c']], 0, 'הקיטוב משנה את הנחתת הגשם (ITU-R P.838-3)', rtEnv);  // τ
+            var ituNote = L.DomUtil.create('div', '', rtEnv);  // ציון מקור — חובה לפי החלטת הבעלים D8
+            ituNote.style.cssText = 'font-size:8px;color:#888;direction:ltr;text-align:left;';  // טקסט משני
+            ituNote.textContent = 'Rain attenuation model: Recommendation ITU-R P.838-3 (ITU)';  // הייחוס
+            function _rtRefreshEnv() {  // שדות ה-RCS לפי זווית רק כשהמצב הזה נבחר
+                var on = _rtEnvInputs.rcs_mode.value === 'aspect';  // המצב
+                [rcsPreset, _rtEnvInputs.rcs_nose, _rtEnvInputs.rcs_side, _rtEnvInputs.rcs_tail].forEach(function(el) { el.parentElement.style.display = on ? 'flex' : 'none'; });  // הצגה/הסתרה
+            }
+            L.DomEvent.on(_rtEnvInputs.rcs_mode, 'change', _rtRefreshEnv); _rtRefreshEnv();  // מאזין + מצב התחלתי
+            // ---- שלב א5: פרופילי מכ"ם — שמירה/טעינה (רכיב "עמדות שמורות" הקיים) וייבוא/ייצוא JSON ----
+            var rtProf = L.DomUtil.create('details', '', top);  // אזור מתקפל
+            rtProf.style.cssText = 'font-size:9px;border:1px solid #ddd;border-radius:3px;padding:2px 4px;';  // מסגרת
+            var rtProfSum = L.DomUtil.create('summary', '', rtProf); rtProfSum.textContent = '💾 פרופילי מכ"ם';  // כותרת
+            rtProfSum.style.cssText = 'cursor:pointer;color:#555;';  // סמן לחיצה
+            _rtProfileFields = _rtBuildProfileFieldMap();  // כל השדות שנכנסים לפרופיל
+            _buildStationUI(rtProf, 'radar_profile', _rtProfileFields, null, null,
+                function() { if (radarObs) _updateRadarDopplerPreview(); }, 'פרופילים שמורים (פרמטרי מכ"ם + סריקה + RCS):');  // שמירה/טעינה/מחיקה
+            var jsonRow = L.DomUtil.create('div', '', rtProf);  // ייבוא/ייצוא
+            jsonRow.style.cssText = 'display:flex;gap:3px;margin-top:3px;';  // פריסה
+            var expJson = L.DomUtil.create('button', '', jsonRow); expJson.textContent = '⬇ ייצוא JSON';  // ייצוא
+            var impJson = L.DomUtil.create('button', '', jsonRow); impJson.textContent = '⬆ ייבוא JSON';  // ייבוא
+            [expJson, impJson].forEach(function(b) { b.style.cssText = 'flex:1;font-size:9px;padding:1px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;'; });  // עיצוב
+            var impFile = L.DomUtil.create('input', '', jsonRow); impFile.type = 'file'; impFile.accept = '.json'; impFile.style.display = 'none';  // בורר קבצים נסתר
+            L.DomEvent.on(expJson, 'click', function(e) { L.DomEvent.stopPropagation(e); _rtExportProfileJson(); });  // ייצוא
+            L.DomEvent.on(impJson, 'click', function(e) { L.DomEvent.stopPropagation(e); impFile.click(); });  // פותח בחירת קובץ
+            var profStatus = L.DomUtil.create('div', '', rtProf);  // תוצאת הייבוא — טקסט ולא alert, כדי לא לחסום
+            profStatus.style.cssText = 'font-size:8.5px;color:#555;margin-top:2px;';  // טקסט משני
+            L.DomEvent.on(impFile, 'change', function() {  // קובץ נבחר
+                var f = impFile.files && impFile.files[0]; if (!f) return;  // אין
+                var rd = new FileReader();  // קריאה מקומית
+                rd.onload = function() { profStatus.textContent = _rtImportProfileJson(String(rd.result)); impFile.value = ''; };  // החלה + הודעה, ואיפוס הבורר לבחירה חוזרת
+                rd.readAsText(f);  // טקסט
+            });
+            var rtInfo = L.DomUtil.create('div', '', top);  // שורת הסיכום של הבדיקה — נפרדת מ-info כדי שלא תידרס
+            rtInfo.style.cssText = 'font-size:9.5px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;';  // כמו info
+            var rtTimeline = document.createElement('canvas');  // ציר הזמן של המעקב (שלב א2)
+            rtTimeline.style.cssText = 'width:250px;height:40px;display:none;margin-top:2px;';  // רוחב בפיקסלים — ר' ההערה על canvas למטה; מוסתר עד שיש תוצאה
+            top.appendChild(rtTimeline);  // לטאב
+            // ---- שלב א3: מניפת LOS, ייצוא CSV, גרף צד ופרופיל שטח לנקודה ----
+            var rtViewRow = L.DomUtil.create('div', '', top);  // שורה: מתג המניפה + כפתור ייצוא
+            rtViewRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#555;';  // פריסה
+            var rtFanLbl = L.DomUtil.create('label', '', rtViewRow);  // תווית המתג
+            rtFanLbl.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;';  // תיבה + טקסט
+            var rtFanChk = L.DomUtil.create('input', '', rtFanLbl); rtFanChk.type = 'checkbox'; rtFanChk.checked = true;  // מופעל כברירת מחדל (החלטה 2)
+            L.DomUtil.create('span', '', rtFanLbl).textContent = 'קווי LOS מהמכ"ם';  // הטקסט
+            var rtCsvBtn = L.DomUtil.create('button', '', rtViewRow);  // ייצוא
+            rtCsvBtn.textContent = '⬇ CSV'; rtCsvBtn.title = 'ייצוא שורה לכל נקודה: זמן, מיקום, גובה, טווח, זווית, מצב וסיבה';  // תווית והסבר
+            rtCsvBtn.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // עיצוב
+            var rtSide = document.createElement('canvas');  // גרף צד: מרחק × גובה
+            rtSide.style.cssText = 'width:250px;height:120px;display:none;margin-top:2px;border:1px solid #eee;';  // מוסתר עד שיש תוצאה
+            top.appendChild(rtSide);  // לטאב
+            var rtProfInfo = L.DomUtil.create('div', '', top);  // כותרת פרופיל השטח
+            rtProfInfo.style.cssText = 'font-size:9px;color:#333;direction:rtl;text-align:right;';  // כמו שאר הטקסטים
+            var rtProfile = document.createElement('canvas');  // פרופיל שטח לנקודה שנלחצה
+            rtProfile.style.cssText = 'width:250px;height:90px;display:none;border:1px solid #eee;';  // מוסתר עד לחיצה
+            top.appendChild(rtProfile);  // לטאב
+            _rtViewEls = {fan: rtFanChk, side: rtSide, profile: rtProfile, profInfo: rtProfInfo};  // הפניות גלובליות לפונקציות הציור
+            L.DomEvent.on(rtFanChk, 'change', function() { _radarTrackDrawFan(_radarTrackLastResult); });  // הצגה/הסתרה מיידית
+            L.DomEvent.on(rtCsvBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _radarTrackExportCsv(); });  // ייצוא
+            L.DomEvent.on(rtBtn, 'click', function(e) {  // לחיצה
+                L.DomEvent.stopPropagation(e);  // לא להעביר את הלחיצה למפה
+                _rtRunFromSource(rtInfo, rtTimeline);  // שלב א4: הבדיקה על המקור שנבחר בראש הטאב
             });
         }
 
@@ -4770,7 +5556,7 @@
                 // ---- טאבים ----
                 var tabsRow = L.DomUtil.create('div', '', panelBody);
                 tabsRow.style.cssText = 'display:flex;gap:2px;margin-top:4px;flex-wrap:wrap;';
-                var tabNames = [['traj', 'מסלול בודד'], ['solve', 'פתרון ירי'], ['table', 'טבלת ירי'], ['cal', 'כיול'], ['met', 'מטאו']];
+                var tabNames = [['traj', 'מסלול בודד'], ['solve', 'פתרון ירי'], ['table', 'טבלת ירי'], ['cal', 'כיול'], ['met', 'מטאו'], ['radar', '🎯 מעקב מכ"ם']];  // הטאב האחרון: כלי בדיקת מעקב מכ"ם (שלב א4)
                 var tabBtns = {}, tabBodies = {};
                 var tabsHolder = L.DomUtil.create('div', '', panelBody);
                 function _selectTab(key) {
@@ -4797,6 +5583,7 @@
                 _ballisticsBuildTableTab(tabBodies['table']);
                 _ballisticsBuildCalTab(tabBodies['cal']);
                 _ballisticsBuildMetTab(tabBodies['met']);
+                _ballisticsBuildRadarTab(tabBodies['radar']);  // כלי בדיקת מעקב מכ"ם — מקור מסלול, הגדרות ותוצאות
                 _selectTab('traj');
 
                 L.DomEvent.disableClickPropagation(container);

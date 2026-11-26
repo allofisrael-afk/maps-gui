@@ -1276,6 +1276,7 @@ def radar_doppler_status():
         return jsonify({
             'status': job['status'], 'batches_done': job['batches_done'],
             'batches_total': job['batches_total'], 'result': job['result'], 'error': job['error'],
+            'note': job.get('note'),  # הודעת מצב אופציונלית (למשל "ממתין למכסת Open-Meteo") — רק בדיקת מעקב מכ"ם מציבה אותה; None אצל השאר
         })
 
 
@@ -1617,6 +1618,355 @@ def start_radar_route_eval():
     return jsonify({'job_id': job_id})
 
 
+# ── כלי שביעי: בדיקת מעקב מכ"ם אחרי מסלול בליסטי/אווירי (SRS FR-D-259..) — שלב א1 ──
+# הליבה ב-radar_track.py (stdlib בלבד); כאן רק: גובה המכ"ם, שליפת גבהים ב-batches עם התקדמות/ביטול,
+# והזרקת פונקציות הפיזיקה הקיימות של כלי הדופלר (אותן נוסחאות בדיוק). משתמש ב-_radar_jobs הקיים,
+# ולכן גם ב-/radar_doppler/status ו-/radar_doppler/cancel הקיימים — כמו הערכת מסלול הטיסה.
+import radar_track as _rt  # ייבוא מקומי לחלק הזה — המודול עצמאי ולא תלוי ב-Flask
+
+_RADAR_TRACK_MAX_POINTS = 6000  # תקרת נקודות-מסלול בבקשה אחת — מסלול MPM של ~100 שנ' בצעד 0.1 שנ' הוא ~1000
+# ── שליפת גבהים: Open-Meteo סופר כל *נקודה* כקריאה (600/דקה, 5000/שעה) — נמדד בבדיקה חיה (26 בקשות של 30
+# נקודות נחסמו תוך 22 שנ'). לכן: מטמון לפי תא-רשת, בקשות של 100 נקודות, וקצב מתחת למגבלה הדקתית ──
+_RADAR_TRACK_BATCH = 100  # נקודות לבקשה — המקסימום ש-Open-Meteo מקבל
+_RADAR_TRACK_LOCS_PER_MIN = 500  # קצב יעד (נקודות לדקה) — מרווח ביטחון מתחת ל-600
+_RADAR_TRACK_RATE_RETRIES = 2  # כמה פעמים להמתין דקה ולנסות שוב כשמתקבלת חסימה דקתית
+_ELEV_CACHE = {}  # תא-רשת (lat,lon) -> גובה — נשמר לאורך חיי השרת; גרירת המכ"ם/הרצה חוזרת לא שולפות שוב
+_ELEV_CACHE_LOCK = threading.Lock()  # מגן על המטמון מכמה jobs במקביל
+_ELEV_CACHE_MAX = 200000  # תקרת רשומות (~10MB) — מעבר לזה המטמון מתאפס, לא גדל בלי סוף
+
+
+def _radar_track_sleep(job_id, seconds):
+    """השהיה שמכבדת ביטול (בודקת כל חצי שנייה). מחזיר False אם בוטל בזמן ההמתנה."""
+    end = time.time() + seconds  # מתי ההמתנה נגמרת
+    while time.time() < end:  # עד הסוף
+        with _radar_jobs_lock:  # בדיקת ביטול
+            if _radar_jobs[job_id]['cancelled']:  # המשתמש ביטל
+                _radar_jobs[job_id]['status'] = 'cancelled'  # מסמנים
+                return False  # בוטל
+        time.sleep(min(0.5, max(0.0, end - time.time())))  # חצי שנייה או מה שנשאר
+    return True  # ההמתנה הושלמה
+
+
+def _radar_track_fetch_cells(job_id, cells):
+    """שולף גבהים לתאי-הרשת: קודם מהמטמון, את השאר ב-batches של 100 בקצב מבוקר, עם המתנה של דקה
+    וניסיון חוזר כשמתקבלת חסימה דקתית. מעדכן התקדמות ב-job ומכבד ביטול.
+    מחזיר רשימת גבהים מקבילה ל-cells (None לתא שנכשל), או None אם בוטל/נחסם (הסטטוס כבר נקבע)."""
+    elevations = [None] * len(cells)  # ברירת-מחדל: לא נשלף
+    todo = []  # אינדקסים של תאים שאינם במטמון
+    with _ELEV_CACHE_LOCK:  # קריאת המטמון
+        for i, c in enumerate(cells):  # כל תא
+            if c in _ELEV_CACHE:  # כבר נשלף בעבר
+                elevations[i] = _ELEV_CACHE[c]  # מהמטמון
+            else:  # צריך לשלוף
+                todo.append(i)  # לרשימה
+    total_batches = (len(todo) + _RADAR_TRACK_BATCH - 1) // _RADAR_TRACK_BATCH  # מספר הבקשות
+    with _radar_jobs_lock:  # עדכון מצב ה-job
+        _radar_jobs[job_id]['batches_total'] = total_batches  # לסרגל ההתקדמות
+        _radar_jobs[job_id]['cached_cells'] = len(cells) - len(todo)  # כמה הגיעו מהמטמון — לשקיפות
+    for b in range(total_batches):  # בקשה אחר בקשה
+        idxs = todo[b * _RADAR_TRACK_BATCH:(b + 1) * _RADAR_TRACK_BATCH]  # התאים של הבקשה
+        batch = [{'lat': cells[i][0], 'lon': cells[i][1]} for i in idxs]  # בפורמט של _fetch_elevations
+        attempt = 0  # מונה המתנות למכסה
+        while True:  # ניסיון, ואולי המתנה וניסיון חוזר
+            with _radar_jobs_lock:  # בדיקת ביטול
+                if _radar_jobs[job_id]['cancelled']:  # המשתמש ביטל
+                    _radar_jobs[job_id]['status'] = 'cancelled'  # מסמנים
+                    return None  # עוצרים
+            batch_elevs, err = _fetch_elevations(batch)  # השליפה (כולל retry על ניתוק)
+            if err and err.get('rate_limited'):  # חסימת מכסה
+                msg = str(err.get('error') or '')  # הנוסח של Open-Meteo
+                if 'inutely' in msg and attempt < _RADAR_TRACK_RATE_RETRIES:  # מכסה דקתית — עוברת תוך דקה
+                    attempt += 1  # עוד המתנה
+                    with _radar_jobs_lock:  # הודעה לממשק
+                        _radar_jobs[job_id]['note'] = 'ממתין דקה למכסת Open-Meteo…'  # מוצג במקום ההתקדמות
+                    if not _radar_track_sleep(job_id, 61):  # דקה ושנייה
+                        return None  # בוטל בזמן ההמתנה
+                    with _radar_jobs_lock:  # ההמתנה הסתיימה
+                        _radar_jobs[job_id]['note'] = None  # מנקים את ההודעה
+                    continue  # ניסיון חוזר לאותה בקשה
+                with _radar_jobs_lock:  # מכסה שעתית/יומית, או שנגמרו הניסיונות — שגיאה ברורה
+                    _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+                    _radar_jobs[job_id]['error'] = 'מכסת Open-Meteo נוצלה: ' + msg  # הסיבה המקורית
+                return None  # עוצרים
+            break  # הצליח (או כשל רגיל) — ממשיכים
+        if batch_elevs is not None:  # התקבלו גבהים (אולי חלקית)
+            with _ELEV_CACHE_LOCK:  # עדכון המטמון
+                if len(_ELEV_CACHE) > _ELEV_CACHE_MAX:  # תקרה
+                    _ELEV_CACHE.clear()  # איפוס פשוט — עדיף על גדילה בלי סוף
+                for i, elev in zip(idxs, batch_elevs):  # כל תא בבקשה
+                    elevations[i] = elev  # לתוצאה
+                    if elev is not None:  # רק ערכים תקינים נשמרים
+                        _ELEV_CACHE[cells[i]] = elev  # למטמון
+        with _radar_jobs_lock:  # התקדמות
+            _radar_jobs[job_id]['batches_done'] = b + 1  # עוד בקשה הושלמה
+        if b < total_batches - 1:  # בין בקשות — שומרים על הקצב מתחת למגבלה
+            if not _radar_track_sleep(job_id, len(batch) * 60.0 / _RADAR_TRACK_LOCS_PER_MIN):  # 12 שנ' ל-100 נקודות
+                return None  # בוטל
+    return elevations  # כל הגבהים
+
+
+def _parse_radar_track_params(body):
+    """פרמטרי שלב א2 (סריקה ומעקב) — צמודים לטווחים סבירים, ערך לא תקין נופל לברירת-המחדל בשקט
+    (אותו דפוס כמו _parse_radar_common_params). מחזיר (track_mode, scan, track)."""
+    def _f(name, default, lo, hi):  # מספר צמוד לטווח
+        try:  # ערך לא מספרי -> ברירת מחדל
+            return min(max(float(body.get(name, default)), lo), hi)  # צמידה
+        except (TypeError, ValueError):  # לא מספר
+            return default  # ברירת מחדל
+    track_mode = body.get('track_mode', 'track')  # 'detection' = שלב א1 בלבד; 'track' = עם סריקה ומעקב
+    if track_mode not in ('detection', 'track'):  # ערך לא מוכר
+        track_mode = 'track'  # ברירת מחדל
+    mode = body.get('scan_mode', _rt.SCAN_ROTATING)  # מצב הסריקה
+    if mode not in (_rt.SCAN_ROTATING, _rt.SCAN_PHASED, _rt.SCAN_TRACKER):  # ערך לא מוכר
+        mode = _rt.SCAN_ROTATING  # ברירת מחדל
+    scan = {
+        'mode': mode,  # מצב
+        'rot_period_s': _f('rot_period_s', 4.0, 0.2, 60.0),  # זמן סיבוב אנטנה
+        'phase_deg': _f('scan_phase_deg', 0.0, 0.0, 360.0) % 360.0,  # כיוון האלומה בתחילת המסלול
+        'revisit_s': _f('revisit_s', 0.5, 0.02, 30.0),  # זמן ביקור במערך-מופע
+        'track_rate_hz': _f('track_rate_hz', 10.0, 0.5, 100.0),  # קצב עדכון במכ"ם מעקב
+        'max_ang_rate_dps': _f('max_ang_rate_dps', 30.0, 0.1, 360.0),  # קצב סיבוב מרבי של אנטנת המעקב
+        'cue_delay_s': _f('cue_delay_s', 1.0, 0.0, 30.0),  # השהיית הכוונה
+    }
+    m = int(_f('track_m', 2, 1, 10))  # M — גילויים לפתיחת מעקב
+    n = max(m, int(_f('track_n', 3, 1, 10)))  # N — חלון ההזדמנויות (לא קטן מ-M)
+    track = {'m': m, 'n': n, 'coast_s': _f('coast_s', 8.0, 0.1, 120.0)}  # פרמטרי המעקב
+    return track_mode, scan, track  # שלושתם
+
+
+def _radar_track_physics(p):
+    """בונה את פונקציות הפיזיקה למנוע — עטיפה דקה סביב הנוסחאות הקיימות של כלי הדופלר, בלי לשנות אותן."""
+    wavelength_m = 299792458.0 / (p['freq_mhz'] * 1e6)  # אורך הגל
+    ceiling_m = min(_radar_max_range_m(p['power_kw'], p['gain_dbi'], p['freq_mhz'], p['rcs_m2'], p['sensitivity_dbm']),
+                    _max_unambiguous_range_m(p['prf_hz']))  # תקרה נקייה: משוואת מכ"ם או טווח חד-משמעי, הקטן מביניהם
+    mdv_ms = p['mdv_kt'] * _KT_TO_MS  # MDV במ'/ש'
+    reflectivity = _RADAR_REFLECTIVITY.get(p['reflectivity_key'], _RADAR_REFLECTIVITY[_RADAR_REFLECTIVITY_DEFAULT])  # מקדם החזרה
+    lobing = ((lambda e: _lobing_factor(e, p['h_antenna'], wavelength_m, reflectivity))
+              if p['lobing_enabled'] else (lambda e: 1.0))  # ריבוד רק אם הופעל בפאנל
+    scan = ((lambda b: _scan_loss_factor(b, p['boresight_deg'], p['max_scan_deg']))
+            if p['antenna_type'] == 'phased_array' else (lambda b: 1.0))  # הפסד-סריקה רק במערך-מופעים
+    phys = {'ceiling_m': ceiling_m, 'lobing': lobing, 'scan_loss': scan,
+            'doppler_ok': lambda v: _doppler_detectable(v, mdv_ms, wavelength_m, p['prf_hz'])}  # ה-dict שהמנוע מצפה לו
+    env = p.get('env') or {}  # שלב א5: RCS לפי זווית וגשם — נוספים רק אם הופעלו
+    if env.get('rcs_mode') == 'aspect':  # RCS לפי זווית ההסתכלות
+        ref = p['rcs_m2']  # ה-RCS שעליו חושבה התקרה
+        nose, side, tail = env['rcs_nose'], env['rcs_side'], env['rcs_tail']  # שלושת הערכים
+        phys['rcs_factor'] = lambda a: ((_rt.aspect_rcs(a, nose, side, tail) / ref) ** 0.25,
+                                        _rt.aspect_rcs(a, nose, side, tail))  # (גורם התקרה, ה-RCS עצמו)
+    if env.get('rain_rate_mmh', 0.0) > 0:  # יש גשם
+        rate, top, tilt = env['rain_rate_mmh'], env['rain_top_m'], env['pol_tilt_deg']  # עוצמה, תקרה, קיטוב
+        f_ghz = p['freq_mhz'] / 1000.0  # התדר ב-GHz
+        h_msl = p.get('radar_h_msl', 0.0)  # גובה האנטנה מעל פני הים — נקבע ב-worker
+        phys['rain_db'] = lambda g, q: 2.0 * _rt.rain_specific_attenuation(rate, f_ghz, g['elev_deg'], tilt) * \
+            _rt.rain_path_km(g['slant_m'], h_msl, q['alt'], top)  # הלוך-חזור: פעמיים γ·L
+    return phys  # הפיזיקה
+
+
+def _parse_radar_env_params(body):
+    """שלב א5: RCS לפי זווית וגשם (ITU-R P.838-3), צמודים לטווחים סבירים."""
+    def _f(name, default, lo, hi):  # מספר צמוד לטווח
+        try:  # ערך לא מספרי -> ברירת מחדל
+            return min(max(float(body.get(name, default)), lo), hi)  # צמידה
+        except (TypeError, ValueError):  # לא מספר
+            return default  # ברירת מחדל
+    pol = {'h': 0.0, 'v': 90.0, 'c': 45.0}.get(body.get('polarization', 'h'), 0.0)  # קיטוב -> זווית τ לפי ההמלצה
+    return {
+        'rcs_mode': 'aspect' if body.get('rcs_mode') == 'aspect' else 'fixed',  # קבוע / לפי זווית
+        'rcs_nose': _f('rcs_nose', 0.01, 0.0001, 10000.0),  # חרטום, מ"ר
+        'rcs_side': _f('rcs_side', 0.05, 0.0001, 10000.0),  # צד
+        'rcs_tail': _f('rcs_tail', 0.02, 0.0001, 10000.0),  # זנב
+        'rain_rate_mmh': _f('rain_rate_mmh', 0.0, 0.0, 200.0),  # עוצמת גשם
+        'rain_top_m': _f('rain_top_m', 3000.0, 100.0, 10000.0),  # תקרת הגשם
+        'pol_tilt_deg': pol,  # קיטוב
+    }
+
+
+_RADAR_TRACK_MAX_AGL_POINTS = 600  # שלב א4: תקרת קודקודים בגובה "מעל הקרקע" — כל קודקוד דורש שליפת גובה (מכסת Open-Meteo)
+
+
+def _radar_track_to_msl(job_id, trajectory):
+    """שלב א4: ממיר גובה "מעל הקרקע" (מסלול מצויר / שיוט / CSV) לגובה מעל פני הים — מוסיף לכל קודקוד את
+    גובה הקרקע שלו (דרך המטמון והשליפה המבוקרת). רץ על הקודקודים לפני הציפוף, כך שבין קודקודים הגובה
+    מאונטרפל (קירוב — מתועד). מחזיר רשימה חדשה, או None אם בוטל/נכשל (הסטטוס כבר נקבע)."""
+    cells = [_rt.snap_cell(float(q['lat']), float(q.get('lon', q.get('lng')))) for q in trajectory]  # תא לכל קודקוד
+    ground = _radar_track_fetch_cells(job_id, cells)  # גבהי הקרקע
+    if ground is None:  # בוטל או מכסה
+        return None  # הסטטוס כבר נקבע
+    out = []  # המסלול המומר
+    for q, g in zip(trajectory, ground):  # כל קודקוד
+        if g is None:  # אין גובה קרקע — לא ממציאים
+            continue  # מדלגים על הקודקוד
+        q2 = dict(q)  # עותק
+        q2['alt_msl'] = float(q.get('alt_msl', q.get('alt'))) + g  # מעל הקרקע + גובה הקרקע = מעל פני הים
+        out.append(q2)  # לרשימה
+    return out  # המסלול בגובה מעל פני הים
+
+
+def _radar_track_worker(job_id, radar_lat, radar_lon, p, trajectory, track_cfg=None, alt_ref='msl'):
+    """רץ ב-thread (daemon): גובה המכ"ם -> איחוד מסלול -> תכנון דגימות -> שליפת גבהים -> פרופילי אופק ->
+    הערכה פר-נקודה -> סיכום. התוצאה נשמרת ב-_radar_jobs[job_id]['result']."""
+    try:  # רשת ביטחון — כשל לא צפוי לא ישאיר את ה-job תקוע
+        elevs, err = _fetch_elevations([{'lat': radar_lat, 'lon': radar_lon}])  # גובה הקרקע במכ"ם
+        if err or not elevs or elevs[0] is None:  # לא הצליח
+            with _radar_jobs_lock:  # שגיאה ברורה
+                _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+                _radar_jobs[job_id]['error'] = (err or {}).get('error', 'לא ניתן לשלוף את גובה המכ"ם')  # הסיבה
+            return  # עוצרים
+        radar = {'lat': radar_lat, 'lon': radar_lon, 'h_msl': elevs[0] + p['h_antenna']}  # המכ"ם: קרקע + אנטנה
+        if alt_ref == 'agl':  # שלב א4: גובה המסלול נמסר "מעל הקרקע"
+            trajectory = _radar_track_to_msl(job_id, trajectory)  # המרה לגובה מעל פני הים
+            if trajectory is None:  # בוטל או נכשל
+                return  # הסטטוס כבר נקבע
+        clean = _rt.normalize_trajectory(trajectory)  # ניקוי, מיון והסרת כפילויות — לפני הציפוף
+        dense = _rt.densify_trajectory([{'t': q['t'], 'lat': q['lat'], 'lon': q['lon'], 'alt_msl': q['alt']} for q in clean])  # שלב א4: נקודה לפחות כל שנייה (מסלולים דלילים)
+        traj = _rt.normalize_trajectory(dense)  # איחוד המסלול המצופף (כולל חישוב המהירות התלת-ממדית)
+        if len(traj) < 2:  # אין מספיק נקודות תקינות
+            with _radar_jobs_lock:  # שגיאה ברורה
+                _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+                _radar_jobs[job_id]['error'] = 'במסלול פחות משתי נקודות תקינות (זמן/מיקום/גובה)'  # הסיבה
+            return  # עוצרים
+        plan = _rt.plan_terrain_samples(radar, traj, p['range_km'] * 1000.0)  # תכנון דגימות השטח
+        terrain = _radar_track_fetch_cells(job_id, plan['cells'])  # שליפת הגבהים (מטמון + קצב מבוקר)
+        if terrain is None:  # בוטל או נחסם — הסטטוס כבר נקבע
+            return  # עוצרים
+        profiles = _rt.build_horizon_profiles(plan, terrain, radar['h_msl'])  # פרופילי אופק
+        p = dict(p, radar_h_msl=radar['h_msl'])  # שלב א5: הגשם צריך את גובה האנטנה (עותק — לא משנים את המקור)
+        physics = _radar_track_physics(p)  # הפיזיקה המוזרקת — נשמרת גם כדי להחזיר את התקרה לגרף הצד (שלב א3)
+        results = _rt.evaluate_points(traj, radar, p, physics, plan, profiles)  # הערכה
+        summary = _rt.summarize(results)  # סיכום
+        missing = sum(1 for e in terrain if e is None)  # כמה תאי שטח נכשלו — לשקיפות
+        with _radar_jobs_lock:  # כמה הגיעו מהמטמון
+            cached = _radar_jobs[job_id].get('cached_cells', 0)  # נקבע ב-_radar_track_fetch_cells
+        result = {
+            'radar': {'lat': radar_lat, 'lon': radar_lon, 'ground_m': elevs[0], 'h_msl': round(radar['h_msl'], 1)},
+            'range_km': p['range_km'], 'points': results, 'summary': summary,
+            'terrain': {'cells': len(plan['cells']), 'samples': len(plan['samples']), 'cached': cached,
+                        'missing': missing, 'spacing_frac': round(plan['spacing_frac'], 4),
+                        'bin_deg': round(plan['bin_deg'], 3), 'n_bins': plan['n_bins']},
+        }  # התוצאה המלאה לממשק
+        result['beam'] = {  # שלב א3: נתוני אזור הכיסוי לגרף הצד — שדה הראייה האנכי, אזור העיוור והתקרה הנקייה
+            'v_lo_deg': p['vertical_center_deg'] - p['vertical_width_deg'] / 2.0,  # גבול תחתון
+            'v_hi_deg': p['vertical_center_deg'] + p['vertical_width_deg'] / 2.0,  # גבול עליון
+            'min_range_km': p['min_range_km'],  # אזור העיוור
+            'ceiling_km': round(physics['ceiling_m'] / 1000.0, 3),  # תקרה בלי ריבוד והפסד-סריקה
+        }
+        result['env'] = p.get('env')  # שלב א5: ה-RCS והגשם שבהם חושב — לסיכום
+        track_mode, scan, track = track_cfg or ('detection', None, None)  # שלב א2 — אם התבקש
+        result['track_mode'] = track_mode  # לממשק: איזה מצב חושב
+        if track_mode == 'track':  # מצב מעקב: סריקה + M מתוך N + דעיכה
+            trk = _rt.run_track_logic(results, scan, track)  # לוגיקת המעקב
+            states = _rt.track_states(results, trk['tracks'])  # מצב-מעקב לכל נקודה
+            for r, st, rate in zip(results, states, trk['rates']):  # מוסיפים לכל נקודה
+                r['track_state'] = st  # מצב המעקב — לצביעה
+                r['ang_rate_dps'] = round(rate, 2)  # קצב זוויתי — לפופאפ
+            result['track'] = _rt.summarize_track(results, trk, states)  # מדדי המעקב וציר הזמן
+            result['scan'] = dict(scan, **track)  # התצורה שבה חושב — לשקיפות בסיכום
+        with _radar_jobs_lock:  # שמירה
+            _radar_jobs[job_id]['status'] = 'done'  # הסתיים
+            _radar_jobs[job_id]['result'] = result  # התוצאה
+    except Exception as e:  # noqa: BLE001 — רשת ביטחון, כמו _radar_route_eval_worker: כל כשל נרשם ומדווח כשגיאת job
+        logging.error(f"שגיאה בבדיקת מעקב מכ\"ם (job {job_id}): {e}")  # לוג
+        with _radar_jobs_lock:  # שגיאה ברורה
+            _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+            _radar_jobs[job_id]['error'] = str(e)  # הסיבה
+
+
+def _elevations_cached_small(cells):
+    """שליפה סינכרונית של עד 100 תאי-רשת דרך המטמון — לפרופיל שטח של נקודה בודדת (שלב א3).
+    מחזיר (רשימת גבהים מקבילה, שגיאה-או-None)."""
+    elevs = [None] * len(cells)  # התוצאה
+    todo = []  # מה שלא במטמון
+    with _ELEV_CACHE_LOCK:  # קריאת המטמון
+        for i, c in enumerate(cells):  # כל תא
+            if c in _ELEV_CACHE:  # קיים
+                elevs[i] = _ELEV_CACHE[c]  # מהמטמון
+            else:  # חסר
+                todo.append(i)  # לשליפה
+    if todo:  # יש מה לשלוף — בקשה אחת (עד 100)
+        got, err = _fetch_elevations([{'lat': cells[i][0], 'lon': cells[i][1]} for i in todo])  # השליפה
+        if err:  # כשל (כולל מכסה)
+            return None, err  # מחזירים את השגיאה
+        with _ELEV_CACHE_LOCK:  # עדכון המטמון
+            for i, e in zip(todo, got or []):  # כל תא שנשלף
+                elevs[i] = e  # לתוצאה
+                if e is not None:  # רק ערך תקין
+                    _ELEV_CACHE[cells[i]] = e  # למטמון
+    return elevs, None  # הצלחה
+
+
+@app.route("/radar_track/profile", methods=["POST"])
+def radar_track_profile():
+    """פרופיל שטח בין המכ"ם לנקודה אחת במסלול (לחיצה על המפה, שלב א3): גובה הקרקע לאורך הקו, ירידת
+    העקמומיות+רפרקציה, והאם הקו פנוי. גוף: lat/lon/h_antenna/ridge_margin_deg של המכ"ם, ו-point={lat,lon,alt}."""
+    body = request.get_json(silent=True) or {}  # גוף הבקשה
+    try:  # כל הערכים חובה ומספריים
+        lat, lon = float(body['lat']), float(body['lon'])  # המכ"ם
+        pt = body['point']  # הנקודה
+        plat, plon, palt = float(pt['lat']), float(pt['lon']), float(pt['alt'])  # מיקומה וגובהה
+    except (KeyError, TypeError, ValueError):  # חסר/לא מספרי
+        return jsonify({"error": "פרמטרים חסרים"}), 400  # שגיאת קלט
+    p = _parse_radar_common_params(body)  # גובה אנטנה ומרווח רכס, באותה צמידה כמו בבדיקה
+    d_total = _rt.haversine_m(lat, lon, plat, plon)  # מרחק קרקעי
+    brg = _rt.bearing_deg(lat, lon, plat, plon)  # כיוון
+    n = max(2, min(99, int(d_total / 100.0)))  # עד 99 דגימות לאורך הקו + המכ"ם עצמו = 100 לכל היותר
+    dists = [d_total * k / n for k in range(1, n + 1)]  # מרחקי הדגימה (בלי 0)
+    cells = [_rt.snap_cell(lat, lon)] + [_rt.snap_cell(*_rt.destination_point(lat, lon, brg, d)) for d in dists]  # המכ"ם + הדגימות
+    elevs, err = _elevations_cached_small(cells)  # הגבהים (מטמון קודם)
+    if err:  # כשל
+        return jsonify({"error": err.get('error', 'שליפת גבהים נכשלה')}), 502  # שגיאת שירות חיצוני
+    if elevs[0] is None:  # אין גובה למכ"ם
+        return jsonify({"error": 'אין גובה קרקע במיקום המכ"ם'}), 502  # שגיאה
+    h_msl = elevs[0] + p['h_antenna']  # גובה האנטנה מעל פני הים
+    margin = math.tan(math.radians(p['ridge_margin_deg']))  # מרווח הרכס כשיפוע
+    tgt_slope = (palt - _rt.curvature_drop_m(d_total) - h_msl) / d_total if d_total > 0 else float('inf')  # שיפוע הנקודה
+    best, block_d = -float('inf'), None  # האופק הגבוה, והמרחק שבו הקו נחסם לראשונה
+    for d, e in zip(dists, elevs[1:]):  # לאורך הקו
+        if e is None or d >= d_total - _rt.HORIZON_SELF_GAP_M:  # חסר, או ממש מתחת לנקודה עצמה
+            continue  # מדלגים — כמו במנוע
+        s = (e - _rt.curvature_drop_m(d) - h_msl) / d  # שיפוע השטח
+        best = max(best, s)  # האופק
+        if block_d is None and tgt_slope < s + margin:  # הראשון שחוסם
+            block_d = d  # נשמר
+    return jsonify({
+        'radar_h_msl': round(h_msl, 1), 'dist_m': round(d_total, 1), 'target_alt': palt,
+        'dists': [round(d, 1) for d in dists], 'elevs': elevs[1:],
+        'drops': [round(_rt.curvature_drop_m(d), 2) for d in dists],  # ירידת העקמומיות — הממשק מצייר שטח "אפקטיבי"
+        'visible': block_d is None, 'block_dist_m': round(block_d, 1) if block_d is not None else None,
+    })  # הפרופיל
+
+
+@app.route("/radar_track/start", methods=["POST"])
+def start_radar_track():
+    """מתחיל בדיקת מעקב מכ"ם. גוף JSON: lat/lon של המכ"ם, trajectory=[{t,lat,lon,alt_msl},...] וכל
+    הפרמטרים המשותפים של כלי הדופלר. מחזיר job_id; ההתקדמות/הביטול דרך /radar_doppler/status|cancel."""
+    body = request.get_json(silent=True) or {}  # גוף הבקשה
+    try:  # מיקום המכ"ם חובה
+        lat = float(body.get('lat'))  # קו רוחב
+        lon = float(body.get('lon'))  # קו אורך
+    except (TypeError, ValueError):  # חסר/לא מספרי
+        return jsonify({"error": "מיקום המכ\"ם חסר"}), 400  # שגיאת קלט
+    trajectory = body.get('trajectory')  # המסלול
+    if not isinstance(trajectory, list) or len(trajectory) < 2:  # חייב רשימה של 2 נקודות לפחות
+        return jsonify({"error": "מסלול חסר או קצר מדי"}), 400  # שגיאת קלט
+    if len(trajectory) > _RADAR_TRACK_MAX_POINTS:  # הגנה מבקשה ענקית
+        return jsonify({"error": f"מסלול ארוך מדי (מעל {_RADAR_TRACK_MAX_POINTS} נקודות)"}), 400  # שגיאת קלט
+    p = _parse_radar_common_params(body)  # אותם פרמטרים ואותה צמידה לטווחים כמו כלי הדופלר
+    p['env'] = _parse_radar_env_params(body)  # שלב א5: RCS לפי זווית וגשם
+    job_id = str(uuid.uuid4())  # מזהה ה-job
+    with _radar_jobs_lock:  # רישום
+        _cleanup_old_radar_jobs()  # ניקוי jobs ישנים
+        _radar_jobs[job_id] = {'status': 'running', 'batches_done': 0, 'batches_total': None,
+                               'result': None, 'error': None, 'cancelled': False, 'created': time.time()}  # מצב התחלתי
+    track_cfg = _parse_radar_track_params(body)  # שלב א2: מצב, סריקה ומעקב
+    alt_ref = 'agl' if body.get('alt_ref') == 'agl' else 'msl'  # שלב א4: גובה המסלול מעל הקרקע או מעל פני הים
+    if alt_ref == 'agl' and len(trajectory) > _RADAR_TRACK_MAX_AGL_POINTS:  # כל קודקוד דורש שליפת גובה
+        with _radar_jobs_lock:  # ה-job כבר נרשם — מוחקים אותו
+            _radar_jobs.pop(job_id, None)  # לא ירוץ
+        return jsonify({"error": f"גובה 'מעל הקרקע' נתמך עד {_RADAR_TRACK_MAX_AGL_POINTS} נקודות"}), 400  # שגיאת קלט
+    threading.Thread(target=_radar_track_worker, args=(job_id, lat, lon, p, trajectory, track_cfg, alt_ref), daemon=True).start()  # ברקע
+    return jsonify({'job_id': job_id})  # מזהה לממשק
+
+
 # ── "עמדות שמורות" — מיקום+פרמטרים ניתנים לשמירה תחת שם, לכל אחד משלושת כלי התצפית בנפרד ──
 # משותף ל-LOS/רדיוס-ראייה/מכ"ם-דופלר — לא מחזיק ידע על צורת ה-params של כל כלי, רק שומר/מחזיר
 # אותם כמו שהם (JS אחראי על התוכן). קובץ JSON שטוח פשוט (כמו weather_data.csv במקום אחר בפרויקט) —
@@ -1634,6 +1984,8 @@ _STATIONS_VALID_TOOLS = (
     # params כאן הוא {'points': [{lat, lng, alt}, ...]} במקום שדות בודדים — עדיין עובד ללא שינוי
     # כי /stations/* גנרי לגמרי ולא בודק את מבנה params בכלל.
     'custom_route',
+    # שלב א5 של כלי בדיקת מעקב מכ"ם: פרופיל מכ"ם בשם (פרמטרי המכ"ם + סריקה ומעקב + RCS), בלי מיקום
+    'radar_profile',
 )  # מפתחות תקינים — שם JS מזהה כל כלי
 
 
@@ -1825,6 +2177,28 @@ def ballistics_trajectory():
         return jsonify(out)
     except (KeyError, ValueError, TypeError) as e:
         return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+@app.route("/ballistics/rocket", methods=["POST"])
+def ballistics_rocket():
+    """שלב א6 של כלי בדיקת מעקב המכ"ם: מסלול רקטה רעיוני (rocket_model.py). גוף JSON: gun={lat,lon,alt_m}
+    (המשגר), elev_deg, azimuth_deg, rocket={mass_kg,prop_kg,burn_s,thrust_n,diam_m,cd}, met (כמו בשאר
+    /ballistics/*), target_alt אופציונלי. האטמוספרה נבנית בדיוק כמו במסלול הבליסטי (mpm_api._build_atmosphere)."""
+    import rocket_model  # ייבוא מקומי — המודול נדרש רק כאן
+    from mpm.geodesy import direct as _vincenty_direct  # אותה גיאודזיה כמו במסלול ה-MPM
+    body = request.get_json(silent=True) or {}  # גוף הבקשה
+    try:  # קלט חסר/לא מספרי -> 400
+        gun = body["gun"]  # המשגר
+        met, err = _resolve_ballistics_met(body.get("met"), gun)  # מטאו: סטנדרטי / חי / שכבות
+        if err:  # כשל בשליפת מטאו חי
+            return jsonify(err), 502  # שגיאת שירות חיצוני
+        atmo, met_meta = mpm_api._build_atmosphere(met, float(gun["alt_m"]))  # אותה בנייה כמו ב-trajectory
+        out = rocket_model.simulate(gun, float(body["elev_deg"]), float(body["azimuth_deg"]), body["rocket"], atmo,
+                                    impact_alt=body.get("target_alt"), geo_direct=_vincenty_direct)  # הסימולציה
+        out["met_used"] = met_meta  # שקיפות: באיזה מטאו חושב
+        return jsonify(out)  # התוצאה
+    except (KeyError, ValueError, TypeError) as e:  # קלט לא תקין
+        return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400  # שגיאת קלט
 
 
 @app.route("/ballistics/solve", methods=["POST"])

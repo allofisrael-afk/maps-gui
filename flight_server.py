@@ -57,12 +57,14 @@ def _normalize_trail_point(point):
     if pt_lat is None or pt_lng is None:
         return None
     hd = point.get("hd") if point.get("hd") is not None else (point.get("Hd") or point.get("heading"))
+    ts = point.get("ts") if point.get("ts") is not None else (point.get("Ts") or point.get("timestamp"))  # זמן הנקודה (epoch) — כלי בדיקת מעקב מכ"ם צריך זמן (SRS FR-D-260); None אם FR24 לא סיפק
     return {
         "lat": pt_lat,
         "lng": pt_lng,
         "alt": point.get("alt") or point.get("Alt") or point.get("altitude") or 0,
         "spd": point.get("spd") or point.get("Spd") or point.get("speed") or 0,
         "hd": hd,
+        "ts": ts,  # שדה נוסף — הצרכנים הקיימים (ציור המסלול, הערכת המסלול מול הדופלר) מתעלמים ממנו
     }
 
 

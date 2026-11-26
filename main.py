@@ -789,6 +789,9 @@ class MapApp(QMainWindow):
         self.move((screen.width() - 1280) // 2, (screen.height() - 750) // 2)  # מרכוז החלון במסך
         self.map_view = QWebEngineView()  # תצוגת המפה המוטמעת
         self.map_view.setPage(LoggingWebEnginePage(self.map_view))  # עמוד מותאם שמתעד שגיאות JS עם קובץ ומספר שורה
+        # הורדות מתוך הדף (ייצוא CSV של טבלת ירי / בדיקת מעקב מכ"ם): ב-QtWebEngine הורדה שאף אחד לא מאשר
+        # (accept) מבוטלת בשקט — כך שעד עכשיו כפתורי הייצוא בדסקטופ לא שמרו כלום. המטפל שואל איפה לשמור.
+        self.map_view.page().profile().downloadRequested.connect(self._on_download_requested)  # חיבור המטפל
         self.map_view.setUrl(QUrl.fromLocalFile(os.path.abspath("map.html")))  # טעינת המפה בנתיב מוחלט — נדרש ב-QWebEngineView
         self.map_file = os.path.abspath("map.html")  # נתיב מוחלט לקובץ המפה לשימוש בטעינה מחדש
         self.geo_server_process = None      # תהליך GeoServer — None כשהשרת כבוי
@@ -2217,6 +2220,23 @@ class MapApp(QMainWindow):
             self.airport_ctr_button.setChecked(ctr_active)
             self.airport_ctr_button.setText("✈️ הסתר גבולות CTR" if ctr_active else "✈️ גבולות CTR שדות תעופה")
             self.airport_ctr_button.blockSignals(False)
+
+    def _on_download_requested(self, item):
+        """מטפל בהורדה מתוך דף המפה (ייצוא CSV): שואל היכן לשמור ומאשר; ביטול בחלון = ביטול ההורדה.
+        בלי המטפל הזה QtWebEngine מבטל כל הורדה בשקט (ר' MAPS-GUI_SRS.md FR-D-270)."""
+        suggested = item.downloadFileName() if hasattr(item, "downloadFileName") else os.path.basename(item.path())  # השם שהדף הציע
+        start_path = os.path.join(os.path.expanduser("~"), "Downloads", suggested or "export.csv")  # ברירת-מחדל: תיקיית ההורדות
+        file_path, _ = QFileDialog.getSaveFileName(self, "שמירת קובץ", start_path, "CSV (*.csv);;All Files (*)")  # חלון שמירה בשם
+        if not file_path:  # המשתמש ביטל
+            item.cancel()  # מבטלים את ההורדה
+            return  # סיום
+        if hasattr(item, "setDownloadDirectory"):  # Qt 5.14+ — ה-API המומלץ
+            item.setDownloadDirectory(os.path.dirname(file_path))  # התיקייה שנבחרה
+            item.setDownloadFileName(os.path.basename(file_path))  # שם הקובץ שנבחר
+        else:  # גרסאות ישנות יותר
+            item.setPath(file_path)  # הנתיב המלא
+        item.accept()  # מאשרים — ההורדה מתבצעת
+        self.log_action(f"קובץ נשמר: {os.path.basename(file_path)}")  # שורה בלוג (שם בלבד)
 
     def save_logs_to_file(self):
         """ שמירה של הלוגים לקובץ טקסט במערכת הקבצים. """
