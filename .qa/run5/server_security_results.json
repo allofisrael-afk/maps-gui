@@ -1,0 +1,38 @@
+{
+ "ok": 15,
+ "fail": 0,
+ "repro": [
+  [
+   "R5-SEC-CORS",
+   true
+  ],
+  [
+   "R5-SEC-CORS",
+   true
+  ],
+  [
+   "R5-DATA-SIZE",
+   true
+  ],
+  [
+   "R5-DATA-SIZE",
+   true
+  ],
+  [
+   "R5-DATA-ATOMIC",
+   true
+  ],
+  [
+   "R5-VAL-NAN",
+   true
+  ],
+  [
+   "R5-VAL-RANGE",
+   true
+  ],
+  [
+   "R5-DOS-JOBS",
+   true
+  ]
+ ]
+}

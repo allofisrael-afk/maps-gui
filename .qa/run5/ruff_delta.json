@@ -1,0 +1,2776 @@
+﻿[
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 17,
+      "row": 64
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 64
+    },
+    "message": "Too many positional arguments (9 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 64,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 15,
+      "row": 114
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 114
+    },
+    "message": "Too many positional arguments (14 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 114,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 10,
+      "row": 134
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 134
+    },
+    "message": "Too many positional arguments (15 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 134,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 13,
+      "row": 175
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 175
+    },
+    "message": "Too many positional arguments (14 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 175,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 10,
+      "row": 202
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 202
+    },
+    "message": "Too many positional arguments (13 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 202,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 14,
+      "row": 219
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 219
+    },
+    "message": "Too many positional arguments (10 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 219,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 18,
+      "row": 242
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 242
+    },
+    "message": "Too many positional arguments (6 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 242,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 45,
+      "row": 275
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 44,
+            "row": 275
+          },
+          "location": {
+            "column": 44,
+            "row": 275
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 21,
+      "row": 275
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 275,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 21,
+      "row": 291
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 291
+    },
+    "message": "Too many positional arguments (14 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 291,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 36,
+      "row": 353
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 353
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 353,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 29,
+      "row": 468
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\mpm_api.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 468
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 468,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "B904",
+    "end_location": {
+      "column": 67,
+      "row": 55
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 55
+    },
+    "message": "Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling",
+    "name": "raise-without-from-inside-except",
+    "noqa_row": 55,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/raise-without-from-inside-except"
+  },
+  {
+    "cell": null,
+    "code": "B904",
+    "end_location": {
+      "column": 47,
+      "row": 113
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 29,
+      "row": 113
+    },
+    "message": "Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling",
+    "name": "raise-without-from-inside-except",
+    "noqa_row": 113,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/raise-without-from-inside-except"
+  },
+  {
+    "cell": null,
+    "code": "B904",
+    "end_location": {
+      "column": 39,
+      "row": 117
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 117
+    },
+    "message": "Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling",
+    "name": "raise-without-from-inside-except",
+    "noqa_row": 117,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/raise-without-from-inside-except"
+  },
+  {
+    "cell": null,
+    "code": "B904",
+    "end_location": {
+      "column": 43,
+      "row": 122
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 25,
+      "row": 122
+    },
+    "message": "Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling",
+    "name": "raise-without-from-inside-except",
+    "noqa_row": 122,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/raise-without-from-inside-except"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 43,
+      "row": 127
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 42,
+            "row": 127
+          },
+          "location": {
+            "column": 42,
+            "row": 127
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 29,
+      "row": 127
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 127,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 19,
+      "row": 227
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 227
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 227,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 24,
+      "row": 228
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 228
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 228,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 55,
+      "row": 229
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 229
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 229,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 32,
+      "row": 262
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_android.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 262
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 262,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 23,
+      "row": 46
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_physics.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 46
+    },
+    "message": "Too many positional arguments (6 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 46,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 17,
+      "row": 46
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_placement.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 46
+    },
+    "message": "Too many positional arguments (6 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 46,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 23,
+      "row": 102
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_placement.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 102
+    },
+    "message": "Too many positional arguments (7 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 102,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 40,
+      "row": 153
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 39,
+            "row": 153
+          },
+          "location": {
+            "column": 39,
+            "row": 153
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 17,
+      "row": 153
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 153,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 14,
+      "row": 176
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_service.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 176
+    },
+    "message": "Too many positional arguments (7 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 176,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 62,
+      "row": 206
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 61,
+            "row": 206
+          },
+          "location": {
+            "column": 61,
+            "row": 206
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 28,
+      "row": 206
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 206,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 38,
+      "row": 229
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 37,
+            "row": 229
+          },
+          "location": {
+            "column": 37,
+            "row": 229
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 17,
+      "row": 229
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 229,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 18,
+      "row": 241
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_service.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 241
+    },
+    "message": "Too many positional arguments (12 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 241,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 34,
+      "row": 135
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_track.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 33,
+            "row": 135
+          },
+          "location": {
+            "column": 33,
+            "row": 135
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 17,
+      "row": 135
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 135,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 20,
+      "row": 287
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_track.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 287
+    },
+    "message": "Too many positional arguments (6 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 287,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 38,
+      "row": 379
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_track.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 37,
+            "row": 379
+          },
+          "location": {
+            "column": 37,
+            "row": 379
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 17,
+      "row": 379
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 379,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 38,
+      "row": 605
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\radar_track.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 37,
+            "row": 605
+          },
+          "location": {
+            "column": 37,
+            "row": 605
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 18,
+      "row": 605
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 605,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 13,
+      "row": 30
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\rocket_model.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 30
+    },
+    "message": "Too many positional arguments (7 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 30,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "S603",
+    "end_location": {
+      "column": 29,
+      "row": 117
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 15,
+      "row": 117
+    },
+    "message": "`subprocess` call: check for execution of untrusted input",
+    "name": "subprocess-without-shell-equals-true",
+    "noqa_row": 117,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-without-shell-equals-true"
+  },
+  {
+    "cell": null,
+    "code": "PLW1510",
+    "end_location": {
+      "column": 29,
+      "row": 117
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": {
+      "applicability": "displayonly",
+      "edits": [
+        {
+          "content": "check=False, ",
+          "end_location": {
+            "column": 13,
+            "row": 119
+          },
+          "location": {
+            "column": 13,
+            "row": 119
+          }
+        }
+      ],
+      "message": "Add explicit `check=False`"
+    },
+    "location": {
+      "column": 15,
+      "row": 117
+    },
+    "message": "`subprocess.run` without explicit `check` argument",
+    "name": "subprocess-run-without-check",
+    "noqa_row": 117,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/subprocess-run-without-check"
+  },
+  {
+    "cell": null,
+    "code": "S607",
+    "end_location": {
+      "column": 48,
+      "row": 118
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 118
+    },
+    "message": "Starting a process with a partial executable path",
+    "name": "start-process-with-partial-path",
+    "noqa_row": 118,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/start-process-with-partial-path"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 41,
+      "row": 213
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 213
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 213,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 104,
+      "row": 214
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 214
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 214,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 40,
+      "row": 215
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 215
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 215,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 21,
+      "row": 262
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 9,
+      "row": 262
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 262,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "S606",
+    "end_location": {
+      "column": 29,
+      "row": 273
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\wa-status\\wa_status.py",
+    "fix": null,
+    "location": {
+      "column": 17,
+      "row": 273
+    },
+    "message": "Starting a process without a shell",
+    "name": "start-process-with-no-shell",
+    "noqa_row": 273,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/start-process-with-no-shell"
+  },
+  {
+    "cell": null,
+    "code": "F541",
+    "end_location": {
+      "column": 65,
+      "row": 139
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "\"https://api.openweathermap.org/data/2.5/weather\"",
+          "end_location": {
+            "column": 65,
+            "row": 139
+          },
+          "location": {
+            "column": 15,
+            "row": 139
+          }
+        }
+      ],
+      "message": "Remove extraneous `f` prefix"
+    },
+    "location": {
+      "column": 15,
+      "row": 139
+    },
+    "message": "f-string without any placeholders",
+    "name": "f-string-missing-placeholders",
+    "noqa_row": 139,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/f-string-missing-placeholders"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 29,
+      "row": 169
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 169
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 169,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "B025",
+    "end_location": {
+      "column": 50,
+      "row": 347
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 21,
+      "row": 347
+    },
+    "message": "try-except block with duplicate exception `requests.exceptions.HTTPError`",
+    "name": "duplicate-try-block-exception",
+    "noqa_row": 347,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/duplicate-try-block-exception"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 21,
+      "row": 423
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 423
+    },
+    "message": "Too many positional arguments (7 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 423,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLR1730",
+    "end_location": {
+      "column": 39,
+      "row": 457
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "max_angle = max(max_angle, bare_angle)",
+          "end_location": {
+            "column": 39,
+            "row": 457
+          },
+          "location": {
+            "column": 13,
+            "row": 456
+          }
+        }
+      ],
+      "message": "Replace with `max_angle = max(max_angle, bare_angle)`"
+    },
+    "location": {
+      "column": 13,
+      "row": 456
+    },
+    "message": "Replace `if` statement with `max_angle = max(max_angle, bare_angle)`",
+    "name": "if-stmt-min-max",
+    "noqa_row": 456,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/if-stmt-min-max"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 28,
+      "row": 588
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 588
+    },
+    "message": "`radar_physics._RADAR_RANGE_KM_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 588,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 56,
+      "row": 588
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 30,
+      "row": 588
+    },
+    "message": "`radar_physics._RADAR_H_ANTENNA_DEFAULT_M` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 588,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 89,
+      "row": 588
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 58,
+      "row": 588
+    },
+    "message": "`radar_physics._RADAR_VBEAM_CENTER_DEFAULT_DEG` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 588,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 121,
+      "row": 588
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 91,
+      "row": 588
+    },
+    "message": "`radar_physics._RADAR_VBEAM_WIDTH_DEFAULT_DEG` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 588,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 32,
+      "row": 589
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 589
+    },
+    "message": "`radar_physics._RADAR_MIN_RANGE_KM_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 589,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 57,
+      "row": 589
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 34,
+      "row": 589
+    },
+    "message": "`radar_physics._RADAR_POWER_KW_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 589,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 78,
+      "row": 589
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 59,
+      "row": 589
+    },
+    "message": "`radar_physics._RADAR_POWER_KW_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 589,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 99,
+      "row": 589
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 80,
+      "row": 589
+    },
+    "message": "`radar_physics._RADAR_POWER_KW_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 589,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 28,
+      "row": 590
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 590
+    },
+    "message": "`radar_physics._RADAR_GAIN_DBI_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 590,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 49,
+      "row": 590
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 30,
+      "row": 590
+    },
+    "message": "`radar_physics._RADAR_GAIN_DBI_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 590,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 70,
+      "row": 590
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 51,
+      "row": 590
+    },
+    "message": "`radar_physics._RADAR_GAIN_DBI_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 590,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 95,
+      "row": 590
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 72,
+      "row": 590
+    },
+    "message": "`radar_physics._RADAR_FREQ_MHZ_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 590,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 24,
+      "row": 591
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 591
+    },
+    "message": "`radar_physics._RADAR_FREQ_MHZ_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 591,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 45,
+      "row": 591
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 26,
+      "row": 591
+    },
+    "message": "`radar_physics._RADAR_FREQ_MHZ_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 591,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 77,
+      "row": 591
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 47,
+      "row": 591
+    },
+    "message": "`radar_physics._RADAR_SENSITIVITY_DBM_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 591,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 105,
+      "row": 591
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 79,
+      "row": 591
+    },
+    "message": "`radar_physics._RADAR_SENSITIVITY_DBM_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 591,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 31,
+      "row": 592
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 592
+    },
+    "message": "`radar_physics._RADAR_SENSITIVITY_DBM_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 592,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 56,
+      "row": 592
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 33,
+      "row": 592
+    },
+    "message": "`radar_physics._RADAR_SYSTEM_LOSSES_DB` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 592,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 79,
+      "row": 592
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 58,
+      "row": 592
+    },
+    "message": "`radar_physics._RADAR_RCS_M2_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 592,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 98,
+      "row": 592
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 81,
+      "row": 592
+    },
+    "message": "`radar_physics._RADAR_RCS_M2_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 592,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 22,
+      "row": 593
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 593
+    },
+    "message": "`radar_physics._RADAR_RCS_M2_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 593,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 45,
+      "row": 593
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 24,
+      "row": 593
+    },
+    "message": "`radar_physics._RADAR_PRF_HZ_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 593,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 64,
+      "row": 593
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 47,
+      "row": 593
+    },
+    "message": "`radar_physics._RADAR_PRF_HZ_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 593,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 83,
+      "row": 593
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 66,
+      "row": 593
+    },
+    "message": "`radar_physics._RADAR_PRF_HZ_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 593,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 26,
+      "row": 594
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 594
+    },
+    "message": "`radar_physics._RADAR_MDV_KT_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 594,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 45,
+      "row": 594
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 28,
+      "row": 594
+    },
+    "message": "`radar_physics._RADAR_MDV_KT_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 594,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 64,
+      "row": 594
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 47,
+      "row": 594
+    },
+    "message": "`radar_physics._RADAR_MDV_KT_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 594,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 96,
+      "row": 594
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 66,
+      "row": 594
+    },
+    "message": "`radar_physics._RADAR_TARGET_SPEED_KT_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 594,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 31,
+      "row": 595
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 595
+    },
+    "message": "`radar_physics._RADAR_TARGET_SPEED_KT_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 595,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 59,
+      "row": 595
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 33,
+      "row": 595
+    },
+    "message": "`radar_physics._RADAR_TARGET_SPEED_KT_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 595,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 94,
+      "row": 595
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 61,
+      "row": 595
+    },
+    "message": "`radar_physics._RADAR_TARGET_HEADING_DEG_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 595,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 75,
+      "row": 596
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 55,
+      "row": 596
+    },
+    "message": "`radar_physics._RADAR_ANTENNA_TYPES` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 596,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 104,
+      "row": 596
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 77,
+      "row": 596
+    },
+    "message": "`radar_physics._RADAR_ANTENNA_TYPE_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 596,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 33,
+      "row": 597
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 597
+    },
+    "message": "`radar_physics._RADAR_BORESIGHT_DEG_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 597,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 62,
+      "row": 597
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 35,
+      "row": 597
+    },
+    "message": "`radar_physics._RADAR_MAX_SCAN_DEG_DEFAULT` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 597,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 87,
+      "row": 597
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 64,
+      "row": 597
+    },
+    "message": "`radar_physics._RADAR_MAX_SCAN_DEG_MIN` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 597,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 112,
+      "row": 597
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 89,
+      "row": 597
+    },
+    "message": "`radar_physics._RADAR_MAX_SCAN_DEG_MAX` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 597,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 22,
+      "row": 599
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "from radar_physics import (  # נוסחאות המכ\"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)\r\n    _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,\r\n    _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,\r\n    _KT_TO_MS,\r\n    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,\r\n    _scan_loss_factor, _parse_radar_common_params,\r\n)",
+          "end_location": {
+            "column": 2,
+            "row": 600
+          },
+          "location": {
+            "column": 1,
+            "row": 585
+          }
+        }
+      ],
+      "message": "Remove unused import"
+    },
+    "location": {
+      "column": 5,
+      "row": 599
+    },
+    "message": "`radar_physics._angular_diff_deg` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 599,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 19,
+      "row": 628
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 628
+    },
+    "message": "Too many positional arguments (13 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 628,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 71,
+      "row": 709
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 70,
+            "row": 709
+          },
+          "location": {
+            "column": 70,
+            "row": 709
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 45,
+      "row": 709
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 709,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 18,
+      "row": 915
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 915
+    },
+    "message": "Too many positional arguments (26 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 915,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 71,
+      "row": 1018
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 70,
+            "row": 1018
+          },
+          "location": {
+            "column": 70,
+            "row": 1018
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 45,
+      "row": 1018
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1018,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 64,
+      "row": 1229
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 63,
+            "row": 1229
+          },
+          "location": {
+            "column": 63,
+            "row": 1229
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 39,
+      "row": 1229
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1229,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 61,
+      "row": 1389
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 60,
+            "row": 1389
+          },
+          "location": {
+            "column": 60,
+            "row": 1389
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 34,
+      "row": 1389
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1389,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 78,
+      "row": 1399
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 77,
+            "row": 1399
+          },
+          "location": {
+            "column": 77,
+            "row": 1399
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 47,
+      "row": 1399
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1399,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": {
+      "column": 26,
+      "row": 1507
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "safe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 1508
+          },
+          "location": {
+            "column": 1,
+            "row": 1507
+          }
+        }
+      ],
+      "message": "Remove unused import: `radar_track`"
+    },
+    "location": {
+      "column": 23,
+      "row": 1507
+    },
+    "message": "`radar_track` imported but unused",
+    "name": "unused-import",
+    "noqa_row": 1507,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 54,
+      "row": 1578
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 53,
+            "row": 1578
+          },
+          "location": {
+            "column": 53,
+            "row": 1578
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 32,
+      "row": 1578
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1578,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 24,
+      "row": 1613
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 1613
+    },
+    "message": "Too many positional arguments (7 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 1613,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "B905",
+    "end_location": {
+      "column": 45,
+      "row": 1646
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": ", strict=False",
+          "end_location": {
+            "column": 44,
+            "row": 1646
+          },
+          "location": {
+            "column": 44,
+            "row": 1646
+          }
+        }
+      ],
+      "message": "Add explicit value for parameter `strict=`"
+    },
+    "location": {
+      "column": 25,
+      "row": 1646
+    },
+    "message": "`zip()` without an explicit `strict=` parameter",
+    "name": "zip-without-explicit-strict",
+    "noqa_row": 1646,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/zip-without-explicit-strict"
+  },
+  {
+    "cell": null,
+    "code": "PLR0917",
+    "end_location": {
+      "column": 28,
+      "row": 1687
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 1687
+    },
+    "message": "Too many positional arguments (10 > 5)",
+    "name": "too-many-positional-arguments",
+    "noqa_row": 1687,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/too-many-positional-arguments"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 24,
+      "row": 1994
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 1994
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 1994,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  },
+  {
+    "cell": null,
+    "code": "PLC0415",
+    "end_location": {
+      "column": 55,
+      "row": 1995
+    },
+    "filename": "D:\\PY-IS\\maps-gui\\weather_server.py",
+    "fix": null,
+    "location": {
+      "column": 5,
+      "row": 1995
+    },
+    "message": "`import` should be at the top-level of a file",
+    "name": "import-outside-top-level",
+    "noqa_row": 1995,
+    "severity": "error",
+    "url": "https://docs.astral.sh/ruff/rules/import-outside-top-level"
+  }
+]

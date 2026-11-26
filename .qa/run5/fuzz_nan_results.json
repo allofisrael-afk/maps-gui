@@ -1,0 +1,18 @@
+{
+ "rotating/freq_mhz=nan": "EXC:ValueError",
+ "rotating/prf_hz=nan": "EXC:ValueError",
+ "rotating/rot_period_s=nan": "HANG",
+ "rotating/scan_phase_deg=nan": "HANG",
+ "rotating/track_m=nan": "EXC:ValueError",
+ "rotating/track_n=nan": "EXC:ValueError",
+ "phased/freq_mhz=nan": "EXC:ValueError",
+ "phased/prf_hz=nan": "EXC:ValueError",
+ "phased/track_m=nan": "EXC:ValueError",
+ "phased/track_n=nan": "EXC:ValueError",
+ "tracker/freq_mhz=nan": "EXC:ValueError",
+ "tracker/prf_hz=nan": "EXC:ValueError",
+ "tracker/track_rate_hz=nan": "EXC:ValueError",
+ "tracker/cue_delay_s=nan": "EXC:ValueError",
+ "tracker/track_m=nan": "EXC:ValueError",
+ "tracker/track_n=nan": "EXC:ValueError"
+}

@@ -1,0 +1,9 @@
+{
+ "scenario_rotating_s": 0.015,
+ "scenario_phased_s": 0.016,
+ "scenario_tracker_s": 0.016,
+ "placement_s": 0.932,
+ "scaling_500pts_s": 0.015,
+ "scaling_2000pts_s": 0.331,
+ "scaling_6000pts_s": 0.835
+}

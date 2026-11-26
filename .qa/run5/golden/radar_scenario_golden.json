@@ -1,0 +1,93 @@
+{
+ "scenario": {
+  "rotating": {
+   "coverage_pct": 36.5,
+   "duration_s": 43.29,
+   "detected_any": true,
+   "reason_seconds": {
+    "terrain": 0.05,
+    "ok": 15.8,
+    "doppler": 14.7,
+    "elevation": 5.4,
+    "min_range": 7.33
+   },
+   "first_detection_t": 0.1,
+   "track_initiated": true,
+   "first_track_t": 8.999,
+   "tracked_pct": 27.7,
+   "opportunities": 14,
+   "n_points": 434
+  },
+  "phased": {
+   "coverage_pct": 36.5,
+   "duration_s": 43.29,
+   "detected_any": true,
+   "reason_seconds": {
+    "terrain": 0.05,
+    "ok": 15.8,
+    "doppler": 14.7,
+    "elevation": 5.4,
+    "min_range": 7.33
+   },
+   "first_detection_t": 0.1,
+   "track_initiated": true,
+   "first_track_t": 0.6,
+   "tracked_pct": 46.4,
+   "opportunities": 145,
+   "n_points": 434
+  },
+  "tracker": {
+   "coverage_pct": 36.5,
+   "duration_s": 43.29,
+   "detected_any": true,
+   "reason_seconds": {
+    "terrain": 0.05,
+    "ok": 15.8,
+    "doppler": 14.7,
+    "elevation": 5.4,
+    "min_range": 7.33
+   },
+   "first_detection_t": 0.1,
+   "track_initiated": true,
+   "first_track_t": 2.9,
+   "tracked_pct": 41.1,
+   "opportunities": 184,
+   "n_points": 434
+  }
+ },
+ "placement_best": [
+  [
+   31.23651017591122,
+   34.8,
+   42.69
+  ],
+  [
+   31.25,
+   34.81577919847827,
+   42.69
+  ],
+  [
+   31.25,
+   34.78422080152173,
+   42.69
+  ],
+  [
+   31.24325508795561,
+   34.8,
+   42.69
+  ],
+  [
+   31.25674491204439,
+   34.80788959923913,
+   42.69
+  ]
+ ],
+ "rocket_impact_m": 11961.3,
+ "profile_block_m": 5063.3,
+ "convergence": {
+  "20": 34.2,
+  "10": 36.0,
+  "5": 36.5,
+  "2": 36.6
+ }
+}

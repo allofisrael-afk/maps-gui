@@ -101,3 +101,8 @@ Stage 7 סגור. 4 ממצאים נשארים פתוחים-באישור: F-001 (
 - **פיצול לפי סיכון (החלטה R5-1)**: Stage 0 של הקוד שלא השתנה מאז Stage 7 נלקח מחדש מ-stage0_*.md. כל העומק הולך ל-delta: radar_track/radar_placement/rocket_model/radar_physics/radar_service/radar_android, נקודות הקצה החדשות בשרת, ממשק המעקב (MAP.py + Android), wa-status, ספריית הפרופילים ו-saved_stations ב-git.
 - **תוצרים**: `.qa/run5/` (דוח, כלים, בדיקות, צילומים) + `.qa/findings.xlsx` (נדרס, ריצה 5).
 - **שלב נוכחי**: 0 (מיפוי delta).
+- **התקדמות (ריצה 5)**: שלבים 0–4 בוצעו על ה-delta. בדיקות חדשות ב-`.qa/run5/tests/`: server_security (15 OK + 8 REPRO), radar_algorithmic (30/30, Golden Master + metamorphic), wa_sanitize (2/2 property, 5 דליפות), fuzz NaN (2 HANG), ui_visual (4 צילומי ייחוס). Flaky: 0/50. כיסוי ענפים radar: 90%. mutmut 2.5.1 חסום ב-Py3.14 → מוטטור ast עצמי (ריצה ברקע). חסום: mypy.exe (Application Control) → הורץ דרך `python -m mypy`; מכשיר Android/APK; axe/Lighthouse (אין Node).
+- **צעד הבא**: תוצאות המוטציה → findings + דוח `.qa/run5/QA_REPORT_RUN5.md` + `.qa/findings.xlsx`.
+- **Stage 5 הושלם (ריצה 5)**: `.qa/run5/QA_REPORT_RUN5.md` + `.qa/findings.xlsx` (21 ממצאים F-031…F-051, 5 שאלות, 8 החלטות; אומת ב-openpyxl וב-Excel אמיתי). הגיבוי של ריצה 4: `.qa/findings_run4.xlsx`. נקודת ייחוס סופית: `dea3a1b9d` (המשתמש עשה commit לאותו קוד במהלך הריצה). 0 שינוי בקוד ייצור.
+- **צעד הבא (Stage 6)**: ממתין שהמשתמש יסמן את `.qa/findings.xlsx` ויחזיר אותו → תוכנית תיקון (`.qa/fix-plan.md` + גיליון "תוכנית עבודה").
+- **Stage 6 (ריצה 5)**: ההחלטות נאספו סעיף אחר סעיף בשיחה ונכתבו ל-findings.xlsx (21/21). נבנו `.qa/fix-plan.md` + גיליון "תוכנית עבודה" (21 משימות T0–T20, 4 אבני דרך). **ממתין לאישור התוכנית** (כולה או חלק). בניית APK (T20) — רק באישור מפורש נפרד.
