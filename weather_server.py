@@ -1935,6 +1935,103 @@ def radar_track_profile():
     })  # הפרופיל
 
 
+import radar_placement as _rp  # שלב ב': הצעת מיקום — מודול עצמאי, stdlib בלבד
+
+
+def _radar_placement_worker(job_id, center_lat, center_lon, radius_m, step_m, metric, p, trajectory, track_cfg, alt_ref):
+    """שלב ב' (רץ ב-thread): מועמדים -> מסלול מוכן -> רשת גבהים אחת לכל האזור (שליפה מבוקרת + מטמון) ->
+    בדיקה מלאה לכל מועמד מתוך הרשת -> ציונים והמועמדים הטובים. התקדמות דרך 'note' ו-batches."""
+    try:  # רשת ביטחון
+        cands = _rp.candidate_grid(center_lat, center_lon, radius_m, step_m)  # המועמדים
+        if alt_ref == 'agl':  # גובה המסלול מעל הקרקע — אותה המרה כמו בשלב א4
+            trajectory = _radar_track_to_msl(job_id, trajectory)  # המרה
+            if trajectory is None:  # בוטל/נכשל
+                return  # הסטטוס כבר נקבע
+        clean = _rt.normalize_trajectory(trajectory)  # ניקוי ומיון
+        traj = _rt.normalize_trajectory(_rt.densify_trajectory(
+            [{'t': q['t'], 'lat': q['lat'], 'lon': q['lon'], 'alt_msl': q['alt']} for q in clean]))  # ציפוף ואיחוד — כמו בשלב א'
+        if len(traj) < 2:  # אין מסלול
+            with _radar_jobs_lock:  # שגיאה
+                _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+                _radar_jobs[job_id]['error'] = 'במסלול פחות משתי נקודות תקינות'  # הסיבה
+            return  # עוצרים
+        dem = _rp.DemGrid(*_rp.region_bbox(cands, traj, p['range_km'] * 1000.0))  # רשת הגבהים לאזור
+        if dem.res_m > _rp.DEM_MAX_RES_M:  # גסה מדי לסינון משמעותי
+            with _radar_jobs_lock:  # שגיאה עם הסבר
+                _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+                _radar_jobs[job_id]['error'] = (f'האזור גדול מדי: רשת הגבהים יוצאת ברזולוציה {int(dem.res_m)} מ\'. '
+                                                'הקטן את רדיוס החיפוש או את טווח המכ"ם בכלי הדופלר.')  # הסבר
+            return  # עוצרים
+        with _radar_jobs_lock:  # שלב 1 מתוך 2
+            _radar_jobs[job_id]['note'] = f'שולף רשת גבהים לאזור ({dem.n_lat * dem.n_lon} נקודות, ~{int(dem.res_m)} מ\')…'  # מוצג בממשק
+        vals = _radar_track_fetch_cells(job_id, dem.nodes())  # שליפה מבוקרת (מטמון קודם)
+        if vals is None:  # בוטל/מכסה
+            return  # הסטטוס כבר נקבע
+        dem.set_values(vals)  # הגבהים לרשת
+
+        def physics_factory(h_msl):  # הפיזיקה של שלב א' — עם גובה האנטנה של המועמד (הגשם צריך אותו)
+            return _radar_track_physics(dict(p, radar_h_msl=h_msl))  # אותה הזרקה כמו בבדיקה הרגילה
+
+        out = []  # תוצאות המועמדים
+        for k, c in enumerate(cands):  # מועמד אחר מועמד
+            with _radar_jobs_lock:  # התקדמות וביטול
+                if _radar_jobs[job_id]['cancelled']:  # בוטל
+                    _radar_jobs[job_id]['status'] = 'cancelled'  # מסמנים
+                    return  # עוצרים
+                _radar_jobs[job_id]['note'] = f'מחשב מיקומים {k + 1}/{len(cands)}…'  # שלב 2 מתוך 2
+            out.append(_rp.evaluate_candidate(c, traj, dem, p, physics_factory, track_cfg, metric))  # בדיקה מלאה מתוך הרשת
+        missing = sum(1 for v in vals if v is None)  # צמתים בלי גובה — לשקיפות
+        with _radar_jobs_lock:  # כמה הגיעו מהמטמון
+            cached = _radar_jobs[job_id].get('cached_cells', 0)  # נקבע בשליפה
+        result = {'center': {'lat': center_lat, 'lon': center_lon}, 'radius_m': radius_m, 'step_m': step_m,
+                  'metric': metric, 'track_mode': track_cfg[0], 'candidates': out, 'best': _rp.best_candidates(out, 5),
+                  'dem': {'nodes': len(vals), 'res_m': round(dem.res_m), 'cached': cached, 'missing': missing}}  # התוצאה
+        with _radar_jobs_lock:  # שמירה
+            _radar_jobs[job_id]['note'] = None  # אין הודעה
+            _radar_jobs[job_id]['status'] = 'done'  # הסתיים
+            _radar_jobs[job_id]['result'] = result  # התוצאה
+    except Exception as e:  # noqa: BLE001 — רשת ביטחון כמו בשאר ה-workers: כל כשל מדווח כשגיאת job
+        logging.error(f"שגיאה בהצעת מיקום למכ\"ם (job {job_id}): {e}")  # לוג
+        with _radar_jobs_lock:  # שגיאה ברורה
+            _radar_jobs[job_id]['status'] = 'error'  # שגיאה
+            _radar_jobs[job_id]['error'] = str(e)  # הסיבה
+
+
+@app.route("/radar_track/placement/start", methods=["POST"])
+def start_radar_placement():
+    """שלב ב': הצעת מיקום. גוף JSON: lat/lon = מרכז החיפוש (מיקום המכ"ם הנוכחי), radius_km, step_m, metric
+    ('warning'/'coverage'), trajectory, alt_ref, וכל פרמטרי המכ"ם/הסריקה/הסביבה כמו ב-/radar_track/start."""
+    body = request.get_json(silent=True) or {}  # גוף הבקשה
+    try:  # מרכז החיפוש חובה
+        lat, lon = float(body['lat']), float(body['lon'])  # המרכז
+    except (KeyError, TypeError, ValueError):  # חסר
+        return jsonify({"error": "מרכז החיפוש חסר"}), 400  # שגיאת קלט
+    trajectory = body.get('trajectory')  # המסלול
+    if not isinstance(trajectory, list) or len(trajectory) < 2 or len(trajectory) > _RADAR_TRACK_MAX_POINTS:  # בדיקת גודל
+        return jsonify({"error": "מסלול חסר, קצר או ארוך מדי"}), 400  # שגיאת קלט
+    try:  # רדיוס ומרווח
+        radius_m = min(max(float(body.get('radius_km', 3.0)), 0.2), 30.0) * 1000.0  # רדיוס החיפוש, 0.2–30 ק"מ
+        step_m = min(max(float(body.get('step_m', 500.0)), 50.0), 10000.0)  # מרווח המועמדים
+    except (TypeError, ValueError):  # לא מספרי
+        return jsonify({"error": "רדיוס/מרווח לא תקינים"}), 400  # שגיאת קלט
+    n = len(_rp.candidate_grid(lat, lon, radius_m, step_m))  # כמה מועמדים ייצאו
+    if n > _rp.MAX_CANDIDATES:  # יותר מדי — זמן חישוב
+        return jsonify({"error": f"יותר מדי מיקומים ({n}). הגדל את המרווח או הקטן את הרדיוס (עד {_rp.MAX_CANDIDATES})."}), 400  # הסבר
+    metric = 'coverage' if body.get('metric') == 'coverage' else 'warning'  # הציון
+    p = _parse_radar_common_params(body)  # פרמטרי המכ"ם — כמו בבדיקה
+    p['env'] = _parse_radar_env_params(body)  # RCS וגשם
+    track_cfg = _parse_radar_track_params(body)  # סריקה ומעקב
+    alt_ref = 'agl' if body.get('alt_ref') == 'agl' else 'msl'  # ייחוס הגובה
+    job_id = str(uuid.uuid4())  # מזהה
+    with _radar_jobs_lock:  # רישום
+        _cleanup_old_radar_jobs()  # ניקוי
+        _radar_jobs[job_id] = {'status': 'running', 'batches_done': 0, 'batches_total': None, 'result': None,
+                               'error': None, 'cancelled': False, 'created': time.time(), 'note': None}  # מצב התחלתי
+    threading.Thread(target=_radar_placement_worker,
+                     args=(job_id, lat, lon, radius_m, step_m, metric, p, trajectory, track_cfg, alt_ref), daemon=True).start()  # ברקע
+    return jsonify({'job_id': job_id, 'candidates': n})  # מזהה + כמה מועמדים
+
+
 @app.route("/radar_track/start", methods=["POST"])
 def start_radar_track():
     """מתחיל בדיקת מעקב מכ"ם. גוף JSON: lat/lon של המכ"ם, trajectory=[{t,lat,lon,alt_msl},...] וכל

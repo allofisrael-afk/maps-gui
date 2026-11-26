@@ -3963,6 +3963,128 @@ def create_map(target='desktop', api_base='', output_path=None):
             return 'נטענו ' + n + ' שדות מהפרופיל ✔';  // הודעה
         }}
 
+        // ── שלב ב': הצעת מיקום עם מפת חום ──
+        var _rtPlace = {{layers: [], jobId: null, timer: null}};  // שדות, שכבות ומצב ה-job
+        // סולם רציף בגוון אחד (כחול), בהיר = נמוך, כהה = גבוה — הצעדים 100..700 של הפלטה הרציפה (dataviz)
+        var _RT_SEQ = ['#cce3fd', '#9dc8f7', '#6aabf1', '#338ced', '#2370cd', '#1757ac', '#0e3d7e'];
+
+        function _rtSeqColor(t) {{
+            // צבע לערך מנורמל t∈[0,1] — אינטרפולציה ליניארית בין צעדי הסולם
+            t = Math.max(0, Math.min(1, t));  // צמידה
+            var x = t * (_RT_SEQ.length - 1), i = Math.min(_RT_SEQ.length - 2, Math.floor(x)), f = x - i;  // מיקום בסולם
+            function rgb(h) {{ return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; }}  // hex -> rgb
+            var a = rgb(_RT_SEQ[i]), b = rgb(_RT_SEQ[i + 1]);  // שני הצעדים
+            return 'rgb(' + a.map(function(v, k) {{ return Math.round(v + f * (b[k] - v)); }}).join(',') + ')';  // הצבע
+        }}
+
+        function _rtPlacementClear() {{
+            // מסיר את מפת החום והסימונים, ומסתיר את המקרא
+            _rtPlace.layers.forEach(function(l) {{ map.removeLayer(l); }});  // הסרה
+            _rtPlace.layers = [];  // איפוס
+            if (_rtPlace.legend) _rtPlace.legend.style.display = 'none';  // מקרא
+        }}
+
+        function _rtPlacementCancel() {{
+            // מבטל חישוב שרץ (השרת עוצר בין בקשות/מיקומים)
+            if (_rtPlace.timer) {{ clearInterval(_rtPlace.timer); _rtPlace.timer = null; }}  // polling
+            if (_rtPlace.jobId) fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + _rtPlace.jobId, {{method: 'POST'}}).catch(function() {{}});  // ביטול בשרת
+            _rtPlace.jobId = null;  // אין job
+            if (_rtPlace.info) _rtPlace.info.textContent = 'בוטל.';  // משוב
+        }}
+
+        function _rtPlacementRun() {{
+            // מפעיל הצעת מיקום: מרכז = המכ"ם הנוכחי, מסלול = של הבדיקה האחרונה (כולל המקור וייחוס הגובה)
+            if (!radarObs) {{ alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\\"ם דופלר" (🎯) — החיפוש סביבו'); return; }}  // אין מרכז
+            if (!_radarTrackLastPath) {{ alert('הרץ קודם "🎯 בדוק מעקב מכ\\"ם" — מפת החום נבנית על המסלול של הבדיקה האחרונה'); return; }}  // אין מסלול
+            _rtPlacementCancel(); _rtPlacementClear();  // מנקה הרצה קודמת
+            function num(el, d) {{ var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? d : v; }}  // ערך או ברירת מחדל
+            var opts = _radarTrackLastOpts || {{}};  // המקור של הבדיקה האחרונה
+            var body = Object.assign(_radarCommonBody(), _radarTrackScanBody(), _rtEnvBody(), {{  // אותם פרמטרים כמו בבדיקה
+                lat: radarObs.lat, lon: radarObs.lng, radius_km: num(_rtPlace.radius, 3), step_m: num(_rtPlace.step, 500),
+                metric: _rtPlace.metric ? _rtPlace.metric.value : 'warning', alt_ref: opts.alt_ref || 'msl',
+                trajectory: _radarTrackLastPath.map(function(p) {{ return {{t: p.t, lat: p.lat, lon: p.lon, alt: (p.alt != null ? p.alt : p.alt_msl)}}; }})
+            }});
+            if (opts.rcs_m2) body.rcs_m2 = opts.rcs_m2;  // RCS לפי סוג מטוס (FR24), כמו בבדיקה
+            _rtPlace.info.textContent = '🗺 מתחיל…';  // משוב
+            fetch('http://localhost:5002/radar_track/placement/start', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body)}})
+            .then(function(r) {{ return r.json().then(function(d) {{ if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }}); }})  // שגיאה עם הסבר
+            .then(function(d) {{
+                _rtPlace.jobId = d.job_id;  // ה-job
+                _rtPlace.info.textContent = '🗺 ' + d.candidates + ' מיקומים — מתחיל…';  // משוב
+                _rtPlace.timer = setInterval(_rtPlacementPoll, 1000);  // polling
+            }})
+            .catch(function(e) {{ _rtPlace.info.textContent = '🗺 שגיאה: ' + e.message; }});  // הודעה
+        }}
+
+        function _rtPlacementPoll() {{
+            // מצב ה-job: הודעת התקדמות, ובסיום — ציור
+            if (!_rtPlace.jobId) return;  // אין job
+            var jobId = _rtPlace.jobId;  // נשמר — מתעלמים מתשובה ל-job שהוחלף
+            fetch('http://localhost:5002/radar_doppler/status?job_id=' + jobId)
+            .then(function(r) {{ return r.json(); }})
+            .then(function(d) {{
+                if (jobId !== _rtPlace.jobId) return;  // הוחלף
+                if (d.status === 'running') {{  // עדיין רץ
+                    var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' : '';  // שליפה
+                    _rtPlace.info.textContent = '🗺 ' + (d.note || 'מחשב…') + (d.note && d.note.indexOf('שולף') === 0 ? prog : '');  // הודעה
+                    return;  // ממתין
+                }}
+                clearInterval(_rtPlace.timer); _rtPlace.timer = null; _rtPlace.jobId = null;  // הסתיים
+                if (d.status === 'done') _rtPlacementDraw(d.result);  // ציור
+                else if (d.status === 'error') _rtPlace.info.textContent = '🗺 שגיאה: ' + (d.error || 'לא ידועה');  // שגיאה
+            }})
+            .catch(function() {{}});  // כשל רשת בבדיקה בודדת — ה-tick הבא ינסה שוב
+        }}
+
+        function _rtPlacementDraw(res) {{
+            // מפת חום: תא לכל מיקום בצבע הציון (סולם כחול רציף), ריחוף = ציון, לחיצה = "הצב מכ"ם כאן";
+            // המיקום המיטבי מסומן בכוכב עם תווית, ו-2..5 בטבעת ממוספרת — הזיהוי לא נשען על צבע בלבד
+            _rtPlacementClear();  // ניקוי
+            var unit = res.metric === 'coverage' ? '%' : ' שנ\\'';  // יחידת הציון
+            var name = res.metric === 'coverage' ? (res.track_mode === 'track' ? 'במעקב' : 'כיסוי') : 'זמן התרעה';  // שם הציון
+            var ok = res.candidates.filter(function(c) {{ return c.score != null; }});  // מחושבים
+            if (!ok.length) {{ _rtPlace.info.textContent = '🗺 אין מיקומים מחושבים (חסרים נתוני גובה)'; return; }}  // אין
+            var lo = Math.min.apply(null, ok.map(function(c) {{ return c.score; }}));  // מינימום
+            var hi = Math.max.apply(null, ok.map(function(c) {{ return c.score; }}));  // מקסימום
+            var half = res.step_m / 2, cosLat = Math.cos(res.center.lat * Math.PI / 180);  // חצי תא, ותיקון אורך
+            ok.forEach(function(c) {{  // כל מיקום
+                var dLat = half / 111194.9, dLon = half / (111194.9 * cosLat);  // חצי תא במעלות
+                var rect = L.rectangle([[c.lat - dLat, c.lon - dLon], [c.lat + dLat, c.lon + dLon]], {{
+                    color: '#ffffff', weight: 1, fillColor: _rtSeqColor(hi > lo ? (c.score - lo) / (hi - lo) : 1), fillOpacity: 0.6}}).addTo(map);  // תא, עם מרווח לבן דק בין תאים
+                rect.bindTooltip(name + ': ' + c.score + unit + ' | קרקע ' + c.ground_m + ' מ\\'', {{sticky: true}});  // ריחוף
+                var pop = L.DomUtil.create('div', '');  // פופאפ עם כפתור
+                pop.style.cssText = 'direction:rtl;font-family:Arial;font-size:12px;';  // עיצוב
+                L.DomUtil.create('div', '', pop).textContent = name + ': ' + c.score + unit;  // הציון
+                L.DomUtil.create('div', '', pop).textContent = 'כיסוי פיזיקלי: ' + c.coverage_pct + '% | גובה קרקע: ' + c.ground_m + ' מ\\'';  // פרטים
+                var b = L.DomUtil.create('button', '', pop); b.textContent = '📍 הצב מכ"ם כאן ובדוק';  // פעולה
+                b.style.cssText = 'margin-top:4px;font-size:11px;cursor:pointer;';  // עיצוב
+                L.DomEvent.on(b, 'click', function() {{ map.closePopup(); _placeRadarObserver(L.latLng(c.lat, c.lon)); }});  // הצבה — הבדיקה הרגילה רצה מחדש מהמיקום (FR-D-266)
+                rect.bindPopup(pop);  // לחיצה
+                _rtPlace.layers.push(rect);  // לניקוי
+            }});
+            res.best.forEach(function(c, i) {{  // המיקומים הטובים
+                var mk = i === 0
+                    ? L.marker([c.lat, c.lon], {{icon: L.divIcon({{html: '<div style="font-size:20px;line-height:20px;">⭐</div>', className: '', iconSize: [20, 20], iconAnchor: [10, 10]}})}})  // המיטבי
+                    : L.circleMarker([c.lat, c.lon], {{radius: 8, color: '#111', weight: 2, fill: false}});  // 2..5
+                mk.bindTooltip((i === 0 ? '⭐ מיטבי: ' : '#' + (i + 1) + ': ') + c.score + unit, {{permanent: i === 0, direction: 'top'}});  // תווית
+                mk.on('click', function() {{ _placeRadarObserver(L.latLng(c.lat, c.lon)); }});  // הצבה ישירה
+                mk.addTo(map); _rtPlace.layers.push(mk);  // לניקוי
+            }});
+            var dem = res.dem, b0 = res.best[0];  // נתונים לסיכום
+            _rtPlace.info.textContent = '🗺 ' + ok.length + ' מיקומים | המיטבי: ' + name + ' ' + b0.score + unit +
+                ' (קרקע ' + b0.ground_m + ' מ\\')\\nרשת גבהים: ' + dem.nodes + ' נקודות, ~' + dem.res_m + ' מ\\' (' + dem.cached + ' מהמטמון)' +
+                '\\nלחץ על תא או על ⭐ כדי להציב שם את המכ"ם ולהריץ בדיקה מדויקת.';  // סיכום
+            var cv = _rtPlace.legend; cv.style.display = 'block';  // מקרא
+            var W = 250, H = 30, dpr = window.devicePixelRatio || 1;  // מידות
+            cv.width = W * dpr; cv.height = H * dpr;  // רזולוציה
+            var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);  // הכנה
+            for (var x = 0; x < W - 8; x++) {{ ctx.fillStyle = _rtSeqColor(1 - x / (W - 9)); ctx.fillRect(4 + x, 2, 1, 12); }}  // פס הסולם: נמוך מימין, גבוה משמאל (RTL)
+            ctx.fillStyle = '#333'; ctx.font = '9px Arial';  // טקסט בצבע טקסט, לא בצבע הסדרה
+            ctx.textAlign = 'right'; ctx.fillText(lo + unit, W - 4, 26);  // מינימום (ימין)
+            ctx.textAlign = 'left'; ctx.fillText(hi + unit, 4, 26);  // מקסימום (שמאל)
+            ctx.textAlign = 'center'; ctx.fillText(name, W / 2, 26);  // שם הציון
+        }}
+
         function _rtRunRocket(infoEl, timelineEl) {{
             // שלב א6: מחשב קודם מסלול רקטה בשרת (/ballistics/rocket), מצייר אותו, ואז מריץ עליו את בדיקת המעקב
             if (!radarObs) {{ alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\\"ם דופלר" (🎯)'); return; }}  // אין מכ"ם
@@ -5287,6 +5409,33 @@ def create_map(target='desktop', api_base='', output_path=None):
                 rd.onload = function() {{ profStatus.textContent = _rtImportProfileJson(String(rd.result)); impFile.value = ''; }};  // החלה + הודעה, ואיפוס הבורר לבחירה חוזרת
                 rd.readAsText(f);  // טקסט
             }});
+            // ---- שלב ב': הצעת מיקום עם מפת חום — סביב המכ"ם הנוכחי, על המסלול של הבדיקה האחרונה ----
+            var rtPl = L.DomUtil.create('details', '', top);  // אזור מתקפל
+            rtPl.style.cssText = 'font-size:9px;border:1px solid #ddd;border-radius:3px;padding:2px 4px;';  // מסגרת
+            var rtPlSum = L.DomUtil.create('summary', '', rtPl); rtPlSum.textContent = '🗺 הצעת מיקום (מפת חום)';  // כותרת
+            rtPlSum.style.cssText = 'cursor:pointer;color:#555;';  // סמן לחיצה
+            var rtPlNote = L.DomUtil.create('div', '', rtPl);  // הסבר
+            rtPlNote.style.cssText = 'font-size:8.5px;color:#888;';  // טקסט משני
+            rtPlNote.textContent = 'בודק מיקומים סביב המכ"ם הנוכחי על המסלול של הבדיקה האחרונה. רשת גבהים גסה — סינון ראשוני; את המיקום שנבחר מאמתים בבדיקה הרגילה.';  // הבהרה
+            _rtPlace.radius = _ballisticsMkField('רדיוס חיפוש [ק"מ]', 3, 0.5, 0.2, 30, 'עד כמה רחוק מהמכ"ם הנוכחי לחפש', rtPl, null);  // רדיוס
+            _rtPlace.step = _ballisticsMkField('מרווח בין מיקומים [מ\\']', 500, 50, 50, 10000, 'עד 400 מיקומים בסך הכל', rtPl, null);  // מרווח
+            _rtPlace.metric = _ballisticsMkSelect('מה נחשב טוב', [['זמן התרעה מרבי', 'warning'], ['אחוז כיסוי מרבי', 'coverage']], 0,
+                'במצב מעקב: זמן מפתיחת המעקב עד הסוף / אחוז הזמן במעקב. במצב גילוי: מהגילוי הראשון / אחוז הזמן בגילוי', rtPl);  // הציון (החלטה 11)
+            var plRow = L.DomUtil.create('div', '', rtPl);  // כפתורים
+            plRow.style.cssText = 'display:flex;gap:3px;margin-top:2px;';  // פריסה
+            var plRun = L.DomUtil.create('button', '', plRow); plRun.textContent = '🗺 חשב מפת חום';  // הפעלה
+            var plCancel = L.DomUtil.create('button', '', plRow); plCancel.textContent = 'בטל';  // ביטול
+            var plClear = L.DomUtil.create('button', '', plRow); plClear.textContent = 'נקה';  // ניקוי
+            [plRun, plCancel, plClear].forEach(function(b) {{ b.style.cssText = 'flex:1;font-size:9px;padding:1px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;'; }});  // עיצוב
+            plRun.style.background = '#cce3fd';  // הכפתור הראשי — בגוון הסולם
+            _rtPlace.info = L.DomUtil.create('div', '', rtPl);  // התקדמות ותוצאה
+            _rtPlace.info.style.cssText = 'font-size:9px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;';  // טקסט
+            _rtPlace.legend = document.createElement('canvas');  // מקרא הסולם
+            _rtPlace.legend.style.cssText = 'width:250px;height:30px;display:none;';  // מוסתר עד שיש תוצאה
+            rtPl.appendChild(_rtPlace.legend);  // לאזור
+            L.DomEvent.on(plRun, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _rtPlacementRun(); }});  // הפעלה
+            L.DomEvent.on(plCancel, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _rtPlacementCancel(); }});  // ביטול
+            L.DomEvent.on(plClear, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _rtPlacementClear(); _rtPlace.info.textContent = ''; }});  // ניקוי
             var rtInfo = L.DomUtil.create('div', '', top);  // שורת הסיכום של הבדיקה — נפרדת מ-info כדי שלא תידרס
             rtInfo.style.cssText = 'font-size:9.5px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;';  // כמו info
             var rtTimeline = document.createElement('canvas');  // ציר הזמן של המעקב (שלב א2)

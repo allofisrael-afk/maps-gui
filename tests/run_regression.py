@@ -23,6 +23,7 @@ REGRESSION_SUITES = [
     ("mpm_api.py - test_ballistics_api.py", PROJECT_ROOT / "tests" / "test_ballistics_api.py"),
     ("radar_track.py - test_radar_track.py", PROJECT_ROOT / "tests" / "test_radar_track.py"),  # כלי בדיקת מעקב מכ"ם, שלבים א1-א5 (FR-D-264..274)
     ("rocket_model.py - test_rocket_model.py", PROJECT_ROOT / "tests" / "test_rocket_model.py"),  # מודל הרקטה, שלב א6 (FR-D-275)
+    ("radar_placement.py - test_radar_placement.py", PROJECT_ROOT / "tests" / "test_radar_placement.py"),  # הצעת מיקום, שלב ב' (FR-D-277)
 ]
 
 # צפויות להיכשל כרגע (משחזרות ממצא פתוח) - עוברות רק אחרי תיקון מאושר
