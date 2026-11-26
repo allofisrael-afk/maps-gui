@@ -1,0 +1,8 @@
+{
+  "phone": "",
+  "progress_interval_minutes": 30,
+  "daily_summary_time": "21:00",
+  "project_name": "",
+  "enabled": true,
+  "dry_run": false
+}

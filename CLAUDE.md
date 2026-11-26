@@ -29,5 +29,28 @@ When a dependency is updated, re-check its license: licenses sometimes change be
 - The Android launcher icon lives in maps-gui-android-src/android_res and is copied by build_apk.ps1; never restore the Flutter logo.
 - New Android-side bundled components (Gradle libraries, native libraries) must also be registered in maps-gui-android-src/lib/legal/about.dart, because Flutter only collects Dart package licenses automatically.
 
+## עדכוני סטטוס לוואטסאפ (wa-status)
+
+הכלי `wa-status/wa_status.py` שולח לוואטסאפ של המשתמש עדכונים חד-כיווניים על העבודה בריפו. מריצים אותו משורש הריפו.
+
+**מתי לשלוח:**
+- `start`: בתחילת משימה משמעותית.
+  `python wa-status/wa_status.py send --type start --msg "<מה מתחיל>"`
+- `done`: בסיום המשימה, עם התוצאה בקצרה.
+- `error`: כשיש שגיאה שלא הצלחת לפתור.
+- `blocked`: כשאתה ממתין להחלטה של המשתמש. מסבירים בקצרה על מה ההחלטה.
+- **עדכון מחזורי:** אין לך טיימר. לכן בנקודות טבעיות בעבודה, אחרי כל צעד משמעותי, מריצים `python wa-status/wa_status.py check-interval`. אם הפלט הוא `yes`, שולחים `send --type progress` עם שורה על המצב. אם הפלט הוא `no`, לא שולחים.
+- אם המשתמש מבקש סיכום של חלון זמן, למשל "מה נעשה ב-3 השעות האחרונות": `python wa-status/wa_status.py summary --since 3h`.
+
+**איך לכתוב את ההודעות:**
+- קצר: שורה או שתיים, עובדתי, בעברית.
+- בלי סודות, טוקנים, מפתחות, תוכן `.env`, תוכן של קבצים רגישים ונתיבים מלאים.
+
+**אם השליחה נכשלת:**
+- ממשיכים לעבוד. לא עוצרים ולא מנסים שוב ושוב. הכלי מחזיר תמיד קוד יציאה 0 ורושם את הכשל ב-`wa-status/state/wa_status.log`.
+- אם קיים הקובץ `wa-status/state/failed.flag`, מדווחים למשתמש **פעם אחת** בעברית בצ'אט שעדכוני הוואטסאפ הפסיקו, ושצריך להריץ `python wa-status/wa_status.py setup` מחדש. אחרי הדיווח ממשיכים לעבוד.
+
+(ההוראות הקבועות, עברית בלבד והסבר לפני כל החלטה, כבר מופיעות למעלה תחת "Language and decisions".)
+
 ## Audit trail
 - Re-run the license audit whenever dependencies change materially and before any release, APK build or public publishing.
