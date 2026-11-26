@@ -9,7 +9,9 @@ radar_service — צינורות העבודה של כלי בדיקת מעקב ה
 התקדמות ומטמון משלו, והאפליקציה — שליפה ישירה ל-Open-Meteo דרך urllib. stdlib בלבד.
 """
 
+import json  # קריאת קובצי הפרופילים בספרייה המובנית (FR-D-286)
 import math  # גיאומטריה
+import os  # נתיב תיקיית הספרייה המובנית (FR-D-286)
 
 import radar_physics as rph  # נוסחאות המכ"ם (משותף)
 import radar_placement as rpl  # הצעת מיקום (שלב ב')
@@ -21,6 +23,37 @@ MAX_AGL_POINTS = 600  # תקרת קודקודים בגובה "מעל הקרקע"
 
 class Aborted(Exception):
     """נזרק מ-fetch_cells כשהשליפה בוטלה או נחסמה במכסה — הקורא כבר קבע את הסטטוס, אין מה לדווח."""
+
+
+# ═══════════════════════════ ספריית פרופילים מובנית (FR-D-286) ═══════════════════════════
+
+PROFILE_FORMAT = 'maps-gui-radar-profile'  # מזהה פורמט קובץ הפרופיל — אותו מזהה כמו בייצוא/ייבוא JSON בממשק
+PROFILE_LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'radar-profiles')  # ליד הקובץ הזה — בדסקטופ שורש הפרויקט, באנדרואיד android_python/ (junction שיוצר build_apk.ps1)
+
+
+def load_profile_library(dir_path=None):
+    """קורא את כל קובצי הפרופיל בתיקייה ומחזיר רשימה ממוינת לפי שם: [{name, file, params, notes}].
+    קובץ פגום, או קובץ שאינו בפורמט הפרופיל, מדולג בשקט — כדי שקובץ אחד לא יפיל את כל הספרייה.
+    תיקייה חסרה מחזירה רשימה ריקה."""
+    d = dir_path or PROFILE_LIBRARY_DIR  # ברירת מחדל: התיקייה ליד המודול
+    out = []  # התוצאה
+    try:  # תיקייה חסרה — אין ספרייה
+        files = sorted(f for f in os.listdir(d) if f.lower().endswith('.json'))  # רק קובצי JSON, בסדר קבוע
+    except OSError:  # לא קיימת / אין הרשאה
+        return out  # ריק
+    for fn in files:  # כל קובץ
+        try:  # קובץ פגום — מדלגים
+            with open(os.path.join(d, fn), encoding='utf-8') as f:  # UTF-8 — השמות בעברית
+                doc = json.load(f)  # הפענוח
+        except (OSError, ValueError):  # קריאה או JSON לא תקין
+            continue  # הבא
+        if not isinstance(doc, dict) or doc.get('format') != PROFILE_FORMAT or not isinstance(doc.get('params'), dict):  # לא פרופיל
+            continue  # הבא
+        name = doc.get('name') or os.path.splitext(fn)[0]  # שם לתצוגה; בלי שדה name — שם הקובץ
+        out.append({'name': str(name), 'file': fn, 'params': doc['params'],  # הפרמטרים כמו שהם — הממשק מחיל רק שדות מוכרים
+                    'notes': doc.get('source_notes') or {}})  # מה פורסם ומה הונח — לתצוגת המקורות
+    out.sort(key=lambda p: p['name'].lower())  # מיון לפי שם
+    return out  # הרשימה
 
 
 # ═══════════════════════════ קליטת פרמטרים ═══════════════════════════

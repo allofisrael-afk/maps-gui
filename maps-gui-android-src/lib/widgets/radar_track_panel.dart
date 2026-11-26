@@ -152,7 +152,8 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
               Semantics(label: 'סגור כלי בדיקת מעקב מכ"ם', child: InkWell(onTap: () => setState(() => _open = false),
                   child: Padding(padding: const EdgeInsets.all(15), child: Icon(Icons.close, size: 15, color: cs.onSurfaceVariant)))), // ≥44x44
             ]),
-            _small('הפרמטרים של המכ"ם — מכלי תצפית המכ"ם. רעיוני/חינוכי, לא מבוסס מערכת אמיתית.'),
+            _small('הפרמטרים של המכ"ם — מכלי תצפית המכ"ם או מהפרופיל הפעיל. פרופילי הספרייה מבוססים על נתונים פומביים בלבד — רעיוניים/חינוכיים, לא מפרט אמיתי.'), // FR-D-286
+            ActiveProfileBar(cs: cs), // FR-D-286: בורר "פרופיל פעיל" — אותו בורר כמו בפאנל תצפית המכ"ם, מסונכרן דרך הבקר
             Row(children: [ // הצבת מכ"ם בלי לפתוח את כלי הדופלר
               _btn(c.pick == RtPick.radar ? 'לחץ על המפה…' : '📍 הצב/הזז מכ"ם', () => u(() => c.pick = RtPick.radar)),
               Expanded(child: _small(map.radarObs == null ? 'לא הוצב' : '${map.radarObs!.latitude.toStringAsFixed(4)}, ${map.radarObs!.longitude.toStringAsFixed(4)}')),
@@ -299,4 +300,81 @@ class _NumFieldState extends State<_NumField> {
           )),
         ]),
       );
+}
+
+/// בורר "פרופיל פעיל" (FR-D-286) — בראש פאנל בדיקת המעקב ובראש פאנל תצפית המכ"ם דופלר. שני המופעים קוראים
+/// מאותו בקר (RadarTrackController), ולכן מסונכרנים. בחירה טוענת את הפרופיל לשדות של כל תהליכי המכ"ם; כיוון הפנים
+/// לא משתנה (של האתר, לא של המכ"ם). שינוי שדה אחרי הטעינה מוצג כ"שונה ידנית".
+class ActiveProfileBar extends StatefulWidget {
+  const ActiveProfileBar({super.key, required this.cs});
+  final ColorScheme cs; // ערכת הצבעים
+
+  @override
+  State<ActiveProfileBar> createState() => _ActiveProfileBarState();
+}
+
+class _ActiveProfileBarState extends State<ActiveProfileBar> {
+  bool _showNotes = false; // אזור "מה פורסם ומה הונח" פתוח
+  static const _green = Color(0xFF2ECC40); // צבע כלי המכ"ם — כמו בדסקטופ
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) { // אחרי הציור הראשון — לא בתוך build
+      if (mounted) context.read<RadarTrackController>().loadLibrary(); // הספרייה (פעם אחת) + הפרופילים שלי
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs; // צבעים
+    final c = context.watch<RadarTrackController>(); // הבקר
+    context.watch<MapState>(); // גם שינוי שדה בכלי הדופלר מרענן את "שונה ידנית"
+    const st = TextStyle(fontSize: 10); // גופן הרשימה
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem(value: '', child: Text('— ידני (השדות כפי שהם) —', style: st)), // בלי פרופיל
+      if (c.library.isNotEmpty) // כותרת קבוצה — Flutter בלי optgroup, לכן שורה לא-לחיצה
+        DropdownMenuItem(value: '#lib', enabled: false, child: Text('ספרייה מובנית — נתונים פומביים', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant))),
+      for (int i = 0; i < c.library.length; i++) // כל פרופיל בספרייה
+        DropdownMenuItem(value: 'lib:$i', child: Text('📚 ${c.library[i]['name']}', style: st, overflow: TextOverflow.ellipsis)),
+      if (c.myProfileNames.isNotEmpty) // כותרת קבוצה
+        DropdownMenuItem(value: '#my', enabled: false, child: Text('הפרופילים שלי', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant))),
+      for (final n in c.myProfileNames) DropdownMenuItem(value: 'my:$n', child: Text('👤 $n', style: st, overflow: TextOverflow.ellipsis)), // שלי
+    ];
+    final value = items.any((it) => it.value == c.activeKey) ? c.activeKey : ''; // ערך שלא ברשימה — "ידני" (מונע קריסת DropdownButton)
+    final mod = c.activeModified; // שונה ידנית?
+    final String statusText; // שורת המצב
+    final Color statusColor; // צבעה — עם סימן, לא רק צבע
+    if (c.activeName == null) { statusText = 'ידני: התהליכים ירוצו לפי השדות כפי שהוזנו.'; statusColor = cs.onSurfaceVariant; }
+    else if (mod) { statusText = '✎ ${c.activeName} — שונה ידנית אחרי הטעינה'; statusColor = const Color(0xFF9A5B00); } // כתום-כהה
+    else { statusText = '✔ ${c.activeName} — פעיל בכל תהליכי המכ"ם'; statusColor = const Color(0xFF15803D); } // ירוק-כהה
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(border: Border.all(color: _green), borderRadius: BorderRadius.circular(5), color: _green.withAlpha(22)), // מסגרת בולטת
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text('📡 פרופיל פעיל', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: cs.onSurface)), // תווית
+          const SizedBox(width: 6),
+          Expanded(child: Semantics(label: 'פרופיל מכ"ם פעיל לכל התהליכים', child: DropdownButton<String>( // הבורר
+            value: value, isExpanded: true, isDense: true, items: items,
+            onChanged: (v) { if (v != null && !v.startsWith('#')) c.setActive(v); }, // בחירה (כותרות לא נבחרות)
+          ))),
+        ]),
+        Text(statusText, style: TextStyle(fontSize: 9, color: statusColor)), // מצב
+        if (c.activeNotes != null) ...[
+          InkWell( // פתיחה/סגירה של המקורות — שטח מגע מורחב
+            onTap: () => setState(() => _showNotes = !_showNotes),
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text('${_showNotes ? '▾' : '◂'} מה פורסם ומה הונח', style: TextStyle(fontSize: 9, color: cs.primary))),
+          ),
+          if (_showNotes)
+            ConstrainedBox(constraints: const BoxConstraints(maxHeight: 170), child: SingleChildScrollView( // גלילה פנימית
+              child: Directionality(textDirection: TextDirection.ltr, // המקורות באנגלית — משמאל לימין
+                  child: SelectableText(c.notesText(), style: TextStyle(fontSize: 8.5, color: cs.onSurfaceVariant))), // ניתן להעתקה (קישורים כטקסט)
+            )),
+        ],
+      ]),
+    );
+  }
 }

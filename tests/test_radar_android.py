@@ -87,6 +87,11 @@ cj = call("radar_check_start", BASE)["job_id"]  # התחלה
 call("radar_job_cancel", {"job_id": cj})  # ביטול מיד
 check("ביטול: העבודה נעצרת עם status=cancelled", wait(cj)["status"] == "cancelled")
 check("פעולה לא מוכרת: שגיאה ברורה", call("radar_nope", {}).get("ok") is False)
+lib = call("radar_profiles_library", {})  # FR-D-286: הספרייה המובנית — כמו שה-Kotlin קורא
+import radar_service as _rs  # noqa: E402 — אותה ספרייה כמו בשרת, להשוואה
+check("ספריית פרופילים: ok, אותה רשימה כמו בשרת, עם שם ופרמטרים", lib.get("ok") is True
+      and [p["name"] for p in lib.get("profiles", [])] == [p["name"] for p in _rs.load_profile_library()]
+      and len(lib["profiles"]) >= 13 and all(p["name"] and p["params"] for p in lib["profiles"]), str(len(lib.get("profiles", []))))
 check("קלט שגוי (בלי מסלול): שגיאה ברורה, בלי קריסה", call("radar_check_start", {"lat": 31, "lon": 34}).get("ok") is False)
 check("הכלי הבליסטי לא הושפע מהניתוב", json.loads(mpm_api.dispatch_json("nope_action", "{}"))["ok"] is False)
 

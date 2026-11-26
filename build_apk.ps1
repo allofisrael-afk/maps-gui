@@ -208,6 +208,11 @@ if (-not (Test-Path "$ANDROID_PY_DIR\mpm")) {
 if (-not (Test-Path "$ANDROID_PY_DIR\data")) {
     cmd /c mklink /J "$ANDROID_PY_DIR\data" "$PSScriptRoot\data" | Out-Null
 }
+# ספריית פרופילי המכ"ם המובנית (FR-D-286) — junction כמו data\: radar_service.py קורא אותה ליד עצמו (radar-profiles\)
+if (-not (Test-Path "$ANDROID_PY_DIR\radar-profiles")) {  # פעם אחת — junction תמיד מצביע על התוכן הנוכחי
+    if (-not (Test-Path "$PSScriptRoot\radar-profiles")) { Err "Missing radar-profiles\ (built-in radar profile library)" }  # תיקייה חסרה = עצירה
+    cmd /c mklink /J "$ANDROID_PY_DIR\radar-profiles" "$PSScriptRoot\radar-profiles" | Out-Null  # הצבעה לתיקייה במאגר
+}
 # קבצי ה-Python ברמת השורש מועתקים מחדש בכל בנייה (ולא hardlink): נמצא 26/11/2026 שה-hardlink ל-mpm_api.py
 # נותק בשקט (עורך ששומר קובץ חדש במקום לעדכן את הקיים) — ה-APK קיבל עותק מ-9/11. העתקה טרייה = תמיד הגרסה הנוכחית.
 # הקבצים: גשר ה-MPM + כלי בדיקת מעקב המכ"ם (שלב ג', MAPS-GUI_SRS.md FR-D-282) — כולם stdlib בלבד.

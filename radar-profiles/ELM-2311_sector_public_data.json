@@ -1,0 +1,60 @@
+{
+  "format": "maps-gui-radar-profile",
+  "version": 1,
+  "name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער)",
+  "params": {
+    "ridge_margin_deg": 0,
+    "lobing_enabled": false,
+    "reflectivity": "land",
+    "mdv_kt": 20,
+    "track_mode": "track",
+    "scan_phase_deg": 0,
+    "track_rate_hz": 10,
+    "max_ang_rate_dps": 30,
+    "cue_delay_s": 1,
+    "track_m": 2,
+    "track_n": 3,
+    "coast_s": 2,
+    "rcs_mode": "aspect",
+    "rcs_nose": 0.005,
+    "rcs_side": 0.02,
+    "rcs_tail": 0.01,
+    "boresight_deg": 0,
+    "rot_period_s": 4,
+    "revisit_s": 0.3,
+    "range_km": 60,
+    "min_range_km": 1,
+    "h_antenna": 4,
+    "vertical_center_deg": 45,
+    "vertical_width_deg": 90,
+    "power_kw": 100,
+    "gain_dbi": 38,
+    "freq_mhz": 5500,
+    "prf_hz": 2400,
+    "antenna_type": "phased_array",
+    "max_scan_deg": 60,
+    "scan_mode": "phased",
+    "sensitivity_dbm": -110.26,
+    "rcs_m2": 0.01
+  },
+  "source_notes": {
+    "system": "ELM-2311 C-MMR — geometry from public data; DETECTION RANGE IS AN ESTIMATE (not published). Conceptual/educational, not a real specification",
+    "published": {
+      "C-band; AESA; detects, tracks and designates targets within its hemispheric view; crew of two, remote operation; single high-mobility vehicle; 'engage targets in its line of sight, even beyond 100 km'": "https://www.iai.co.il/p/elm-2311-c-mmr",
+      "3D multi-beam AESA; simultaneous Artillery & C-RAM, air surveillance, air defence, fire control; two operators": "https://www.iai.co.il/wp-content/uploads/2025/10/ELTA-ELM-2311-C-MMR-Compact-Multi-Mission-AESA-Artillery-Radar.pdf",
+      "persistent surveillance sector mode of 120°, or a 360° rotating mode, minimum crew of two": "https://www.shephardmedia.com/news/digital-battlespace/singapore-commissions-elm-2311-safari-radar/",
+      "C-band tactical C-RAM radar (MMR family)": "https://en.wikipedia.org/wiki/EL/M-2084",
+      "instrumented range 250 km (third-party database, probably air surveillance — not used)": "https://armsnet.duckdns.org/equipment/9cb371b6-bed7-4d96-8c24-08decb838d08"
+    },
+    "assumed_not_published": {
+      "DETECTION RANGE — NOT PUBLISHED": "sensitivity calibrated so RCS 0.01 m² -> 35.5 km: midpoint of two C-band weapon-locating radars with published ranges, ARTHUR Mod C (31 km) and COBRA (40 km). An estimate, not a published value",
+      "range_km=60": "weapon-locating instrumented range not published (250 km is an air-surveillance figure); 60 km covers the estimated rocket range",
+      "vertical 0°-90°": "from 'hemispheric view'; the model has one FOV for search and track",
+      "freq_mhz=5500": "representative C-band",
+      "power_kw=100, gain_dbi=38": "not published",
+      "prf_hz=2400": "unambiguous range 62.5 km > 60 km",
+      "min range 1 km, revisit 0.3 s, h_antenna 4 m": "not published",
+      "common (all profiles)": "MDV 20 kt, M/N 2/3, coast 2 s, aspect RCS 0.005/0.02/0.01 m² (shell), boresight 0 — set it to the threat direction after placing the radar"
+    }
+  }
+}

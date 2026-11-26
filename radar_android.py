@@ -256,8 +256,16 @@ def _cancel(params):
     return {"ok": True}  # אישור
 
 
+def _profiles_library(_params):
+    """ספריית הפרופילים המובנית (FR-D-286) — אותה פונקציה כמו GET /radar_profiles/library בשרת. קריאה סינכרונית:
+    11 קבצים קטנים, בלי רשת — מהיר מספיק לריצה על ה-thread של הממשק. התיקייה ארוזה ב-APK (build_apk.ps1)."""
+    import radar_service as _rs  # ייבוא מקומי — כמו שאר הפעולות כאן
+    return {"profiles": _rs.load_profile_library()}  # [{name, file, params, notes}]
+
+
 _ACTIONS = {"radar_check_start": _check, "radar_profile_start": _profile, "radar_placement_start": _placement,
-            "rocket_start": _rocket, "radar_job_status": _status, "radar_job_cancel": _cancel}  # טבלת הפעולות
+            "rocket_start": _rocket, "radar_job_status": _status, "radar_job_cancel": _cancel,
+            "radar_profiles_library": _profiles_library}  # טבלת הפעולות (+ספריית הפרופילים, FR-D-286)
 
 
 def dispatch_json(action, params_json):

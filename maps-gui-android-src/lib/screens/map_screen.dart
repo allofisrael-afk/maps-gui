@@ -3263,15 +3263,22 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     _headingCtrl = TextEditingController(text: _fmt(s.radarTargetHeadingDeg));
     _boresightCtrl = TextEditingController(text: _fmt(s.radarBoresightDeg));
     _maxScanCtrl = TextEditingController(text: _fmt(s.radarMaxScanDeg));
+    _seenParamsEpoch = s.radarParamsEpoch; // FR-D-286: המונה ברגע הפתיחה — שינוי שלו = נטען פרופיל מבחוץ
     _refreshStations();
     _refreshSettingsPresets(); // טוען גם את רשימת "הגדרות שמורות" (בלי מיקום) עם פתיחת הפאנל
   }
 
   String _fmt(double v) => v.toStringAsFixed(1);
 
+  int _seenParamsEpoch = 0; // FR-D-286: מונה טעינות הפרופיל שכבר סונכרן לשדות
+
   @override
   void didUpdateWidget(covariant _RadarDopplerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.state.radarParamsEpoch != _seenParamsEpoch) { // FR-D-286: נטען פרופיל (מהבורר / מכלי המעקב) — כל השדות השתנו
+      _seenParamsEpoch = widget.state.radarParamsEpoch; // סונכרן
+      _syncAllControllers(); // כל שדות הטקסט מה-state
+    }
     // גרירת ידית על המפה משנה את השדות מבחוץ — מסנכרן בלי לדרוס הקלדה פעילה (כמו ב-_RadialLosPanel)
     _syncIfNeeded(_rangeCtrl, widget.state.radarRangeKm);
     _syncIfNeeded(_startCtrl, widget.state.radarStartBearingDeg);
@@ -3722,6 +3729,11 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   Widget build(BuildContext context) {
     final cs = widget.cs;
     final s = widget.state;
+    final rt = context.watch<RadarTrackController>(); // FR-D-286: תווית הפרופיל שלפיו חושבה כל תוצאה
+
+    // FR-D-286: תדר מפרופיל (למשל 5500 / 9500) שאינו ברשימה הקבועה — מתווסף כאפשרות, אחרת DropdownButton קורס
+    final freqOpts = [..._freqOptions], freqLabels = [..._freqLabels]; // עותקים
+    if (!freqOpts.contains(s.radarFreqMhz)) { freqOpts.add(s.radarFreqMhz); freqLabels.add('${s.radarFreqMhz.toStringAsFixed(0)} MHz'); } // הערך הנוכחי
 
     if (!s.radarMode) {
       // מצב כבוי — עיגול אייקון בלבד, כמו _RadialLosPanel
@@ -3779,6 +3791,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                   ],
                 ),
                 const SizedBox(height: 4),
+                ActiveProfileBar(cs: cs), // FR-D-286: בורר "פרופיל פעיל" — קובע את הפרמטרים לכל תהליכי המכ"ם
                 if (s.radarObs == null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -3799,7 +3812,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                 _header('משוואת מכ"ם — טווח גילוי'),
                 _field('הספק שידור (קילוואט)', _powerCtrl, (v) => s.radarPowerKw = v),
                 _field('רווח אנטנה (dBi)', _gainCtrl, (v) => s.radarGainDbi = v),
-                _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, _freqOptions, _freqLabels, (v) => s.radarFreqMhz = v),
+                _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, freqOpts, freqLabels, (v) => s.radarFreqMhz = v), // FR-D-286: כולל תדר מפרופיל
                 _field('רגישות מקלט (dBm)', _sensCtrl, (v) => s.radarSensitivityDbm = v),
                 _field('שטח חתך רדארי (RCS, מ"ר)', _rcsCtrl, (v) => s.radarRcsM2 = v),
                 _rcsPresetRow(),
@@ -3872,14 +3885,15 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
                         '${s.radarResult!.rangeKm.toStringAsFixed(0)} ק"מ, ${s.radarResult!.nBearings} כיוונים, '
-                        '${s.radarResult!.clearCount} מזוהים, ${s.radarResult!.dopplerBlockedRays} חסומי-דופלר',
+                        '${s.radarResult!.clearCount} מזוהים, ${s.radarResult!.dopplerBlockedRays} חסומי-דופלר'
+                        '${rt.dopplerProfileLbl.isNotEmpty ? '\n📡 ${rt.dopplerProfileLbl}' : ''}', // FR-D-286: לפי איזה פרופיל
                         style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
                       ),
                     ),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.tonal(
-                      onPressed: s.radarObs != null ? s.runRadarDoppler : null,
+                      onPressed: s.radarObs != null ? () { rt.markDopplerRun(); s.runRadarDoppler(); } : null, // FR-D-286: לוכד את הפרופיל הפעיל לפני החישוב
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF22D3EE), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
                       child: const Text('הפעל חישוב', style: TextStyle(fontSize: 11)),
@@ -3916,7 +3930,8 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       child: Text(
                         '${s.routeEvalResult!.detectedCount} מזוהות, ${s.routeEvalResult!.dopplerBlindCount} עיוורות-דופלר, '
                         '${s.routeEvalResult!.blockedCount} חסומות, ${s.routeEvalResult!.outOfRangeCount} מחוץ-לטווח '
-                        '(מתוך ${s.routeEvalResult!.pointsTotal}) — RCS משוער: ${s.routeEvalResult!.rcsUsed.toStringAsFixed(1)} מ"ר',
+                        '(מתוך ${s.routeEvalResult!.pointsTotal}) — RCS משוער: ${s.routeEvalResult!.rcsUsed.toStringAsFixed(1)} מ"ר'
+                        '${rt.routeEvalProfileLbl.isNotEmpty ? '\n📡 ${rt.routeEvalProfileLbl}' : ''}', // FR-D-286: לפי איזה פרופיל
                         style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
                       ),
                     ),
@@ -3924,7 +3939,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                     width: double.infinity,
                     child: FilledButton.tonal(
                       onPressed: (s.radarObs != null && !s.radarLoading && (s.flightData?.trail.isNotEmpty ?? false))
-                          ? s.evaluateFlightRoute : null,
+                          ? () { rt.markRouteEvalRun(); s.evaluateFlightRoute(); } : null, // FR-D-286: לוכד את הפרופיל הפעיל לפני ההערכה
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFCBA6F7), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
                       child: const Text('הערך מסלול טיסה מול המכ"ם', style: TextStyle(fontSize: 11)),

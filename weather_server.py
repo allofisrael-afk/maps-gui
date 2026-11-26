@@ -1650,6 +1650,13 @@ def _elevations_cached_small(cells):
     return elevs, None  # הצלחה
 
 
+@app.route("/radar_profiles/library", methods=["GET"])
+def radar_profiles_library():
+    """ספריית הפרופילים המובנית (FR-D-286): כל קובצי radar-profiles/ — לקריאה בלבד, בנפרד מהפרופילים שהמשתמש שומר.
+    אותה פונקציה משמשת גם את האנדרואיד (radar_android), כך ששתי הפלטפורמות רואות אותה רשימה."""
+    return jsonify({"profiles": _rs.load_profile_library()})  # [{name, file, params, notes}]
+
+
 @app.route("/radar_track/profile", methods=["POST"])
 def radar_track_profile():
     """פרופיל שטח בין המכ"ם לנקודה אחת במסלול (שלב א3) — דרך השירות המשותף (radar_service.ray_profile).

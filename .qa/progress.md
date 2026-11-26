@@ -94,3 +94,10 @@ Stage 6 סגור. שאלות-פתוחות שנותרו (Q-4/Mutation-Fuzzing, Q-
 
 ## צעד הבא (Stage 7)
 Stage 7 סגור. 4 ממצאים נשארים פתוחים-באישור: F-001 (טוקן FR24, אין backend חליפי זמין), F-008 (NOTAM-scraping fragility, accepted-risk), F-023 (mutation testing חלקי — 2043 מוטנטים לא נוסו, ממצא-המשך לסבב עתידי אם רלוונטי), F-025 (lockfile, לא דחוף). שום פעולה נוספת לא נדרשת כרגע אלא אם המשתמש מסמן אחרת ב-`findings_form.html`/`findings.xlsx`.
+
+## ריצה חמישית — full, אוטונומי (26/11/2026)
+- **מצב ריצה**: full (אין ארגומנט), אוטונומי.
+- **נקודת ייחוס**: HEAD `bfdd312da` + working tree לא-מחויב (FR-D-286/287: פרופיל פעיל, ELM-2311). ההשוואה היא לריצה 4 / Stage 7 (`2f693f7df`).
+- **פיצול לפי סיכון (החלטה R5-1)**: Stage 0 של הקוד שלא השתנה מאז Stage 7 נלקח מחדש מ-stage0_*.md. כל העומק הולך ל-delta: radar_track/radar_placement/rocket_model/radar_physics/radar_service/radar_android, נקודות הקצה החדשות בשרת, ממשק המעקב (MAP.py + Android), wa-status, ספריית הפרופילים ו-saved_stations ב-git.
+- **תוצרים**: `.qa/run5/` (דוח, כלים, בדיקות, צילומים) + `.qa/findings.xlsx` (נדרס, ריצה 5).
+- **שלב נוכחי**: 0 (מיפוי delta).

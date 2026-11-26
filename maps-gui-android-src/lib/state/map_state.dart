@@ -696,6 +696,17 @@ class MapState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// FR-D-286: מונה טעינות פרופיל — פאנל הדופלר משווה אותו ומסנכרן את כל שדות הטקסט שלו כשהוא משתנה
+  int radarParamsEpoch = 0;
+
+  /// FR-D-286: החלת פרופיל שלם על פרמטרי המכ"ם (מבחוץ, מבקר בדיקת המעקב) — כמו updateRadarParam, ובנוסף מקדם
+  /// את המונה כדי שפאנל הדופלר ירענן את כל השדות (ולא רק טווח/אזימוטים כמו בגרירה)
+  void applyRadarParams(void Function() mutate) {
+    mutate(); // השינוי
+    radarParamsEpoch++; // סימן לפאנל: כל השדות השתנו
+    notifyListeners(); // ציור מחדש
+  }
+
   void setRadarObserver(LatLng p) {
     final prevObs = radarObs; // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
     cancelRadarDoppler();

@@ -1,6 +1,7 @@
 {
   "format": "maps-gui-radar-profile",
   "version": 1,
+  "name": "TPQ-36 (נתונים פומביים)",
   "params": {
     "range_km": 24,
     "min_range_km": 1,

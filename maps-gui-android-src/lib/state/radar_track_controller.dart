@@ -317,6 +317,7 @@ class RadarTrackController extends ChangeNotifier {
     final s = _map!; // המצב
     lastTrajectory = traj; // להרצה מחדש
     _lastRunRadar = s.radarObs; // המיקום שבו בודקים
+    runProfileLbl = activeLabel(); // FR-D-286: הפרופיל שהיה פעיל כשהבדיקה התחילה — לסיכום ול-CSV
     running = true; status = '🎯 בודק מעקב מכ"ם…'; profile = null; // משוב
     notifyListeners();
     final params = {...radarParams(), ...scanParams(), ...envParams(), 'lat': s.radarObs!.latitude, 'lon': s.radarObs!.longitude,
@@ -397,6 +398,7 @@ class RadarTrackController extends ChangeNotifier {
   String summaryText(Map<String, dynamic> r) {
     final s = r['summary'] as Map; // סיכום פיזיקלי
     final lines = <String>[]; // שורות
+    if (runProfileLbl.isNotEmpty) lines.add('📡 $runProfileLbl'); // FR-D-286: לפי איזה פרופיל חושב
     if (lastOpts['label'] != null) lines.add('מקור: ${lastOpts['label']}'); // המקור
     final k = r['track'] as Map?, sc = r['scan'] as Map?; // מעקב
     if (k != null && sc != null) {
@@ -433,8 +435,9 @@ class RadarTrackController extends ChangeNotifier {
     if (r == null) return 'הרץ קודם בדיקה';
     const cols = ['t', 'lat', 'lon', 'alt', 'dist_km', 'slant_km', 'bearing_deg', 'elev_deg', 'horizon_deg', 'radial_ms', 'speed_ms',
                   'ceiling_km', 'ang_rate_dps', 'aspect_deg', 'rcs_m2', 'rain_db', 'status', 'reason', 'track_state']; // כמו בדסקטופ
-    final rows = (r['points'] as List).cast<Map>().map((p) => cols.map((c) => p[c] ?? '').join(',')); // שורות
-    final csv = '﻿${cols.join(',')}\n${rows.join('\n')}'; // BOM — Excel מזהה UTF-8
+    final prof = '"${runProfileLbl.replaceAll('"', '""')}"'; // FR-D-286: עמודת הפרופיל — במירכאות, כי השם עלול לכלול פסיק
+    final rows = (r['points'] as List).cast<Map>().map((p) => [...cols.map((c) => p[c] ?? ''), prof].join(',')); // שורות + הפרופיל
+    final csv = '﻿${[...cols, 'profile'].join(',')}\n${rows.join('\n')}'; // BOM — Excel מזהה UTF-8
     try {
       return await FileBridge.saveText('radar_track.csv', 'text/csv', csv) ? 'נשמר ✔' : 'בוטל'; // חלון השמירה
     } catch (e) {
@@ -457,7 +460,7 @@ class RadarTrackController extends ChangeNotifier {
     int n = 0; // מונה
     double? d(String k) { final v = p[k]; if (v == null) return null; final x = v is num ? v.toDouble() : double.tryParse('$v'); if (x != null) n++; return x; } // מספר
     String? str(String k) { final v = p[k]; if (v == null) return null; n++; return '$v'; } // טקסט
-    _map?.updateRadarParam(() { // שדות המכ"ם ב-MapState
+    _map?.applyRadarParams(() { // שדות המכ"ם ב-MapState — FR-D-286: applyRadarParams כדי שפאנל הדופלר יסנכרן את כל השדות
       final s = _map!;
       s.radarRangeKm = d('range_km') ?? s.radarRangeKm; s.radarMinRangeKm = d('min_range_km') ?? s.radarMinRangeKm;
       s.radarHAntenna = d('h_antenna') ?? s.radarHAntenna; s.radarRidgeMarginDeg = d('ridge_margin_deg') ?? s.radarRidgeMarginDeg;
@@ -492,6 +495,7 @@ class RadarTrackController extends ChangeNotifier {
     store[name] = currentProfile(); // הוספה/דריסה
     final prefs = await SharedPreferences.getInstance(); // אחסון
     await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await refreshMyProfiles(); // FR-D-286: בורר הפרופיל הפעיל מתעדכן
   }
 
   Future<int> loadProfile(String name) async {
@@ -504,7 +508,104 @@ class RadarTrackController extends ChangeNotifier {
     store.remove(name); // מחיקה
     final prefs = await SharedPreferences.getInstance(); // אחסון
     await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await refreshMyProfiles(); // FR-D-286: בורר הפרופיל הפעיל מתעדכן (ואם הפעיל נמחק — חוזרים ל"ידני")
   }
+
+  // ═══════════════════════ פרופיל פעיל (FR-D-286) ═══════════════════════
+  // בורר אחד שקובע לפי איזה פרופיל ירוצו כל תהליכי המכ"ם: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח
+  // ומפת חום — כולם קוראים מאותם שדות, ולכן בחירה = טעינת הפרופיל לשדות. כל תוצאה מסומנת בשם הפרופיל.
+
+  List<Map<String, dynamic>> library = []; // הספרייה המובנית (radar-profiles/ בתוך ה-APK, לקריאה בלבד)
+  bool _libRequested = false; // נטענת פעם אחת
+  List<String> myProfileNames = []; // הפרופילים שהמשתמש שמר (מקומית בטלפון)
+  String activeKey = ''; // '' = ידני; 'lib:<i>' = מהספרייה; 'my:<name>' = שלי
+  String? activeName; // שם הפרופיל הפעיל
+  Map<String, dynamic>? activeNotes; // מה פורסם ומה הונח (רק לפרופיל מהספרייה)
+  String? _activeSnap; // תמונת השדות ברגע הטעינה — לזיהוי "שונה ידנית"
+  static const _siteKeys = ['boresight_deg']; // שדות של האתר ולא של המכ"ם: הבורר לא דורס אותם ולא נחשבים "שינוי ידני"
+  String runProfileLbl = ''; // הפרופיל שהיה פעיל כשבדיקת המעקב האחרונה התחילה
+  String plProfileLbl = ''; // אותו דבר למפת החום
+  String dopplerProfileLbl = ''; // אותו דבר לכיסוי הדופלר (נלכד בלחיצה על "הפעל חישוב")
+  String routeEvalProfileLbl = ''; // אותו דבר להערכת מסלול הטיסה
+
+  /// טוען את הספרייה המובנית מ-Python (פעם אחת) ואת שמות הפרופילים שלי.
+  Future<void> loadLibrary() async {
+    if (!_libRequested) { // פעם אחת
+      _libRequested = true;
+      try {
+        final d = await MpmBridge.call('radar_profiles_library', {}); // קריאה סינכרונית קצרה ב-Python
+        library = ((d['profiles'] as List?) ?? const []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList(); // הרשימה
+      } catch (_) {
+        _libRequested = false; // כשל בגישור — ינסה שוב בפתיחה הבאה
+      }
+    }
+    await refreshMyProfiles(); // הפרופילים שלי + ציור
+  }
+
+  /// מרענן את רשימת הפרופילים שלי; אם הפרופיל הפעיל נמחק — חוזרים ל"ידני" (השדות נשארים כמו שהם).
+  Future<void> refreshMyProfiles() async {
+    myProfileNames = await profileNames(); // השמות
+    if (activeKey.startsWith('my:') && !myProfileNames.contains(activeKey.substring(3))) _clearActive(); // הפעיל נמחק
+    notifyListeners(); // ציור
+  }
+
+  void _clearActive() { activeKey = ''; activeName = null; activeNotes = null; _activeSnap = null; } // "ידני"
+
+  String _snapshot() {
+    // תמונת שדות הפרופיל כרגע (בלי שדות האתר), כטקסט JSON להשוואה
+    final p = currentProfile(); // כל השדות
+    for (final k in _siteKeys) { p.remove(k); } // בלי כיוון הפנים
+    return jsonEncode(p); // טקסט
+  }
+
+  /// האם שדה כלשהו השתנה מאז שהפרופיל הפעיל נטען.
+  bool get activeModified => _activeSnap != null && _map != null && _activeSnap != _snapshot();
+
+  /// התווית שנכתבת על כל תוצאה.
+  String activeLabel() => activeName == null ? 'פרופיל: ידני (ללא פרופיל)' : 'פרופיל: $activeName${activeModified ? ' (שונה ידנית)' : ''}';
+
+  /// בחירה בבורר: טוען את הפרופיל לשדות (בלי שדות האתר) והופך אותו לפעיל; '' = ידני, השדות לא משתנים.
+  Future<void> setActive(String key) async {
+    if (key.isEmpty) { _clearActive(); notifyListeners(); return; } // ידני
+    Map<String, dynamic>? params; String? name; Map<String, dynamic>? notes; // הפרופיל
+    if (key.startsWith('lib:')) { // מהספרייה
+      final i = int.tryParse(key.substring(4)); // האינדקס
+      if (i == null || i < 0 || i >= library.length) return; // לא קיים
+      params = (library[i]['params'] as Map).cast<String, dynamic>(); name = '${library[i]['name']}'; // הערכים והשם
+      notes = (library[i]['notes'] as Map?)?.cast<String, dynamic>(); // המקורות
+    } else if (key.startsWith('my:')) { // שלי
+      name = key.substring(3); // השם
+      final p = (await _loadStore())[name]; // מהאחסון
+      if (p == null) return; // נמחק בינתיים
+      params = (p as Map).cast<String, dynamic>(); // הערכים
+    } else {
+      return; // מפתח לא מוכר
+    }
+    final copy = Map<String, dynamic>.from(params); // עותק — לא משנים את הספרייה
+    for (final k in _siteKeys) { copy.remove(k); } // כיוון הפנים נשאר כמו שכוון לאיום
+    applyProfile(copy); // החלה על השדות
+    activeKey = key; activeName = name; activeNotes = notes; _activeSnap = _snapshot(); // הפעיל, ותמונת השדות אחרי הטעינה
+    notifyListeners(); // ציור
+  }
+
+  /// טקסט המקורות של פרופיל מהספרייה: מה פורסם (עם הקישור) ומה הונח.
+  String notesText() {
+    final n = activeNotes; // המקורות
+    if (n == null) return ''; // אין
+    final lines = <String>[]; // שורות
+    if (n['system'] != null) lines.add('${n['system']}'); // תיאור המערכת
+    final pub = (n['published'] as Map?) ?? const {}; // מה פורסם
+    if (pub.isNotEmpty) { lines.addAll(['', 'פורסם:']); pub.forEach((k, v) => lines.addAll(['• $k', '   $v'])); } // נתון + מקור
+    final asm = (n['assumed_not_published'] as Map?) ?? const {}; // מה הונח
+    if (asm.isNotEmpty) { lines.addAll(['', 'הונח (לא פורסם):']); asm.forEach((k, v) => lines.add('• $k: $v')); } // הנחה + סיבה
+    return lines.join('\n'); // הטקסט
+  }
+
+  /// נלכד בלחיצה על "הפעל חישוב" בפאנל הדופלר — לפי איזה פרופיל חושב הכיסוי.
+  void markDopplerRun() => dopplerProfileLbl = activeLabel();
+
+  /// נלכד בלחיצה על "הערך מסלול טיסה מול המכ"ם".
+  void markRouteEvalRun() => routeEvalProfileLbl = activeLabel();
 
   Future<String> exportProfileJson() async {
     final doc = {'format': 'maps-gui-radar-profile', 'version': 1, 'params': currentProfile()}; // אותו פורמט כמו בדסקטופ
@@ -537,6 +638,7 @@ class RadarTrackController extends ChangeNotifier {
     if (s?.radarObs == null) { plStatus = 'הצב קודם מכ"ם — החיפוש סביבו'; notifyListeners(); return; }
     if (lastTrajectory == null) { plStatus = 'הרץ קודם בדיקת מעקב — מפת החום נבנית על המסלול שלה'; notifyListeners(); return; }
     cancelPlacement(silent: true); placement = null; // הרצה קודמת
+    plProfileLbl = activeLabel(); // FR-D-286: הפרופיל שהיה פעיל בתחילת החישוב
     plRunning = true; plStatus = '🗺 מתחיל…'; notifyListeners(); // משוב
     final params = {...radarParams(), ...scanParams(), ...envParams(), 'lat': s!.radarObs!.latitude, 'lon': s.radarObs!.longitude,
                     'radius_km': plRadiusKm, 'step_m': plStepM, 'metric': plMetric, 'trajectory': lastTrajectory,
@@ -547,7 +649,8 @@ class RadarTrackController extends ChangeNotifier {
       final b = (r['best'] as List).isNotEmpty ? (r['best'] as List).first as Map : null; // המיטבי
       final unit = plMetric == 'coverage' ? '%' : ' שנ\''; // יחידה
       final dem = r['dem'] as Map; // הרשת
-      plStatus = '🗺 ${(r['candidates'] as List).length} מיקומים | המיטבי: ${b?['score']}$unit (קרקע ${b?['ground_m']} מ\')\n'
+      plStatus = '📡 $plProfileLbl\n' // FR-D-286: לפי איזה פרופיל
+          '🗺 ${(r['candidates'] as List).length} מיקומים | המיטבי: ${b?['score']}$unit (קרקע ${b?['ground_m']} מ\')\n'
           'רשת גבהים: ${dem['nodes']} נקודות, ~${dem['res_m']} מ\' (${dem['cached']} מהמטמון)\nלחץ על תא או על ⭐ כדי להציב שם את המכ"ם.';
       notifyListeners();
     }, (e) { plRunning = false; plStatus = '🗺 $e'; notifyListeners(); }, (t) => _plPoll = t).then((id) => _plJob = id);

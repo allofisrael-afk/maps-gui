@@ -2398,6 +2398,7 @@
                 .then(function(data) {
                     var stations = data.stations || [];
                     _stationsCache[toolKey] = stations;
+                    if (toolKey === 'radar_profile') _rtOnMyProfilesChanged(stations);  // FR-D-286: בורר הפרופיל הפעיל מתעדכן עם כל שמירה/מחיקה
                     stationSelect.innerHTML = '';
                     if (stations.length === 0) {
                         var opt = L.DomUtil.create('option', '', stationSelect);
@@ -3028,6 +3029,7 @@
             var boresightDeg = num(_radarBoresightInput, 0);
             var maxScanDeg   = num(_radarMaxScanInput, 60);
             radarLoading = true;
+            _radarRunProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל בתחילת החישוב — לשורת התוצאה
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
             if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
@@ -3088,13 +3090,19 @@
                             // מציג גם את ה-RCS שנגזר אוטומטית מסוג כלי-הטיס — שקיפות: המשתמש לא הזין אותו ידנית
                             radarInfoEl.textContent = c.detected + ' מזוהות, ' + c.doppler_blind + ' עיוורות-דופלר, ' +
                                 c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ') — ' +
-                                'RCS משוער: ' + _routeEvalRcsUsed + ' מ"ר (' + (_lastFlightRouteData.aircraft || '?') + ')';
+                                'RCS משוער: ' + _routeEvalRcsUsed + ' מ"ר (' + (_lastFlightRouteData.aircraft || '?') + ')' +
+                                '\n📡 ' + _radarRunProfileLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
+                            radarInfoEl.style.whiteSpace = 'pre-line';  // FR-D-286: מכבד את מעבר השורה
                         }
                     } else {
                         _drawRadarDopplerResult(data.result);
-                        if (radarInfoEl) radarInfoEl.textContent =
-                            data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
-                            data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר';
+                        if (radarInfoEl) {
+                            radarInfoEl.textContent =
+                                data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                                data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר' +
+                                '\n📡 ' + _radarRunProfileLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
+                            radarInfoEl.style.whiteSpace = 'pre-line';  // FR-D-286: מכבד את מעבר השורה
+                        }
                     }
                 } else if (data.status === 'error') {
                     document.title = '__radar_doppler_error__';
@@ -3170,6 +3178,7 @@
             radarLoading = true;
             _radarJobKind = 'route_eval';
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג, אותו איתות כמו סריקה רגילה
+            _radarRunProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל בתחילת ההערכה
             if (radarInfoEl) radarInfoEl.textContent = 'מעריך מסלול טיסה מול המכ"ם…';
             if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
             fetch('http://localhost:5002/radar_doppler/evaluate_route/start', {
@@ -3259,6 +3268,12 @@
         var _radarTrackFanLayers = [];    // קווי ה-LOS של המניפה
         var _radarTrackLastResult = null; // התוצאה האחרונה — למניפה, לגרף הצד ולייצוא
         var _radarTrackLastOpts = null;   // שלב א4: מקור המסלול שנבדק לאחרונה ({source, alt_ref, rcs_m2, label})
+        var _radarTrackProfileLbl = '';   // FR-D-286: תווית הפרופיל שהיה פעיל כשהבדיקה האחרונה התחילה
+        var _radarRunProfileLbl = '';     // FR-D-286: אותו דבר לכיסוי הדופלר ולהערכת מסלול הטיסה (פאנל המכ"ם)
+        function _escapeHtmlRt(s) {
+            // FR-D-286: מנטרל HTML בשם פרופיל לפני הכנסה לפופאפ — שם של "הפרופילים שלי" הוא טקסט חופשי של המשתמש
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');  // התווים המסוכנים
+        }
         var _RT_R_EARTH = 6371000.0, _RT_K = 0.13;  // רדיוס כדור הארץ ומקדם הרפרקציה — זהים למנוע (radar_track.py)
         function _rtDrop(d) { return d * d / (2 * _RT_R_EARTH) * (1 - _RT_K); }  // ירידת קו הראייה בגלל עקמומיות+רפרקציה
 
@@ -3373,8 +3388,9 @@
             var cols = ['t', 'lat', 'lon', 'alt', 'dist_km', 'slant_km', 'bearing_deg', 'elev_deg', 'horizon_deg',
                         'radial_ms', 'speed_ms', 'ceiling_km', 'ang_rate_dps', 'aspect_deg', 'rcs_m2', 'rain_db',
                         'status', 'reason', 'track_state'];  // העמודות (aspect/rcs/rain — שלב א5)
-            var rows = res.points.map(function(p) { return cols.map(function(c) { return p[c] != null ? p[c] : ''; }).join(','); });  // שורה לכל נקודה
-            var csv = '\ufeff' + cols.join(',') + '\n' + rows.join('\n');  // BOM — כדי ש-Excel יזהה UTF-8
+            var prof = '"' + String(_radarTrackProfileLbl || '').replace(/"/g, '""') + '"';  // FR-D-286: עמודת הפרופיל — במירכאות, כי השם עלול לכלול פסיק
+            var rows = res.points.map(function(p) { return cols.map(function(c) { return p[c] != null ? p[c] : ''; }).concat([prof]).join(','); });  // שורה לכל נקודה + הפרופיל
+            var csv = '\ufeff' + cols.concat(['profile']).join(',') + '\n' + rows.join('\n');  // BOM — כדי ש-Excel יזהה UTF-8
             var blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});  // הקובץ
             var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'radar_track.csv';  // קישור הורדה
             document.body.appendChild(a); a.click(); document.body.removeChild(a);  // הפעלה וניקוי
@@ -3478,6 +3494,7 @@
             _clearRadarTrack();  // בדיקה קודמת (אם יש) מבוטלת ונמחקת
             _radarTrackLastPath = path;  // לחישוב מחדש בגרירה
             _radarTrackLastOpts = opts || {source: 'ballistic', alt_ref: 'msl'};  // המקור — לגרירה, לסיכום ולניקוי
+            _radarTrackProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל כשהבדיקה התחילה — לסיכום, לפופאפ ול-CSV
             _radarTrackInfoEl = infoEl;  // לשם נכתוב את הסיכום
             _radarTrackTimelineEl = timelineEl || _radarTrackTimelineEl;  // ציר הזמן (שלב א2) — נשמר גם לחישוב מחדש בגרירה
             var body = Object.assign(_radarCommonBody(), _radarTrackScanBody(), _rtEnvBody(), {  // פרמטרי המכ"ם + סריקה ומעקב + RCS וגשם (א5) + מיקום + מסלול
@@ -3533,6 +3550,7 @@
             // טקסט הסיכום לפאנל: נצפה?, כיסוי, גילוי ראשון, זמן אובדן לפי סיבה, ונתוני דגימת השטח
             var s = res.summary;  // הסיכום מהשרת
             var lines = [];  // שורות הסיכום
+            if (_radarTrackProfileLbl) lines.push('📡 ' + _radarTrackProfileLbl);  // FR-D-286: לפי איזה פרופיל חושב
             if (_radarTrackLastOpts && _radarTrackLastOpts.label) lines.push('מקור: ' + _radarTrackLastOpts.label);  // שלב א4: מה נבדק
             if (res.track) {  // מצב מעקב (שלב א2) — המדדים של המעקב קודם
                 var k = res.track, sc = res.scan;  // מדדי המעקב והתצורה
@@ -3581,6 +3599,7 @@
                     (p.ceiling_km != null ? '<div>תקרת מכ"ם בכיוון: ' + p.ceiling_km + ' ק"מ</div>' : '') +
                     (p.rcs_m2 != null ? '<div>זווית הסתכלות: ' + p.aspect_deg + '° | RCS: ' + p.rcs_m2 + ' מ"ר</div>' : '') +  // שלב א5
                     (p.rain_db != null ? '<div>הנחתת גשם (הלוך-חזור): ' + p.rain_db + ' dB</div>' : '') +  // שלב א5
+                    (_radarTrackProfileLbl ? '<div style="color:#666;margin-top:2px;">' + _escapeHtmlRt(_radarTrackProfileLbl) + '</div>' : '') +  // FR-D-286: הפרופיל (שם משתמש — מנוטרל HTML)
                     '</div>';
             }
             for (var i = 1; i < pts.length; i++) {  // קטע בין כל שתי נקודות עוקבות
@@ -3779,9 +3798,18 @@
             var doc;  // התוכן
             try { doc = JSON.parse(text); } catch (e) { return 'הקובץ אינו JSON תקין'; }  // פענוח
             if (!doc || doc.format !== 'maps-gui-radar-profile' || !doc.params) return 'זה לא קובץ פרופיל מכ"ם של maps-gui';  // סוג הקובץ
+            var n = _rtApplyParams(doc.params);  // FR-D-286: אותה החלה כמו בבורר הפרופיל הפעיל
+            if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה מעודכנת
+            _rtRefreshActiveStatus();  // FR-D-286: הייבוא משנה שדות — הבורר יציג "שונה ידנית" אם היה פרופיל פעיל
+            return 'נטענו ' + n + ' שדות מהפרופיל ✔';  // הודעה
+        }
+
+        function _rtApplyParams(params) {
+            // FR-D-286: מחיל ערכי פרופיל על השדות (הוצא מ-_rtImportProfileJson כדי שגם הבורר ישתמש בו). מחזיר כמה שדות הוחלו
+            var fields = _rtBuildProfileFieldMap();  // השדות שקיימים כרגע (מפה טרייה — גם אם טאב נבנה אחרי הקריאה הקודמת)
             var n = 0;  // כמה שדות נטענו
-            Object.keys(doc.params).forEach(function(k) {  // כל ערך בקובץ
-                var el = _rtProfileFields[k], v = doc.params[k];  // השדה והערך
+            Object.keys(params).forEach(function(k) {  // כל ערך בקובץ
+                var el = fields[k], v = params[k];  // השדה והערך
                 if (!el) return;  // לא מוכר — מדלגים
                 if (el.type === 'checkbox') { el.checked = (v === true || v === 'true'); }  // תיבה
                 else {
@@ -3794,8 +3822,148 @@
                 if (el.tagName === 'SELECT' || el.type === 'checkbox') el.dispatchEvent(new Event('change'));  // מפעיל מאזינים (הצגת שדות)
                 n++;  // נספר
             });
-            if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה מעודכנת
-            return 'נטענו ' + n + ' שדות מהפרופיל ✔';  // הודעה
+            return n;  // FR-D-286: מספר השדות שהוחלו — ההודעה והתצוגה המקדימה אצל הקורא
+        }
+
+        // ── FR-D-286: פרופיל פעיל — בורר אחד שקובע לפי איזה פרופיל ירוצו כל תהליכי המכ"ם ──
+        // התהליכים: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח ומפת חום — כולם קוראים מאותם שדות,
+        // ולכן בחירה בבורר = טעינת הפרופיל לשדות. כל תוצאה מסומנת בשם הפרופיל שהיה פעיל כשהתהליך התחיל.
+        var _rtLib = [];  // הספרייה המובנית (radar-profiles/, לקריאה בלבד): [{name, file, params, notes}]
+        var _rtMyProfiles = [];  // הפרופילים שהמשתמש שמר (radar_profile בעמדות השמורות): [{name, params}]
+        var _rtActive = {key: '', name: null, snap: null, notes: null, lib: false};  // הפרופיל הפעיל ותמונת השדות ברגע הטעינה
+        var _rtActiveBars = [];  // כל מופעי הבורר (פאנל המכ"ם + טאב המעקב) — מסונכרנים
+        var _rtLibRequested = false;  // הספרייה נטענת מהשרת פעם אחת
+        var _RT_SITE_KEYS = ['boresight_deg'];  // שדות של האתר ולא של המכ"ם: הבורר לא דורס אותם ולא נחשבים "שינוי ידני"
+
+        function _rtFieldValue(el) { return el.type === 'checkbox' ? String(el.checked) : String(el.value); }  // ערך שדה כטקסט, להשוואה
+
+        function _rtSnapshot() {
+            // תמונת שדות הפרופיל כרגע (בלי שדות האתר) — לזיהוי "שונה ידנית"
+            var m = _rtBuildProfileFieldMap(), s = {};  // השדות שקיימים
+            Object.keys(m).forEach(function(k) { if (_RT_SITE_KEYS.indexOf(k) < 0) s[k] = _rtFieldValue(m[k]); });  // כל שדה חוץ משדות האתר
+            return s;  // התמונה
+        }
+
+        function _rtActiveModified() {
+            // האם שדה כלשהו השתנה מאז שהפרופיל הפעיל נטען
+            if (!_rtActive.snap) return false;  // אין פרופיל פעיל
+            var now = _rtSnapshot();  // המצב הנוכחי
+            return Object.keys(_rtActive.snap).some(function(k) { return now[k] !== undefined && now[k] !== _rtActive.snap[k]; });  // שדה ששונה
+        }
+
+        function _rtActiveLabel() {
+            // התווית שנכתבת על כל תוצאה: שם הפרופיל הפעיל, ו"שונה ידנית" אם שדה השתנה אחרי הטעינה
+            if (!_rtActive.name) return 'פרופיל: ידני (ללא פרופיל)';  // אין פרופיל
+            return 'פרופיל: ' + _rtActive.name + (_rtActiveModified() ? ' (שונה ידנית)' : '');  // שם + מצב
+        }
+
+        function _rtNotesText(n) {
+            // טקסט המקורות של פרופיל מהספרייה: מה פורסם (עם הקישור) ומה הונח. קישורים כטקסט ולא כ-<a> — לחיצה
+            // על קישור בתוך QtWebEngine הייתה מעבירה את כל המפה לאתר אחר
+            var lines = [];  // השורות
+            if (n.system) lines.push(n.system);  // תיאור המערכת
+            if (n.published) { lines.push('', 'פורסם:'); Object.keys(n.published).forEach(function(k) { lines.push('• ' + k, '   ' + n.published[k]); }); }  // נתון + מקור
+            if (n.assumed_not_published) { lines.push('', 'הונח (לא פורסם):'); Object.keys(n.assumed_not_published).forEach(function(k) { lines.push('• ' + k + ': ' + n.assumed_not_published[k]); }); }  // הנחה + סיבה
+            return lines.join('\n');  // הטקסט
+        }
+
+        function _rtFillActiveSelect(bar) {
+            // ממלא בורר אחד: "ידני", הספרייה המובנית, והפרופילים שלי — ומסמן את הפעיל
+            var sel = bar.sel; sel.innerHTML = '';  // ניקוי
+            var o0 = L.DomUtil.create('option', '', sel); o0.value = ''; o0.textContent = '— ידני (השדות כפי שהם) —';  // בלי פרופיל
+            if (_rtLib.length) {  // יש ספרייה
+                var g1 = L.DomUtil.create('optgroup', '', sel); g1.label = 'ספרייה מובנית — נתונים פומביים (לקריאה בלבד)';  // קבוצה
+                _rtLib.forEach(function(p, i) { var o = L.DomUtil.create('option', '', g1); o.value = 'lib:' + i; o.textContent = p.name; });  // כל פרופיל
+            }
+            if (_rtMyProfiles.length) {  // יש פרופילים שמורים
+                var g2 = L.DomUtil.create('optgroup', '', sel); g2.label = 'הפרופילים שלי';  // קבוצה
+                _rtMyProfiles.forEach(function(p) { var o = L.DomUtil.create('option', '', g2); o.value = 'my:' + p.name; o.textContent = p.name; });  // כל פרופיל
+            }
+            sel.value = _rtActive.key || '';  // הפעיל
+            if (sel.value !== (_rtActive.key || '')) sel.value = '';  // הפעיל נמחק מהרשימה — מציגים "ידני" (השדות נשארים כמו שהם)
+        }
+
+        function _rtLoadLibrary() {
+            // טוען את הספרייה המובנית מהשרת פעם אחת, וממלא את כל הבוררים
+            if (_rtLibRequested) return; _rtLibRequested = true;  // פעם אחת
+            fetch('http://localhost:5002/radar_profiles/library').then(function(r) { return r.json(); })
+            .then(function(d) { _rtLib = d.profiles || []; _rtActiveBars.forEach(_rtFillActiveSelect); })  // מילוי
+            .catch(function() { _rtLibRequested = false; });  // כשל רשת — ינסה שוב בבניית הבורר הבא
+        }
+
+        function _rtOnMyProfilesChanged(stations) {
+            // נקרא מ-_buildStationUI בכל רענון של רשימת radar_profile (בנייה, שמירה, מחיקה) — הבורר מתעדכן איתה
+            _rtMyProfiles = stations || [];  // הרשימה
+            _rtActiveBars.forEach(_rtFillActiveSelect);  // מילוי מחדש
+            _rtRefreshActiveStatus();  // מצב
+        }
+
+        function _rtSetActive(key) {
+            // בחירה בבורר: טוען את הפרופיל לשדות (בלי שדות האתר) והופך אותו לפעיל; "" = ידני, השדות לא משתנים
+            if (!key) { _rtActive = {key: '', name: null, snap: null, notes: null, lib: false}; }  // ידני
+            else {
+                var lib = key.indexOf('lib:') === 0;  // מהספרייה או שלי
+                var p = lib ? _rtLib[parseInt(key.substr(4), 10)] : _rtMyProfiles.filter(function(s) { return 'my:' + s.name === key; })[0];  // הפרופיל
+                if (!p) return;  // לא נמצא
+                var params = Object.assign({}, p.params);  // עותק — לא משנים את הרשימה
+                _RT_SITE_KEYS.forEach(function(k) { delete params[k]; });  // כיוון הפנים נשאר כמו שכוון לאיום
+                _rtApplyParams(params);  // החלה על השדות
+                _rtActive = {key: key, name: p.name, snap: _rtSnapshot(), notes: p.notes || null, lib: lib};  // הפעיל, ותמונת השדות אחרי הטעינה
+            }
+            _rtActiveBars.forEach(function(b) { b.sel.value = _rtActive.key; });  // סנכרון כל הבוררים
+            _rtRefreshActiveStatus();  // מצב
+            if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה לפי הפרמטרים החדשים
+        }
+
+        function _rtRefreshActiveStatus() {
+            // שורת המצב מתחת לכל בורר: פעיל / שונה ידנית / ידני, ואזור המקורות לפרופיל מהספרייה
+            var mod = _rtActiveModified();  // שונה ידנית?
+            _rtActiveBars.forEach(function(b) {  // כל בורר
+                if (!_rtActive.name) {  // ידני
+                    b.status.textContent = 'ידני: התהליכים ירוצו לפי השדות כפי שהוזנו.'; b.status.style.color = '#555';  // הסבר
+                    b.src.style.display = 'none'; return;  // אין מקורות
+                }
+                b.status.textContent = mod ? '✎ ' + _rtActive.name + ' — שונה ידנית אחרי הטעינה' : '✔ ' + _rtActive.name + ' — פעיל בכל תהליכי המכ"ם';  // מצב, עם סימן ולא רק צבע
+                b.status.style.color = mod ? '#9a5b00' : '#15803d';  // כתום-כהה / ירוק-כהה — ניגודיות טובה על רקע בהיר
+                var n = _rtActive.notes;  // המקורות
+                if (n && (n.published || n.assumed_not_published)) { b.src.style.display = 'block'; b.srcBody.textContent = _rtNotesText(n); }  // מציגים
+                else b.src.style.display = 'none';  // פרופיל שלי — אין מקורות
+            });
+        }
+
+        function _rtHookActiveFields() {
+            // מאזין לשינויים בכל שדות הפרופיל, כדי שהבורר יציג "שונה ידנית" מיד; אידמפוטנטי — שדה לא נרשם פעמיים
+            var m = _rtBuildProfileFieldMap();  // השדות שקיימים כרגע
+            Object.keys(m).forEach(function(k) {
+                var el = m[k]; if (el._rtActiveHooked) return; el._rtActiveHooked = true;  // פעם אחת לשדה
+                el.addEventListener('input', _rtRefreshActiveStatus); el.addEventListener('change', _rtRefreshActiveStatus);  // הקלדה ובחירה
+            });
+        }
+
+        function _rtBuildActiveBar(parent) {
+            // בונה בורר "פרופיל פעיל" בולט: בחירה, שורת מצב, ואזור מתקפל "מה פורסם ומה הונח"
+            var wrap = L.DomUtil.create('div', '', parent);  // מסגרת
+            wrap.style.cssText = 'border:1px solid #2ecc40;border-radius:3px;padding:2px 4px;background:#f3fcf5;display:flex;flex-direction:column;gap:2px;';  // בצבע כלי המכ"ם
+            var row = L.DomUtil.create('label', '', wrap);  // שורת הבחירה
+            row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#333;font-weight:bold;';  // פריסה
+            row.title = 'הפרופיל שלפיו ירוצו כל תהליכי המכ"ם: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח ומפת חום. כיוון הפנים לא משתנה — כוון אותו לאיום';  // הסבר
+            L.DomUtil.create('span', '', row).textContent = '📡 פרופיל פעיל';  // תווית
+            var sel = L.DomUtil.create('select', '', row);  // הבורר
+            sel.style.cssText = 'flex:1;min-width:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';  // רוחב גמיש
+            sel.setAttribute('aria-label', 'פרופיל מכ"ם פעיל לכל התהליכים');  // נגישות
+            var status = L.DomUtil.create('div', '', wrap);  // שורת המצב
+            status.style.cssText = 'font-size:8.5px;color:#555;';  // טקסט משני
+            var src = L.DomUtil.create('details', '', wrap);  // מקורות
+            src.style.cssText = 'font-size:8.5px;color:#555;display:none;';  // מוסתר עד שנבחר פרופיל מהספרייה
+            var srcSum = L.DomUtil.create('summary', '', src); srcSum.textContent = 'מה פורסם ומה הונח'; srcSum.style.cursor = 'pointer';  // כותרת
+            var srcBody = L.DomUtil.create('div', '', src);  // התוכן
+            srcBody.style.cssText = 'white-space:pre-wrap;direction:ltr;text-align:left;max-height:140px;overflow-y:auto;user-select:text;font-size:8px;';  // המקורות באנגלית — משמאל לימין, עם גלילה
+            L.DomEvent.on(sel, 'change', function() { _rtSetActive(sel.value); });  // בחירה
+            var bar = {sel: sel, status: status, src: src, srcBody: srcBody};  // המופע
+            _rtActiveBars.push(bar);  // לסנכרון
+            _rtFillActiveSelect(bar); _rtRefreshActiveStatus();  // מצב התחלתי
+            _rtLoadLibrary();  // הספרייה (פעם אחת)
+            return bar;  // המופע
         }
 
         // ── שלב ב': הצעת מיקום עם מפת חום ──
@@ -3840,6 +4008,7 @@
                 trajectory: _radarTrackLastPath.map(function(p) { return {t: p.t, lat: p.lat, lon: p.lon, alt: (p.alt != null ? p.alt : p.alt_msl)}; })
             });
             if (opts.rcs_m2) body.rcs_m2 = opts.rcs_m2;  // RCS לפי סוג מטוס (FR24), כמו בבדיקה
+            _rtPlace.profileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל בתחילת החישוב — לסיכום ולפופאפים
             _rtPlace.info.textContent = '🗺 מתחיל…';  // משוב
             fetch('http://localhost:5002/radar_track/placement/start', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
             .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })  // שגיאה עם הסבר
@@ -3891,6 +4060,7 @@
                 pop.style.cssText = 'direction:rtl;font-family:Arial;font-size:12px;';  // עיצוב
                 L.DomUtil.create('div', '', pop).textContent = name + ': ' + c.score + unit;  // הציון
                 L.DomUtil.create('div', '', pop).textContent = 'כיסוי פיזיקלי: ' + c.coverage_pct + '% | גובה קרקע: ' + c.ground_m + ' מ\'';  // פרטים
+                var pl = L.DomUtil.create('div', '', pop); pl.textContent = _rtPlace.profileLbl || ''; pl.style.color = '#666';  // FR-D-286: הפרופיל (textContent — בלי HTML)
                 var b = L.DomUtil.create('button', '', pop); b.textContent = '📍 הצב מכ"ם כאן ובדוק';  // פעולה
                 b.style.cssText = 'margin-top:4px;font-size:11px;cursor:pointer;';  // עיצוב
                 L.DomEvent.on(b, 'click', function() { map.closePopup(); _placeRadarObserver(L.latLng(c.lat, c.lon)); });  // הצבה — הבדיקה הרגילה רצה מחדש מהמיקום (FR-D-266)
@@ -3906,7 +4076,8 @@
                 mk.addTo(map); _rtPlace.layers.push(mk);  // לניקוי
             });
             var dem = res.dem, b0 = res.best[0];  // נתונים לסיכום
-            _rtPlace.info.textContent = '🗺 ' + ok.length + ' מיקומים | המיטבי: ' + name + ' ' + b0.score + unit +
+            _rtPlace.info.textContent = '📡 ' + (_rtPlace.profileLbl || '') + '\n' +  // FR-D-286: לפי איזה פרופיל
+                '🗺 ' + ok.length + ' מיקומים | המיטבי: ' + name + ' ' + b0.score + unit +
                 ' (קרקע ' + b0.ground_m + ' מ\')\nרשת גבהים: ' + dem.nodes + ' נקודות, ~' + dem.res_m + ' מ\' (' + dem.cached + ' מהמטמון)' +
                 '\nלחץ על תא או על ⭐ כדי להציב שם את המכ"ם ולהריץ בדיקה מדויקת.';  // סיכום
             var cv = _rtPlace.legend; cv.style.display = 'block';  // מקרא
@@ -4150,6 +4321,7 @@
                 panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:70vh;overflow-y:auto;';
                 _radarPanelBodyEl = panelBody;
                 _fitPanelEls.push(panelBody);  // תיקון תקלה: הגובה המרבי מותאם למקום שנשאר מתחת לפאנל
+                _rtBuildActiveBar(panelBody);  // FR-D-286: בורר "פרופיל פעיל" בראש הפאנל — קובע את הפרמטרים לכל תהליכי המכ"ם
 
                 function _mkHeader(text) {
                     // כותרת קבוצה קטנה — מפרידה חזותית בין 4 קבוצות הפרמטרים (גיאומטריה/מכ"ם/דופלר/תפוצה)
@@ -4271,6 +4443,7 @@
                 _buildStationUI(panelBody, 'radar_doppler_settings', _radarFieldMap,
                     null, null, _updateRadarDopplerPreview,
                     'הגדרות שמורות (ללא מיקום):');
+                _rtHookActiveFields();  // FR-D-286: שינוי ידני בשדות המכ"ם מסומן בבורר הפרופיל הפעיל
 
                 var runBtn = L.DomUtil.create('button', '', panelBody);
                 runBtn.textContent = 'הפעל חישוב';
@@ -5083,7 +5256,8 @@
             top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';  // כמו שאר הטאבים
             var note = L.DomUtil.create('div', '', top);  // הסבר קצר
             note.style.cssText = 'font-size:8.5px;color:#888;';  // טקסט משני
-            note.textContent = 'הפרמטרים של המכ"ם נלקחים מכלי "תצפית מכ"ם דופלר" (🎯). רעיוני/חינוכי — לא מבוסס מערכת אמיתית.';  // הבהרה
+            note.textContent = 'הפרמטרים של המכ"ם נלקחים מכלי "תצפית מכ"ם דופלר" (🎯) או מהפרופיל הפעיל. פרופילי הספרייה מבוססים על נתונים פומביים בלבד — רעיוניים/חינוכיים, לא מפרט אמיתי.';  // הבהרה (FR-D-286)
+            _rtBuildActiveBar(top);  // FR-D-286: אותו בורר "פרופיל פעיל" כמו בפאנל המכ"ם, מסונכרן איתו
             var radarRow = L.DomUtil.create('div', '', top);  // תיקון תקלה: הצבת מכ"ם מכאן, בלי לסגור את הכלי הבליסטי
             radarRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';  // פריסה
             var radarPickBtn = L.DomUtil.create('button', '', radarRow);  // הכפתור
@@ -5239,6 +5413,7 @@
             var rtProfSum = L.DomUtil.create('summary', '', rtProf); rtProfSum.textContent = '💾 פרופילי מכ"ם';  // כותרת
             rtProfSum.style.cssText = 'cursor:pointer;color:#555;';  // סמן לחיצה
             _rtProfileFields = _rtBuildProfileFieldMap();  // כל השדות שנכנסים לפרופיל
+            _rtHookActiveFields();  // FR-D-286: גם שדות הסריקה וה-RCS מסמנים "שונה ידנית" בבורר
             _buildStationUI(rtProf, 'radar_profile', _rtProfileFields, null, null,
                 function() { if (radarObs) _updateRadarDopplerPreview(); }, 'פרופילים שמורים (פרמטרי מכ"ם + סריקה + RCS):');  // שמירה/טעינה/מחיקה
             var jsonRow = L.DomUtil.create('div', '', rtProf);  // ייבוא/ייצוא

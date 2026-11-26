@@ -120,6 +120,32 @@ st = wait(r["job_id"])  # המתנה
 check("שרת /radar_track/placement/start: הסתיים, 13 מועמדים", st["status"] == "done" and len(st["result"]["candidates"]) == 13,
       st.get("error") or st["status"])
 
+# ── FR-D-286: ספריית הפרופילים המובנית ──
+import json as _json  # כתיבת קבצים לתיקייה זמנית  # noqa: E402
+import tempfile  # תיקייה זמנית  # noqa: E402
+
+lib = rs.load_profile_library()  # הספרייה האמיתית (radar-profiles/)
+n_files = len([f for f in os.listdir(rs.PROFILE_LIBRARY_DIR) if f.lower().endswith(".json")])  # כמה קבצים יש — לא מספר קשיח, הספרייה גדלה
+check("ספרייה: כל הקבצים נטענו, ממוינים לפי שם", len(lib) == n_files >= 13 and [p["name"] for p in lib] == sorted((p["name"] for p in lib), key=str.lower),
+      f"{len(lib)}/{n_files}")
+check("ספרייה: לכל פרופיל שם, params עם רגישות ותדר, ומקורות", all(p["name"] and "sensitivity_dbm" in p["params"] and "freq_mhz" in p["params"]
+                                                                and p["notes"].get("published") for p in lib))
+check("ספרייה: כל פרופיל עובר את קליטת הפרמטרים של המנוע", all(rs.parse_all(dict(p["params"]))[0]["range_km"] > 0 for p in lib))
+with tempfile.TemporaryDirectory() as td:  # קבצים פגומים לצד קובץ תקין
+    with open(os.path.join(td, "ok.json"), "w", encoding="utf-8") as f:  # תקין, בלי שדה name
+        _json.dump({"format": "maps-gui-radar-profile", "version": 1, "params": {"range_km": 5}}, f)
+    with open(os.path.join(td, "bad.json"), "w", encoding="utf-8") as f:  # JSON שבור
+        f.write("{not json")
+    with open(os.path.join(td, "other.json"), "w", encoding="utf-8") as f:  # פורמט אחר
+        _json.dump({"format": "something-else", "params": {}}, f)
+    with open(os.path.join(td, "notes.txt"), "w", encoding="utf-8") as f:  # לא JSON בכלל
+        f.write("x")
+    t = rs.load_profile_library(td)  # הקריאה
+    check("ספרייה: קובץ פגום/זר מדולג, שם ברירת מחדל = שם הקובץ", len(t) == 1 and t[0]["name"] == "ok", str(t))
+check("ספרייה: תיקייה חסרה = רשימה ריקה", rs.load_profile_library(os.path.join(os.path.dirname(__file__), "no_such_dir")) == [])
+lr = client.get("/radar_profiles/library")  # דרך השרת
+check("שרת /radar_profiles/library: 200 ואותה רשימה", lr.status_code == 200 and [p["name"] for p in lr.get_json()["profiles"]] == [p["name"] for p in lib])
+
 passed = sum(results)  # כמה עברו
 print(f"\n{passed}/{len(results)} passed")  # סיכום
 sys.exit(0 if passed == len(results) else 1)  # קוד יציאה

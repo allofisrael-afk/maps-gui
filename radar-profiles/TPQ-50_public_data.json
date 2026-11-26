@@ -1,6 +1,7 @@
 {
   "format": "maps-gui-radar-profile",
   "version": 1,
+  "name": "TPQ-50 LCMR (נתונים פומביים)",
   "params": {
     "ridge_margin_deg": 0,
     "lobing_enabled": false,
