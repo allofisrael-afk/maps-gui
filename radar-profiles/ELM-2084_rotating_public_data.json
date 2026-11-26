@@ -1,0 +1,52 @@
+{
+  "format": "maps-gui-radar-profile",
+  "version": 1,
+  "params": {
+    "ridge_margin_deg": 0,
+    "lobing_enabled": false,
+    "reflectivity": "land",
+    "mdv_kt": 20,
+    "track_mode": "track",
+    "scan_phase_deg": 0,
+    "track_rate_hz": 10,
+    "max_ang_rate_dps": 30,
+    "cue_delay_s": 1,
+    "track_m": 2,
+    "track_n": 3,
+    "coast_s": 2,
+    "rcs_mode": "aspect",
+    "rcs_nose": 0.005,
+    "rcs_side": 0.02,
+    "rcs_tail": 0.01,
+    "boresight_deg": 0,
+    "rot_period_s": 2,
+    "revisit_s": 0.3,
+    "range_km": 100,
+    "min_range_km": 1,
+    "h_antenna": 5,
+    "vertical_center_deg": 31.5,
+    "vertical_width_deg": 77,
+    "power_kw": 200,
+    "gain_dbi": 40,
+    "freq_mhz": 3000,
+    "prf_hz": 1400,
+    "antenna_type": "generic",
+    "max_scan_deg": 180,
+    "scan_mode": "rotating",
+    "sensitivity_dbm": -110.98,
+    "rcs_m2": 0.0316
+  },
+  "source_notes": {
+    "system": "EL/M-2084 MMR מסתובב — מבוסס נתונים פומביים בלבד; רעיוני/חינוכי, לא מפרט אמיתי",
+    "published": {
+      "rotating mode up to 30 RPM (2 s per turn), 360°, elevation -7° to 70°": "https://www.iai.co.il/wp-content/uploads/2025/10/MMR_family-full-AESA-4D-02.pdf",
+      "artillery weapon locating up to 100 km (older ELTA brochure)": "https://www.slideshare.net/slideshow/missile-guidance-systems/9643783"
+    },
+    "assumed_not_published": {
+      "sensitivity_dbm": "same calibration as the sector mode (the model does not reduce dwell for rotation)",
+      "rot_period_s=2": "maximum published rate (30 RPM)",
+      "power_kw=200, gain_dbi=40, freq 3000 MHz, PRF 1400 Hz, min range 1 km, h_antenna 5 m": "not published",
+      "common (all profiles)": "MDV 20 kt, M/N 2/3, coast 2 s, aspect RCS 0.005/0.02/0.01 m² (shell), boresight 0 — set it to the threat direction after placing the radar"
+    }
+  }
+}

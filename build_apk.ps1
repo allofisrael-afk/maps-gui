@@ -208,8 +208,14 @@ if (-not (Test-Path "$ANDROID_PY_DIR\mpm")) {
 if (-not (Test-Path "$ANDROID_PY_DIR\data")) {
     cmd /c mklink /J "$ANDROID_PY_DIR\data" "$PSScriptRoot\data" | Out-Null
 }
-if (-not (Test-Path "$ANDROID_PY_DIR\mpm_api.py")) {
-    cmd /c mklink /H "$ANDROID_PY_DIR\mpm_api.py" "$PSScriptRoot\mpm_api.py" | Out-Null
+# קבצי ה-Python ברמת השורש מועתקים מחדש בכל בנייה (ולא hardlink): נמצא 26/11/2026 שה-hardlink ל-mpm_api.py
+# נותק בשקט (עורך ששומר קובץ חדש במקום לעדכן את הקיים) — ה-APK קיבל עותק מ-9/11. העתקה טרייה = תמיד הגרסה הנוכחית.
+# הקבצים: גשר ה-MPM + כלי בדיקת מעקב המכ"ם (שלב ג', MAPS-GUI_SRS.md FR-D-282) — כולם stdlib בלבד.
+foreach ($pyFile in @('mpm_api.py', 'radar_android.py', 'radar_service.py', 'radar_physics.py', 'radar_track.py',
+                      'radar_placement.py', 'rocket_model.py')) {  # כל קובץ שהאפליקציה מייבאת
+    if (-not (Test-Path "$PSScriptRoot\$pyFile")) { Err "Missing Python source for Android: $pyFile" }  # קובץ חסר = עצירה
+    Remove-Item "$ANDROID_PY_DIR\$pyFile" -Force -ErrorAction SilentlyContinue  # מסיר hardlink/עותק ישן (גם אם נותק)
+    Copy-Item "$PSScriptRoot\$pyFile" "$ANDROID_PY_DIR\$pyFile" -Force  # עותק טרי
 }
 Ok "android_python/ bridge directory ready (Chaquopy source root)"
 

@@ -1,0 +1,57 @@
+{
+  "format": "maps-gui-radar-profile",
+  "version": 1,
+  "params": {
+    "ridge_margin_deg": 0,
+    "lobing_enabled": false,
+    "reflectivity": "land",
+    "mdv_kt": 20,
+    "track_mode": "track",
+    "scan_phase_deg": 0,
+    "track_rate_hz": 10,
+    "max_ang_rate_dps": 30,
+    "cue_delay_s": 1,
+    "track_m": 2,
+    "track_n": 3,
+    "coast_s": 2,
+    "rcs_mode": "aspect",
+    "rcs_nose": 0.005,
+    "rcs_side": 0.02,
+    "rcs_tail": 0.01,
+    "boresight_deg": 0,
+    "rot_period_s": 4,
+    "revisit_s": 0.2,
+    "range_km": 16,
+    "min_range_km": 0.5,
+    "h_antenna": 3,
+    "vertical_center_deg": 30,
+    "vertical_width_deg": 80,
+    "power_kw": 1,
+    "gain_dbi": 25,
+    "freq_mhz": 3000,
+    "prf_hz": 8000,
+    "antenna_type": "phased_array",
+    "max_scan_deg": 45,
+    "scan_mode": "phased",
+    "sensitivity_dbm": -128.98,
+    "rcs_m2": 0.01
+  },
+  "source_notes": {
+    "system": "RADA ieMHR פאנל יחיד — מבוסס נתונים פומביים בלבד; רעיוני/חינוכי, לא מפרט אמיתי",
+    "published": {
+      "ieMHR: 10 km light/medium mortars and short-range rockets, 12 km heavy mortars, 14 km direct-attack rockets and missiles; single radar 90° az, 90° el; 4 radars = hemispheric": "https://www.drsrada.com/products/mhr (via search summary; page blocks automated fetch)",
+      "pulse-Doppler, software-defined, S-band, AESA, GaN": "https://www.drsrada.com/products/mhr",
+      "elevation -10° to +70°; 90° per panel, up to 360°": "https://leonardodrs.com/media/4693/mhr_datasheet.pdf (via search summary)"
+    },
+    "assumed_not_published": {
+      "sensitivity_dbm": "calibrated: RCS 0.01 m² -> 10 km (light mortar); then 0.0316 m² gives ~13.3 km, close to the published 14 km for rockets",
+      "vertical -10°..70°": "Leonardo DRS datasheet figure (RADA page says 90° el)",
+      "range_km=16": "not published for RAM; slightly above the 14 km rocket figure",
+      "freq_mhz=3000": "representative S-band",
+      "power_kw=1, gain_dbi=25": "not published",
+      "prf_hz=8000": "unambiguous range 18.7 km > 16 km",
+      "revisit 0.2 s, min range 0.5 km, h_antenna 3 m": "not published",
+      "common (all profiles)": "MDV 20 kt, M/N 2/3, coast 2 s, aspect RCS 0.005/0.02/0.01 m² (shell), boresight 0 — set it to the threat direction after placing the radar"
+    }
+  }
+}

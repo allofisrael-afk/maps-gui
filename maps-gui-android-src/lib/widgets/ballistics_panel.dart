@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.
 // See LICENSE in the project root.
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/mpm_bridge.dart';
+import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם מקבל מכאן את המסלול, המשגר והמטאו (שלב ג', FR-D-283)
 
 /// כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237), Android. גרסה ראשונה, בכוונה מצומצמת-היקף
 /// יחסית ל-Desktop/Web (ר' MAPS-GUI_SRS.md §3.27): הזנת תותח/מטרה ידנית (lat/lon/alt), לא
@@ -117,6 +119,16 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
     return lines.join('\n');
   }
 
+  /// מוסר לכלי בדיקת מעקב המכ"ם את המסלול שחושב (מסלול בודד / פתרון ירי), את המשגר ואת המטאו — שלב ג' (FR-D-283).
+  /// בדסקטופ זה ballisticsLastPath; כאן ה-RadarTrackController, שגם מצייר את המסלול על המפה.
+  void _publishPath(Map<String, dynamic> d) {
+    if (!mounted) return; // הווידג'ט נסגר בזמן החישוב
+    final path = d['ok'] == true && d['path'] is List
+        ? (d['path'] as List).cast<Map>().map((m) => m.cast<String, dynamic>()).toList() // הנקודות
+        : null; // אין מסלול (שגיאה)
+    context.read<RadarTrackController>().setBallistic(path: path, gun: _gun, met: _commonParams()['met'] as Map<String, dynamic>); // מסירה
+  }
+
   Future<void> _runTrajectory() async {
     setState(() { _trajLoading = true; _trajResult = 'מחשב...'; });
     try {
@@ -126,8 +138,10 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
         'qe': _qe,
         'azimuth': double.tryParse(_trajAz.text) ?? 0.0,
         'target_alt': _trajTalt.text.isEmpty ? null : double.tryParse(_trajTalt.text),
-        'include_path': false, // Android v1 — בלי הצגת-מסלול-על-מפה/פרופיל (ר' הערת-היקף למעלה)
+        'include_path': true, // שלב ג' (FR-D-283): המסלול נדרש לכלי בדיקת מעקב המכ"ם ומצויר על המפה
+        'path_step': 5, // נקודה כל 0.1 שנ' — כמו בדסקטופ
       });
+      _publishPath(d); // מסירה לכלי בדיקת מעקב המכ"ם
       setState(() {
         _trajLoading = false;
         _trajResult = d['ok'] == true
@@ -147,8 +161,10 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
         'gun': _gun,
         'target': _target,
         'group': _group,
-        'include_path': false,
+        'include_path': true, // שלב ג': המסלול של פתרון הירי — מקור "מסלול בליסטי" בכלי המעקב (החלטה 3)
+        'path_step': 5, // נקודה כל 0.1 שנ'
       });
+      _publishPath(d); // מסירה לכלי בדיקת מעקב המכ"ם
       setState(() {
         _loftLoading = false;
         if (d['ok'] != true) { _solveResult = (d['error'] ?? 'שגיאה').toString(); return; }

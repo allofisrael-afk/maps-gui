@@ -464,6 +464,9 @@ def dispatch_json(action, params_json):
     רק בלי Flask). action תואם לשם-הפעולה (trajectory/solve/solve_mv/table/calibrate/
     terrain_check/min_qe_for_crest); params תואמים 1:1 לפרמטרי הפונקציה המתאימה למעלה.
     """
+    if action.startswith("radar_") or action.startswith("rocket_"):  # כלי בדיקת מעקב המכ"ם (Android, שלב ג' — FR-D-282)
+        import radar_android  # ייבוא מקומי — נטען רק כשצריך, ולא נוגע בכלי הבליסטי
+        return radar_android.dispatch_json(action, params_json)  # כל הפעולות שם חוזרות מיד (העבודה ב-thread)
     try:
         params = _json.loads(params_json)
         if action != "terrain_check":  # terrain_check לא מקבל gun/met כלל — אין מה לפענח

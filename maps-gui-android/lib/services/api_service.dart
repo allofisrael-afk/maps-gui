@@ -287,6 +287,7 @@ class ApiService {
               return FlightTrailPoint(
                 lat: (p[1] as num).toDouble(), lng: (p[2] as num).toDouble(),
                 altFt: altM != null ? altM / 0.3048 : null, hdDeg: hd,
+                tsEpoch: p[0] != null ? (p[0] as num).toDouble() : null, // OpenSky: העמודה הראשונה היא זמן הנקודה (epoch)
               );
             }).toList();
           }
@@ -316,6 +317,7 @@ class ApiService {
     final fullTrail = rawTrail.map((p) => FlightTrailPoint(
       lat: (p['lat'] as num).toDouble(), lng: ((p['lng'] ?? p['lon']) as num).toDouble(),
       altFt: (p['alt'] as num?)?.toDouble(), spdKt: (p['spd'] as num?)?.toDouble(), hdDeg: (p['hd'] as num?)?.toDouble(),
+      tsEpoch: (p['ts'] as num?)?.toDouble(), // זמן הנקודה מ-FR24/flight_server (epoch) — לכלי בדיקת מעקב המכ"ם
     )).toList();
     final lat = d['lat'] as num?;
     final lng = d['lng'] as num?;
@@ -378,6 +380,7 @@ class ApiService {
     final fullTrail = rawTrail.map((p) => FlightTrailPoint(
       lat: (p['lat'] as num).toDouble(), lng: (p['lng'] as num).toDouble(),
       altFt: (p['alt'] as num?)?.toDouble(), spdKt: (p['spd'] as num?)?.toDouble(), hdDeg: (p['hd'] as num?)?.toDouble(),
+      tsEpoch: (p['ts'] as num?)?.toDouble(), // זמן הנקודה מ-FR24/flight_server (epoch) — לכלי בדיקת מעקב המכ"ם
     )).toList();
 
     final orig = (det['airport'] as Map?)?['origin']?['code']?['iata'] as String? ?? '';
@@ -702,7 +705,6 @@ class ApiService {
   static const double _radarPrfHzMin = 50.0, _radarPrfHzMax = 20000.0;
   static const double _radarMdvKtMin = 0.0, _radarMdvKtMax = 200.0;
   static const double _radarTargetSpeedKtMin = 0.0, _radarTargetSpeedKtMax = 1500.0;
-  static const double _radarBlindSpeedToleranceFrac = 0.05;
   static const double _ktToMs = 0.514444;
 
   static const Map<String, double> _radarReflectivity = {'land': 0.5, 'sea': 0.9};
@@ -737,15 +739,17 @@ class ApiService {
     return sqrt(real * real + imag * imag);
   }
 
-  /// True אם מהירות רדיאלית נתונה תתגלה ע"י מכ"ם דופלר — זהה בדיוק ל-_doppler_detectable בפייתון.
-  static bool _dopplerDetectable(double radialSpeedMs, double mdvMs, double wavelengthM, double prfHz,
-      {double toleranceFrac = _radarBlindSpeedToleranceFrac}) {
-    if (radialSpeedMs < mdvMs) return false;
-    final vBlindUnit = wavelengthM * prfHz / 2.0;
-    if (vBlindUnit <= 0) return true;
-    final n = (radialSpeedMs / vBlindUnit).round();
-    if (n >= 1 && (radialSpeedMs - n * vBlindUnit).abs() <= toleranceFrac * (n * vBlindUnit)) return false;
-    return true;
+  /// True אם מהירות רדיאלית נתונה תתגלה ע"י מכ"ם דופלר — זהה בדיוק ל-_doppler_detectable בפייתון (radar_physics.py).
+  /// מסנן הדופלר חוסם |v|<MDV סביב אפס, ותגובתו מחזורית לפי ה-PRF — לכן אותו חור (±MDV) חוזר סביב כל מהירות
+  /// עיוורת n·λ·PRF/2. תוקן 26/11/2026 (החלטת הבעלים, MAPS-GUI_SRS.md FR-D-280): קודם רוחב החור היה 5% מהמהירות
+  /// העיוורת וגדל עם n, כך שמ-n≥10 כל מהירות סומנה עיוורת.
+  static bool _dopplerDetectable(double radialSpeedMs, double mdvMs, double wavelengthM, double prfHz) {
+    if (radialSpeedMs < mdvMs) return false; // בתוך החור סביב אפס — רקע נייח
+    final vBlindUnit = wavelengthM * prfHz / 2.0; // מהירות עיוורת בסיסית (n=1)
+    if (vBlindUnit <= 0) return true; // מקרה קצה — אין מהירויות עיוורות
+    final n = (radialSpeedMs / vBlindUnit).round(); // הכפולה הקרובה ביותר
+    if (n >= 1 && (radialSpeedMs - n * vBlindUnit).abs() < mdvMs) return false; // בתוך אותו חור (±MDV) סביב המהירות העיוורת
+    return true; // מתגלה
   }
 
   /// טווח לא-חד-משמעי מקסימלי — זהה בדיוק ל-_max_unambiguous_range_m בפייתון.

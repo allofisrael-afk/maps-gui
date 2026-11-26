@@ -21,6 +21,9 @@ import '../state/map_state.dart';
 import '../version.dart';
 import '../widgets/controls_panel.dart';
 import '../widgets/ballistics_panel.dart'; // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237), דרך Chaquopy
+import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
+import '../widgets/radar_track_layers.dart'; // שכבות המפה והגרפים של הכלי
+import '../widgets/radar_track_panel.dart'; // הפאנל של הכלי
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -39,6 +42,9 @@ class _MapScreenState extends State<MapScreen> {
   final _radarHitNotifier = ValueNotifier<LayerHitResult<int>?>(null);
   // מזהה לחיצה על קטע בהערכת מסלול טיסה — hitValue הוא אינדקס הנקודה ב-routeEvalResult.points
   final _routeEvalHitNotifier = ValueNotifier<LayerHitResult<int>?>(null);
+  // כלי בדיקת מעקב המכ"ם (שלב ג'): לחיצה על קטע/קו LOS (hitValue = אינדקס הנקודה) ועל תא במפת החום (אינדקס המועמד)
+  final _rtTrackHit = ValueNotifier<LayerHitResult<int>?>(null);
+  final _rtPlaceHit = ValueNotifier<LayerHitResult<int>?>(null);
 
   @override
   void initState() {
@@ -50,6 +56,8 @@ class _MapScreenState extends State<MapScreen> {
     });
     _radarHitNotifier.addListener(_onRadarRayHit);
     _routeEvalHitNotifier.addListener(_onRouteEvalHit);
+    _rtTrackHit.addListener(_onRtTrackHit); // לחיצה על המסלול הצבוע / קו LOS
+    _rtPlaceHit.addListener(_onRtPlaceHit); // לחיצה על תא במפת החום
   }
 
   @override
@@ -58,6 +66,8 @@ class _MapScreenState extends State<MapScreen> {
     _radarHitNotifier.dispose();
     _routeEvalHitNotifier.removeListener(_onRouteEvalHit);
     _routeEvalHitNotifier.dispose();
+    _rtTrackHit.removeListener(_onRtTrackHit); _rtTrackHit.dispose(); // ניקוי
+    _rtPlaceHit.removeListener(_onRtPlaceHit); _rtPlaceHit.dispose(); // ניקוי
     super.dispose();
   }
 
@@ -69,6 +79,56 @@ class _MapScreenState extends State<MapScreen> {
     final idx = hit.hitValues.first;
     if (rays == null || idx < 0 || idx >= rays.length) return;
     state.showRadarRayProfile(rays[idx]);
+  }
+
+  // ── כלי בדיקת מעקב המכ"ם (שלב ג') ──
+  void _onRtTrackHit() {
+    final hit = _rtTrackHit.value; // הלחיצה
+    if (hit == null || hit.hitValues.isEmpty || !mounted) return; // לא שלנו
+    final c = context.read<RadarTrackController>(); // הבקר
+    final pts = (c.result?['points'] as List?)?.cast<Map>(); // הנקודות
+    final idx = hit.hitValues.first; // האינדקס
+    if (pts == null || idx < 0 || idx >= pts.length) return; // מחוץ לטווח
+    final p = pts[idx].cast<String, dynamic>(); // הנקודה
+    c.showProfile(p); // פרופיל שטח לנקודה (job ב-Python)
+    showModalBottomSheet(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Consumer<RadarTrackController>(builder: (_, rc, __) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (p['track_state'] != null) Text(rtStateText[p['track_state']] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)), // מצב מעקב
+        Text(RadarTrackController.reasonText[p['reason']] ?? '${p['status']}', style: const TextStyle(fontWeight: FontWeight.bold)), // סיבה
+        Text('זמן: ${p['t']} שנ\' | גובה: ${(p['alt'] as num).round()} מ\''), // זמן וגובה
+        Text('טווח אלכסוני: ${p['slant_km']} ק"מ | עילוי: ${p['elev_deg']}°'), // גיאומטריה
+        Text('מהירות רדיאלית: ${p['radial_ms']} מ\'/ש\' (מתוך ${p['speed_ms']})'), // דופלר
+        if (p['ang_rate_dps'] != null) Text('קצב זוויתי: ${p['ang_rate_dps']}°/שנ\''), // מעקב
+        if (p['ceiling_km'] != null) Text('תקרת מכ"ם בכיוון: ${p['ceiling_km']} ק"מ'), // תקרה
+        if (p['rcs_m2'] != null) Text('זווית הסתכלות: ${p['aspect_deg']}° | RCS: ${p['rcs_m2']} מ"ר'), // RCS
+        if (p['rain_db'] != null) Text('הנחתת גשם (הלוך-חזור): ${p['rain_db']} dB'), // גשם
+        const SizedBox(height: 8),
+        Text(rc.profileTitle, style: const TextStyle(fontSize: 12)), // כותרת הפרופיל
+        if (rc.profile != null) SizedBox(width: double.infinity, height: 100, child: CustomPaint(painter: RtProfilePainter(rc.profile!))), // הפרופיל
+      ])),
+    )));
+  }
+
+  void _onRtPlaceHit() {
+    final hit = _rtPlaceHit.value; // הלחיצה
+    if (hit == null || hit.hitValues.isEmpty || !mounted) return; // לא שלנו
+    final c = context.read<RadarTrackController>(); // הבקר
+    final cands = (c.placement?['candidates'] as List?)?.cast<Map>(); // המועמדים
+    final idx = hit.hitValues.first; // האינדקס
+    if (cands == null || idx < 0 || idx >= cands.length) return; // מחוץ לטווח
+    final m = cands[idx]; // המועמד
+    final cov = c.placement!['metric'] == 'coverage'; // סוג הציון
+    showModalBottomSheet(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl, child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('${cov ? 'כיסוי' : 'זמן התרעה'}: ${m['score']}${cov ? '%' : ' שנ\''}', style: const TextStyle(fontWeight: FontWeight.bold)), // הציון
+        Text('כיסוי פיזיקלי: ${m['coverage_pct']}% | גובה קרקע: ${m['ground_m']} מ\''), // פרטים
+        const SizedBox(height: 8),
+        FilledButton(onPressed: () { Navigator.pop(ctx); c.placeRadarAt(LatLng((m['lat'] as num).toDouble(), (m['lon'] as num).toDouble())); },
+            child: const Text('📍 הצב מכ"ם כאן ובדוק')), // הצבה — הבדיקה רצה מחדש אוטומטית
+      ]),
+    )));
   }
 
   void _onRouteEvalHit() {
@@ -541,6 +601,9 @@ class _MapScreenState extends State<MapScreen> {
               ..._buildRadarDopplerLayers(state),
               // ── שכבת "מסלול טיסה מותאם" — קו סגור + סמנים ממוספרים לפי הנקודות שהוזנו ──
               ..._buildCustomRouteLayers(state),
+              // ── כלי בדיקת מעקב המכ"ם (שלב ג'): מפת חום, מסלול בליסטי/רקטה, מסלול צבוע ומניפת LOS ──
+              ...buildRadarTrackLayers(context.watch<RadarTrackController>(), _rtTrackHit, _rtPlaceHit,
+                  (p) => context.read<RadarTrackController>().placeRadarAt(p)),
               // ── סמן תצפית זמני: מוצג לאחר לחיצה ראשונה בטרם בחירת יעד ──
               if (state.losCurObs != null)
                 CircleLayer(circles: [
@@ -962,6 +1025,8 @@ class _MapScreenState extends State<MapScreen> {
                     _CustomRoutePanel(state: state, cs: cs),
                     const SizedBox(height: 8),
                     BallisticsPanel(cs: cs), // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237)
+                    const SizedBox(height: 8),
+                    RadarTrackPanel(cs: cs), // כלי בדיקת מעקב המכ"ם — שלב ג' (FR-D-283)
                   ],
                 ),
               ),
@@ -1785,6 +1850,10 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _onMapTap(MapState state, LatLng point) {
+    // כלי בדיקת מעקב המכ"ם: לחיצה על קטע/תא שלו לא נחשבת לחיצה על המפה (אין stopPropagation ב-flutter_map — כמו הדופלר)
+    if (_rtTrackHit.value != null || _rtPlaceHit.value != null) return;
+    // בחירה מהמפה שממתינה בכלי (הצבת מכ"ם / מרכז שיוט) גוברת על כל מצב אחר — כמו _rtMapPickActive בדסקטופ
+    if (context.read<RadarTrackController>().handleMapTap(point)) return;
     // מצב בחירת נקודות חום ידנית גובר על הכל — לחיצה מוסיפה נקודה בלבד (מקביל ל-heatmapPickerActive בדסקטופ)
     if (state.manualHeatMode) {
       state.addManualHeatPoint(point);

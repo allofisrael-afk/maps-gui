@@ -1,0 +1,54 @@
+{
+  "format": "maps-gui-radar-profile",
+  "version": 1,
+  "params": {
+    "ridge_margin_deg": 0,
+    "lobing_enabled": false,
+    "reflectivity": "land",
+    "mdv_kt": 20,
+    "track_mode": "track",
+    "scan_phase_deg": 0,
+    "track_rate_hz": 10,
+    "max_ang_rate_dps": 30,
+    "cue_delay_s": 1,
+    "track_m": 2,
+    "track_n": 3,
+    "coast_s": 2,
+    "rcs_mode": "aspect",
+    "rcs_nose": 0.005,
+    "rcs_side": 0.02,
+    "rcs_tail": 0.01,
+    "boresight_deg": 0,
+    "rot_period_s": 4,
+    "revisit_s": 0.3,
+    "range_km": 50,
+    "min_range_km": 3,
+    "h_antenna": 3,
+    "vertical_center_deg": 15,
+    "vertical_width_deg": 30,
+    "power_kw": 120,
+    "gain_dbi": 38,
+    "freq_mhz": 3250,
+    "prf_hz": 2500,
+    "antenna_type": "phased_array",
+    "max_scan_deg": 45,
+    "scan_mode": "phased",
+    "sensitivity_dbm": -101.97,
+    "rcs_m2": 0.01
+  },
+  "source_notes": {
+    "system": "TPQ-37 — מבוסס נתונים פומביים בלבד; רעיוני/חינוכי, לא מפרט אמיתי",
+    "published": {
+      "S-band, 15 frequencies; peak power 120 kW min; electronically steered, does not move; 1600 mils (90°) sector; reported range up to 50 km": "https://en.wikipedia.org/wiki/AN/TPQ-37_Firefinder_radar",
+      "artillery 30 km, rockets 50 km, minimum range 3 km (US Army field manual)": "https://www.globalsecurity.org/military/library/policy/army/fm/3-09-12/ch4.htm"
+    },
+    "assumed_not_published": {
+      "sensitivity_dbm": "calibrated: RCS 0.01 m² -> 30 km (published artillery range)",
+      "freq_mhz=3250": "representative S-band; a third-party database lists 3.11-3.39 GHz",
+      "gain_dbi=38": "not published; only G²/Pmin matters, sensitivity is calibrated",
+      "prf_hz=2500": "chosen so unambiguous range (60 km) exceeds the 50 km range",
+      "vertical 0°-30°, revisit 0.3 s, h_antenna 3 m": "not published",
+      "common (all profiles)": "MDV 20 kt, M/N 2/3, coast 2 s, aspect RCS 0.005/0.02/0.01 m² (shell), boresight 0 — set it to the threat direction after placing the radar"
+    }
+  }
+}

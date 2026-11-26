@@ -5,13 +5,21 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'screens/map_screen.dart';
 import 'state/map_state.dart';
+import 'state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
 import 'legal/about.dart'; // רישום רישיונות צד-שלישי שאינם חבילות Dart (ביקורת רישוי)
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   registerThirdPartyLicenses(); // מוסיף ל-LicenseRegistry את CPython/Chaquopy/AndroidX/Play services ומקורות הנתונים
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
-  runApp(ChangeNotifierProvider(create: (_) => MapState(), child: const MapsApp()));
+  runApp(MultiProvider(providers: [
+    ChangeNotifierProvider(create: (_) => MapState()), // המצב המשותף של המפה
+    // הבקר של כלי בדיקת מעקב המכ"ם — מחובר ל-MapState (מכ"ם, טיסה, מסלול מצויר) ומאזין להזזת המכ"ם
+    ChangeNotifierProxyProvider<MapState, RadarTrackController>(
+      create: (_) => RadarTrackController(), // נוצר פעם אחת
+      update: (_, map, rt) => (rt ?? RadarTrackController())..attach(map), // attach אידמפוטנטי
+    ),
+  ], child: const MapsApp()));
 }
 
 class MapsApp extends StatelessWidget {

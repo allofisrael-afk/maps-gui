@@ -1,0 +1,58 @@
+{
+  "format": "maps-gui-radar-profile",
+  "version": 1,
+  "params": {
+    "range_km": 24,
+    "min_range_km": 1,
+    "h_antenna": 3,
+    "ridge_margin_deg": 0,
+    "vertical_center_deg": 15,
+    "vertical_width_deg": 30,
+    "power_kw": 23.0,
+    "gain_dbi": 38.0,
+    "freq_mhz": 9500.0,
+    "sensitivity_dbm": -109.59,
+    "rcs_m2": 0.01,
+    "prf_hz": 6000,
+    "mdv_kt": 20,
+    "lobing_enabled": false,
+    "reflectivity": "land",
+    "antenna_type": "phased_array",
+    "boresight_deg": 0,
+    "max_scan_deg": 45,
+    "track_mode": "track",
+    "scan_mode": "phased",
+    "rot_period_s": 4,
+    "scan_phase_deg": 0,
+    "revisit_s": 0.3,
+    "track_rate_hz": 10,
+    "max_ang_rate_dps": 30,
+    "cue_delay_s": 1,
+    "track_m": 2,
+    "track_n": 3,
+    "coast_s": 2,
+    "rcs_mode": "aspect",
+    "rcs_nose": 0.005,
+    "rcs_side": 0.02,
+    "rcs_tail": 0.01
+  },
+  "source_notes": {
+    "system": "AN/TPQ-36 Firefinder — מבוסס נתונים פומביים בלבד; רעיוני/חינוכי, לא מפרט אמיתי",
+    "published": {
+      "X band, 32 frequencies; peak power 23 kW min; PESA; 90° azimuth sector; max range 24 km; effective 18 km artillery / 24 km rockets": "https://en.wikipedia.org/wiki/AN/TPQ-36_Firefinder_radar",
+      "horizon 'radar curtain' of beams over 90°, verification beam, track-while-scan, 360° sectoring, max range 24 km": "https://www.radartutorial.eu/19.kartei/04.battle/pubs/cms01_050671.pdf (Thales-Raytheon leaflet, cleared for public release)",
+      "23 kW, instrumented range 24 km, sector expandable to 360°": "https://www.radartutorial.eu/19.kartei/04.battle/en/karte009.en.html"
+    },
+    "assumed_not_published": {
+      "gain_dbi=38": "not published; only G²/Pmin matters for range in the model",
+      "sensitivity_dbm": "-109.59 — calibrated so that RCS 0.01 m² gives 18 km (published artillery range); effective value incl. processing gain; then RCS 0.0316 m² gives 24 km (published rocket range)",
+      "freq_mhz=9500": "representative X-band frequency",
+      "prf_hz=6000": "chosen so unambiguous range (25 km) exceeds the 24 km instrumented range",
+      "mdv_kt=20": "tool default — not published",
+      "vertical 0°-30°": "not published; the search curtain is near the horizon, tracking goes higher",
+      "revisit_s=0.3": "'several times a second' (radartutorial)",
+      "h_antenna=3, min_range=1, coast=2, M/N=2/3, RCS aspect values": "assumptions",
+      "boresight_deg=0": "set to the threat direction after placing the radar"
+    }
+  }
+}

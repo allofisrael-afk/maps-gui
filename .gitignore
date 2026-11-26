@@ -27,7 +27,7 @@ app_combined.log
 city_log.txt
 coordinates_log.txt
 weather_data.csv
-saved_stations.json
+# saved_stations.json — כבר לא מוחרג: לפי הוראת המשתמש (26/11/2026, "אל תחריג מהגיט") העמדות והפרופילים השמורים נכנסים ל-git (FR-D-285)
 
 # IDE
 .idea/
