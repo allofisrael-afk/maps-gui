@@ -380,6 +380,20 @@
 
         // ── כלי מסלול בליסטי (MPM) — כלי שישי, Stage 3 (FR-D-234/235) — gun+target+5 טאבים ──
         var ballisticsActive   = false; // האם מצב-הצבה פעיל (cursor crosshair) — דומה ל-radarActive וכו'
+        var _ballisticsSetActive = function() {};  // פתיחה/סגירה של הכלי הבליסטי — מוגדר ב-BallisticsControl (תיקון תקלה 26/11/2026)
+        var _rtMapPickActive = false;  // בחירה מהמפה מטאב "מעקב מכ"ם" (מכ"ם / מרכז שיוט) — הלחיצה לא מזיזה תותח/מטרה
+        var _fitPanelEls = [];  // פאנלים בעמודה הימנית שהגובה המרבי שלהם מותאם למקום שנשאר על המסך
+
+        function _fitTopRightPanels() {
+            // לכל פאנל פתוח: גובה מרבי = מתחילת הפאנל ועד תחתית המפה, פחות שוליים לסרגל הקנה-מידה ולייחוס.
+            // מתעדכן רק בשינוי של יותר מ-2 פיקסלים — כדי שמעקב הגודל (ResizeObserver) לא ייכנס ללולאה
+            var bottom = map.getContainer().getBoundingClientRect().bottom;  // תחתית המפה
+            _fitPanelEls.forEach(function(el) {  // כל פאנל רשום
+                if (el.style.display === 'none') return;  // סגור — לא רלוונטי
+                var mh = Math.max(120, Math.floor(bottom - el.getBoundingClientRect().top - 62));  // המקום שנשאר (לפחות 120); 62 = מעל סרגל קנה-המידה ושורת הייחוס
+                if (Math.abs((parseFloat(el.style.maxHeight) || 0) - mh) > 2) el.style.maxHeight = mh + 'px';  // עדכון
+            });
+        }
         var ballisticsEditing  = 'gun'; // 'gun'|'target' — איזו נקודה הלחיצה הבאה על המפה קובעת
         var ballisticsGun      = null;  // {lat,lng,alt} — נקודת התותח; alt מתמלא אוטומטית מהגובה בשרת
         var ballisticsTarget   = null;  // {lat,lng,alt} — נקודת המטרה
@@ -2827,8 +2841,9 @@
                 // גוף הפאנל (שדות+כפתורים) — מוסתר כברירת מחדל, נחשף רק אחרי בחירת הכלי (toggleRadialLos)
                 // כדי שהמפה לא תהיה עמוסה בשדות לפני שהמשתמש בכלל בחר להשתמש בכלי הזה.
                 var panelBody = L.DomUtil.create('div', '', container);
-                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;';
+                panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;overflow-y:auto;';  // overflow — נוסף בתיקון התאמת הגובה (26/11/2026)
                 _radialPanelBodyEl = panelBody;
+                _fitPanelEls.push(panelBody);  // הגובה המרבי מותאם למקום שנשאר מתחת לפאנל
 
                 function _mkField(labelText, defaultVal, step, minV, maxV, tip) {
                     // בונה שדה קלט מספרי בודד עם תווית — כל שדה מעדכן את התצוגה המקדימה בעת עריכה (דו-כיווני מול הגרירה)
@@ -3629,10 +3644,24 @@
             return pts;  // המסלול
         }
 
-        function _rtPickLoiterCenter(labelEl) {
-            // הלחיצה הבאה על המפה קובעת את מרכז השיוט; מציג מעגל תצוגה מקדימה ברדיוס שבשדה
+        function _rtPickRadar(labelEl) {
+            // תיקון תקלה: מציב/מזיז את המכ"ם ישירות מטאב "מעקב מכ"ם", בלי לסגור את הכלי הבליסטי ובלי לפתוח את פאנל 🎯.
+            // הפרמטרים נשארים מכלי הדופלר. הדגל מונע מאותה לחיצה להזיז גם תותח/מטרה (ה-handler הבליסטי רץ לפני זה)
+            _rtMapPickActive = true;  // הלחיצה הבאה שייכת לבחירה הזו
             labelEl.textContent = 'לחץ על המפה…';  // הוראה
             map.once('click', function(e) {  // לחיצה אחת בלבד
+                _rtMapPickActive = false;  // הבחירה הסתיימה
+                _placeRadarObserver(e.latlng);  // הצבה — אם מוצגת בדיקה, היא רצה מחדש מהמיקום (FR-D-266)
+                labelEl.textContent = e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4);  // הצגה
+            });
+        }
+
+        function _rtPickLoiterCenter(labelEl) {
+            // הלחיצה הבאה על המפה קובעת את מרכז השיוט; מציג מעגל תצוגה מקדימה ברדיוס שבשדה
+            _rtMapPickActive = true;  // תיקון תקלה: הלחיצה לא תזיז גם תותח/מטרה כשהכלי הבליסטי פעיל
+            labelEl.textContent = 'לחץ על המפה…';  // הוראה
+            map.once('click', function(e) {  // לחיצה אחת בלבד
+                _rtMapPickActive = false;  // הבחירה הסתיימה
                 _rtSrc.loiterCenter = e.latlng;  // המרכז
                 labelEl.textContent = e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4);  // הצגה
                 _rtDrawLoiterPreview();  // מעגל
@@ -4082,6 +4111,8 @@
             if (_radarPanelBodyEl) {
                 _radarPanelBodyEl.style.display = radarActive ? 'flex' : 'none';
             }
+            if (radarActive && ballisticsActive) _ballisticsSetActive(false);  // תיקון תקלה: פאנל אחד בכל פעם — אחרת לחיצה אחת על המפה מציבה גם מכ"ם וגם תותח/מטרה
+            _fitTopRightPanels();  // הגובה המרבי לפי המקום שנשאר בפועל
             if (!radarActive) {
                 // כיבוי/צמצום הפאנל בלבד — לא מוחק את התוצאה מהמפה (משקיף/פוליגון/חישורים/חתך-צד פתוח).
                 // רק עוצר job שעדיין רץ ברקע, אם יש (בדיוק כמו כפתור "בטל"). המשתמש שם דגש על כך:
@@ -4118,6 +4149,7 @@
                 var panelBody = L.DomUtil.create('div', '', container);
                 panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:70vh;overflow-y:auto;';
                 _radarPanelBodyEl = panelBody;
+                _fitPanelEls.push(panelBody);  // תיקון תקלה: הגובה המרבי מותאם למקום שנשאר מתחת לפאנל
 
                 function _mkHeader(text) {
                     // כותרת קבוצה קטנה — מפרידה חזותית בין 4 קבוצות הפרמטרים (גיאומטריה/מכ"ם/דופלר/תפוצה)
@@ -4591,6 +4623,7 @@
                 var panelBody = L.DomUtil.create('div', '', container);
                 panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:70vh;overflow-y:auto;';
                 _customRoutePanelBodyEl = panelBody;
+                _fitPanelEls.push(panelBody);  // תיקון תקלה: הגובה המרבי מותאם למקום שנשאר מתחת לפאנל
 
                 var hint = L.DomUtil.create('div', '', panelBody);
                 hint.style.cssText = 'font-size:9px;color:#666;';
@@ -5050,7 +5083,16 @@
             top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';  // כמו שאר הטאבים
             var note = L.DomUtil.create('div', '', top);  // הסבר קצר
             note.style.cssText = 'font-size:8.5px;color:#888;';  // טקסט משני
-            note.textContent = 'המכ"ם והפרמטרים שלו נלקחים מכלי "תצפית מכ"ם דופלר" (🎯). רעיוני/חינוכי — לא מבוסס מערכת אמיתית.';  // הבהרה
+            note.textContent = 'הפרמטרים של המכ"ם נלקחים מכלי "תצפית מכ"ם דופלר" (🎯). רעיוני/חינוכי — לא מבוסס מערכת אמיתית.';  // הבהרה
+            var radarRow = L.DomUtil.create('div', '', top);  // תיקון תקלה: הצבת מכ"ם מכאן, בלי לסגור את הכלי הבליסטי
+            radarRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#666;';  // פריסה
+            var radarPickBtn = L.DomUtil.create('button', '', radarRow);  // הכפתור
+            radarPickBtn.textContent = '📍 הצב/הזז מכ"ם במפה';  // תווית
+            radarPickBtn.title = 'הלחיצה הבאה על המפה מציבה את המכ"ם. לשינוי הפרמטרים שלו — כלי 🎯 (פתיחתו סוגרת את הפאנל הזה)';  // הסבר
+            radarPickBtn.style.cssText = 'font-size:9px;padding:1px 4px;border-radius:3px;border:1px solid #2ecc40;background:#eafbee;cursor:pointer;';  // בצבע כלי המכ"ם
+            var radarPosLbl = L.DomUtil.create('span', '', radarRow);  // מיקום המכ"ם
+            radarPosLbl.textContent = radarObs ? radarObs.lat.toFixed(4) + ', ' + radarObs.lng.toFixed(4) : 'לא הוצב';  // מצב התחלתי
+            L.DomEvent.on(radarPickBtn, 'click', function(e) { L.DomEvent.stopPropagation(e); _rtPickRadar(radarPosLbl); });  // בחירה
             _rtSrc.sel = _ballisticsMkSelect('מקור המסלול', [['מסלול בליסטי אחרון', 'ballistic'], ['רקטה (מודל דחיפה)', 'rocket'], ['טיסה מ-FR24 שנטענה', 'fr24'],
                 ['מסלול מצויר', 'custom'], ['שיוט במעגל', 'loiter'], ['קובץ CSV', 'csv']], 0,
                 'בליסטי: המסלול האחרון מטאב "מסלול בודד" או "פתרון ירי". מצויר: מהכלי "מסלול טיסה מותאם"', top);  // בורר המקור (החלטות 3-4)
@@ -5507,18 +5549,25 @@
                 btn.setAttribute('role', 'button');  // נגישות — <a> ברירת-מחדל role="link" (F-027, Q-1)
                 btn.setAttribute('aria-label', 'כלי מסלול בליסטי');
                 _ballisticsBtnEl = btn;
+                _ballisticsSetActive = function(on) {
+                    // פתיחה/סגירה של הכלי הבליסטי — פונקציה (ולא רק מטפל לחיצה) כדי שכלי המכ"ם יוכל לסגור אותו
+                    ballisticsActive = on;  // המצב
+                    btn.style.background = on ? '#fab387' : 'white';  // צבע הכפתור
+                    ballisticsPanelBodyEl.style.display = on ? 'flex' : 'none';  // הפאנל
+                    map.getContainer().style.cursor = on ? 'crosshair' : '';  // סמן
+                    if (on && radarActive) toggleRadarDoppler();  // תיקון תקלה: שני הפאנלים יחד לא נכנסים בגובה המסך ודוחפים את 💥 החוצה — המכ"ם עצמו נשאר על המפה
+                    _fitTopRightPanels();  // הגובה המרבי לפי המקום שנשאר בפועל
+                };
                 L.DomEvent.on(btn, 'click', function(e) {
                     L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);
                     if (!_mapReady || !serversRunning) return;
-                    ballisticsActive = !ballisticsActive;
-                    btn.style.background = ballisticsActive ? '#fab387' : 'white';
-                    ballisticsPanelBodyEl.style.display = ballisticsActive ? 'flex' : 'none';
-                    map.getContainer().style.cursor = ballisticsActive ? 'crosshair' : '';
+                    _ballisticsSetActive(!ballisticsActive);  // החלפת מצב
                 });
 
                 var panelBody = L.DomUtil.create('div', '', container);
                 panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;max-height:75vh;overflow-y:auto;';
                 ballisticsPanelBodyEl = panelBody;
+                _fitPanelEls.push(panelBody);  // תיקון תקלה: הגובה המרבי מותאם למקום שנשאר מתחת לפאנל (לא 75% מכל החלון)
 
                 function _mkHeader(text) {
                     var h = L.DomUtil.create('div', '', panelBody);
@@ -5757,8 +5806,17 @@
         // handler עצמאי (כמו custom-route), לא בתוך הדיספצ'ר המשולב של LOS/רדיוס-ראייה/מכ"ם
         map.on('click', function(e) {
             if (!ballisticsActive) return;
+            if (_rtMapPickActive) return;  // תיקון תקלה: הלחיצה שייכת לבחירה מטאב "מעקב מכ"ם" (מכ"ם / מרכז שיוט) — לא להזיז תותח/מטרה
             _placeBallisticsPoint(e.latlng);
         });
+
+        // ── התאמת גובה הפאנלים בעמודה הימנית (תיקון תקלה, 26/11/2026) ──
+        // הפאנלים הוגבלו ב-70-75% מגובה החלון כולו, אבל הם מתחילים מתחת לכמה כפתורי כלים, ולכן התחתית שלהם
+        // (כולל פס הגלילה) יצאה מתחת למסך — "לא ניתן לראות את כל פתרון הירי". כאן הגובה המרבי של כל פאנל פתוח
+        // מחושב מתחילתו ועד תחתית המפה, ומתעדכן כשפאנל אחר בעמודה משנה גובה או כשהחלון משנה גודל.
+        var _fitCorner = map._controlCorners && map._controlCorners.topright;  // העמודה הימנית-עליונה
+        if (_fitCorner && window.ResizeObserver) { new ResizeObserver(function() { _fitTopRightPanels(); }).observe(_fitCorner); }  // כל שינוי גובה בעמודה
+        map.on('resize', _fitTopRightPanels);  // שינוי גודל החלון/המפה
 
         
 
