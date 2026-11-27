@@ -35,6 +35,7 @@ REGRESSION_SUITES = [
     ("server security - test_r5_server_security.py", TESTS_DIR / "test_r5_server_security.py"),  # T0: הועבר מ-.qa/run5/tests; שורות REPRO בתוכו מדווחות ממצאים פתוחים בלי להכשיל
     ("elevation cache - test_elev_cache.py", TESTS_DIR / "test_elev_cache.py"),  # T23: מטמון גבהים קבוע (שורד הפעלה מחדש, קובץ פגום, זיכרון בלבד)
     ("SRTM local elevations - test_srtm_dem.py", TESTS_DIR / "test_srtm_dem.py"),  # גבהים מקומיים: קריאה, חורים, ים מול בקעה, השלמה מ-Open-Meteo
+    ("Live met cache - test_met_cache.py", TESTS_DIR / "test_met_cache.py"),  # FR-D-299: מטמון תחזית, השעה הנוכחית, תחזית שמורה במכסה
     ("area-to-area engine - test_area_fire.py", TESTS_DIR / "test_area_fire.py", 400),  # A1–A3: מנוע מאזור לאזור (רשתות, טבלת ירי, סינונים, רכס, דיוק, מדרון, נראות) — ~3 דק', timeout משלו
     ("area-to-area server - test_area_fire_server.py", TESTS_DIR / "test_area_fire_server.py"),  # A4: נקודות הקצה (estimate/start/status/visibility/csv/cancel), במקביל
     ("area-to-area Android layer - test_area_fire_android.py", TESTS_DIR / "test_area_fire_android.py"),  # A6: radar_android דרך mpm_api.dispatch_json

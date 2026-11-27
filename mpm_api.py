@@ -57,7 +57,7 @@ def _build_atmosphere(met, site_alt):
         surface = dict(met["surface"])  # עותק — לא לשנות את ה-dict שהקורא מסר
         surface.setdefault("alt_m", site_alt)
         prof = AtmosphereProfile.from_levels(surface, met.get("levels", []), met.get("description", "Inline met"))
-        return prof, {"source": "inline", "valid_time_utc": met.get("time_utc")}
+        return prof, {"source": "inline", "valid_time_utc": met.get("time_utc"), "description": met.get("description")}  # FR-D-299: התיאור (כולל גיל תחזית שמורה) מגיע לתצוגה
     raise ValueError(f"מקור מטאו לא נתמך בשכבת ה-API: {src}")  # "csv"/"open-meteo" נופלים לכאן בכוונה
 
 
@@ -418,18 +418,28 @@ def _default_fetch_met_live(lat, lon, alt_m):
     # כי assert נמחק תחת python -O, ולא היה מגן בפועל בסביבת-ריצה כזו.
     if not url.startswith("https://"):
         raise ValueError(f"scheme לא-מאובטח ב-URL: {url!r}")
-    try:
-        # scheme כבר אומת למעלה (F-016, QA engagement) - bandit B310 לא עושה ניתוח-זרימת-נתונים
-        # ומסמן כל urlopen גורף, ללא קשר לבדיקה שקדמה לו; nosec מתועד בכוונה, לא התעלמות-סתמית.
-        with _urlrequest.urlopen(url, timeout=30) as r:  # nosec B310
-            d = _json.loads(r.read().decode("utf-8"))
-    except (_urlerror.URLError, _urlerror.HTTPError) as e:
-        return None, {"error": str(e)}
+
+    def remote():  # FR-D-299: השליפה מהרשת (כמו קודם) — (תשובה, שגיאה); המטמון מחליט מתי לקרוא לה
+        try:
+            # scheme כבר אומת למעלה (F-016, QA engagement) - bandit B310 לא עושה ניתוח-זרימת-נתונים
+            # ומסמן כל urlopen גורף, ללא קשר לבדיקה שקדמה לו; nosec מתועד בכוונה, לא התעלמות-סתמית.
+            with _urlrequest.urlopen(url, timeout=30) as r:  # nosec B310
+                d = _json.loads(r.read().decode("utf-8"))
+        except _urlerror.HTTPError as e:  # FR-D-299: שגיאת HTTP — 429 = מכסה (לפני URLError, כי HTTPError יורש ממנו)
+            return None, {"error": str(e), "rate_limited": e.code == 429}  # FR-D-299: מסמן מכסה, כמו בדסקטופ
+        except (_urlerror.URLError, OSError, ValueError) as e:  # FR-D-299: רשת/JSON פגום
+            return None, {"error": str(e)}  # FR-D-299: (תשובה, שגיאה)
+        if not (d.get("hourly") or {}).get("time"):  # FR-D-299: תשובה בלי שעות = כשל (לא נשמרת)
+            return None, {"error": "לא התקבלו נתוני מטאו"}  # FR-D-299: אותה הודעה כמו קודם
+        return d, None  # FR-D-299: הצלחה
+
+    import met_cache  # FR-D-299: ייבוא מקומי — המודול מגיע ל-APK דרך build_apk.ps1
+    d, i, cache_info, err = met_cache.fetch(lat, lon, remote)  # FR-D-299: מטמון טרי → רשת → תחזית שמורה → שגיאה עם הסבר
+    if err:  # FR-D-299: אין תחזית בכלל
+        return None, err  # FR-D-299: השגיאה (כוללת מה לעשות)
     H = d.get("hourly") or {}
     times = H.get("time") or []
-    if not times:
-        return None, {"error": "לא התקבלו נתוני מטאו"}
-    i = 0
+    # FR-D-299: i = השעה הקרובה לעכשיו מתוך הסדרה (קודם 0 = ‏00:00 UTC של היום, כי Open-Meteo מתחיל תמיד ב-00:00)
 
     def val(key):
         v = H.get(key)
@@ -453,8 +463,8 @@ def _default_fetch_met_live(lat, lon, alt_m):
         surface["pressure_hpa"] = surface["pressure_hpa"] * math.exp(-9.80665 * dz / (287.05 * (T - 0.00325 * dz)))
         surface["temp_c"] = surface["temp_c"] - 0.0065 * dz
         surface["alt_m"] = float(alt_m)
-    return {"source": "inline", "surface": surface, "levels": levels, "time_utc": times[0],
-            "description": f"Open-Meteo {times[0]} UTC"}, None
+    return {"source": "inline", "surface": surface, "levels": levels, "time_utc": times[i],  # FR-D-299: השעה שנבחרה
+            "description": met_cache.describe(times[i], cache_info)}, None  # FR-D-299: כולל גיל תחזית שמורה
 
 
 def _resolve_met_for_android(params):

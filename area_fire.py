@@ -499,7 +499,9 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
     return {  # התוצאה
         "summary": {"launch_points": pl["launch_points"], "target_points": pl["target_points"], "pairs": pl["pairs"],  # גדלים
                     "pairs_feasible": pairs_ok, "trajectories_feasible": len(rows), "trajectories_checked": pl["trajectories_max"],  # ספירות (החלטה 10)
-                    "rejected": rejects, "groups": p["groups"], "elapsed_s": round(time.time() - t_start, 1)},  # פסילות, זמן
+                    "rejected": rejects, "groups": p["groups"], "elapsed_s": round(time.time() - t_start, 1),  # פסילות, זמן
+                    "met": " · ".join(dict.fromkeys(m["met"].get("description") or "" for m in tables_meta if m["met"].get("description"))),  # FR-D-299: מקור המטאו (תחזית חיה: שעה, וגיל אם שמורה)
+                    "met_stale": any("שמורה מלפני" in (m["met"].get("description") or "") for m in tables_meta)},  # FR-D-299: תחזית שמורה בגלל כשל שליפה — אזהרה בתצוגה
         "verification": verify, "tables": tables_meta,  # אימות וטבלאות
         "resolution_m": {"launch": LAUNCH_RES_M, "target": TARGET_RES_M, "terrain": TERRAIN_RES_M},  # רזולוציות
         "areas": {"launch": [a["name"] for a in p["launch_areas"]], "target": [a["name"] for a in p["target_areas"]]},  # שמות

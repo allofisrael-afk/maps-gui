@@ -150,6 +150,7 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
   - **השוואת כל המכ"מים המוצבים** על מסלול (`/radar_track/compare`) ואזהרת מרחק לפני בדיקת מעקב — FR-D-296.
 - **בדיקות:** `tests/run_regression.py` (+`--full` ל-fuzz), `tests/e2e_all_tools.py` (אופציונלי, מבודד, מצב טוקן), `maps-gui-android-src/test/logic_test.dart` (`flutter test`, דורש עותק המדריך ב-`assets/`).
 - **גבהים:** מקור ראשון — `srtm_dem.py` (משבצות SRTM מ-AWS, מקומיות); Open-Meteo רק לחורים/ים/מחוץ לכיסוי (FR-D-298). Open-Meteo סופר **כל נקודה** כקריאה (נמדד 26/11) — לכן המכסה נגמרה. בבדיקות: `MAPS_GUI_DEM=off` + שטח סינתטי.
+- **מטאו חי:** דרך `met_cache.py` (FR-D-299): תשובת 168 שעות נשמרת לאזור 0.1° לשעה; בכשל — שמורה עד 48 שעות עם גיל. השעה = הקרובה לעכשיו (Open-Meteo מתחיל ב-00:00). בקשה ≈ 8 קריאות מכסה (80 שדות).
 
 ### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:

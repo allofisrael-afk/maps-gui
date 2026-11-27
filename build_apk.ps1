@@ -238,7 +238,7 @@ if (-not (Test-Path "$ANDROID_PY_DIR\radar-profiles")) {  # פעם אחת — ju
 # נותק בשקט (עורך ששומר קובץ חדש במקום לעדכן את הקיים) — ה-APK קיבל עותק מ-9/11. העתקה טרייה = תמיד הגרסה הנוכחית.
 # הקבצים: גשר ה-MPM + כלי בדיקת מעקב המכ"ם (שלב ג', MAPS-GUI_SRS.md FR-D-282) — כולם stdlib בלבד.
 foreach ($pyFile in @('mpm_api.py', 'radar_android.py', 'radar_service.py', 'radar_physics.py', 'radar_track.py',
-                      'radar_placement.py', 'rocket_model.py', 'elev_cache.py', 'area_fire.py', 'srtm_dem.py')) {  # כל קובץ שהאפליקציה מייבאת (elev_cache.py: T23, מטמון גבהים קבוע; area_fire.py: A6, ירי מאזור לאזור; srtm_dem.py: גבהים מקומיים מ-SRTM)
+                      'radar_placement.py', 'rocket_model.py', 'elev_cache.py', 'area_fire.py', 'srtm_dem.py', 'met_cache.py')) {  # כל קובץ שהאפליקציה מייבאת (elev_cache.py: T23, מטמון גבהים קבוע; area_fire.py: A6, ירי מאזור לאזור; srtm_dem.py: גבהים מקומיים מ-SRTM; met_cache.py: FR-D-299, מטמון תחזית)
     if (-not (Test-Path "$PSScriptRoot\$pyFile")) { Err "Missing Python source for Android: $pyFile" }  # קובץ חסר = עצירה
     Remove-Item "$ANDROID_PY_DIR\$pyFile" -Force -ErrorAction SilentlyContinue  # מסיר hardlink/עותק ישן (גם אם נותק)
     Copy-Item "$PSScriptRoot\$pyFile" "$ANDROID_PY_DIR\$pyFile" -Force  # עותק טרי

@@ -182,6 +182,7 @@ class AreaFireController extends ChangeNotifier {
     final rej = (s['rejected'] as Map).entries.where((e) => (e.value as num) > 0).map((e) => '${rejectNames[e.key] ?? e.key}: ${e.value}').toList(); // פסילות
     if (rej.isNotEmpty) lines.add('נפסלו: ${rej.join(' · ')}'); // פירוט
     if ((v['checked'] ?? 0) as num > 0) lines.add('דיוק (מדגם ${v['checked']}): החטאה מרבית ${v['miss_max_m']} מ\', RMS ${v['miss_rms_m']} מ\'; שגיאת הגבהה עד ${v['qe_err_max_mils']} מיל.'); // אימות
+    if ((s['met'] ?? '').toString().isNotEmpty) lines.add('${s['met_stale'] == true ? '⚠️ ' : ''}מטאו: ${s['met']}'); // FR-D-299: מקור התחזית, ואזהרה אם היא שמורה (השליפה נכשלה)
     if (visSummary.isNotEmpty) lines.add(visSummary); // נראות
     lines.add('זמן חישוב: ${fmtTime(s['elapsed_s'] as num?)}.'); // זמן
     return lines.join('\n'); // שורות

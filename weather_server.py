@@ -472,6 +472,7 @@ NET_ERROR_MSG = 'אין חיבור לשירות הגבהים (Open-Meteo) — ב
 
 
 import srtm_dem  # noqa: E402  # גבהים מקומיים מ-SRTM (AWS) — מקור ראשון; Open-Meteo רק לחורים ומחוץ לכיסוי (החלטת המשתמש 27/11/2026)
+import met_cache  # noqa: E402  # FR-D-299: מטמון לתחזית מזג האוויר החי (שעה טרייה, עד 48 שעות כשהשליפה נכשלת)
 
 
 def _fetch_elevations(locations):  # גבהים: קודם SRTM מקומי, ואת החסרים מ-Open-Meteo — כך מכסת Open-Meteo לא עוצרת חישובים
@@ -2094,27 +2095,34 @@ def _fetch_met_profile_live(lat, lon, alt_m, when_iso=None):
     if when_iso:  # שעת-תחזית מבוקשת (UTC, ISO) — ברירת-מחדל (לא מועבר) = Open-Meteo יחזיר קרוב-לעכשיו
         params["start_hour"] = when_iso
         params["end_hour"] = when_iso
-    for attempt in range(3):  # 3 ניסיונות, כמו /temp_grid
-        try:
-            r = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=30)
-            if r.status_code == 429:  # מכסת-בקשות — לא retry, כמו בשאר הכלים
-                reason = r.json().get("reason", "מכסת בקשות Open-Meteo הגיעה למגבלה")
-                return None, None, {"error": reason, "rate_limited": True}
-            r.raise_for_status()
-            d = r.json()
-            break
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
-            if attempt < 2:
-                time.sleep(2.0 * (attempt + 1))  # 2s/4s backoff, כמו /temp_grid
-            else:
-                return None, None, {"error": str(e)}
-        except Exception as e:
-            return None, None, {"error": str(e)}
+    def remote():  # FR-D-299: השליפה מהרשת עצמה (כמו קודם) — מחזירה (תשובה, שגיאה); המטמון מחליט מתי לקרוא לה
+        for attempt in range(3):  # 3 ניסיונות, כמו /temp_grid
+            try:
+                r = requests.get("https://api.open-meteo.com/v1/forecast", params=params, timeout=30)
+                if r.status_code == 429:  # מכסת-בקשות — לא retry, כמו בשאר הכלים
+                    reason = r.json().get("reason", "מכסת בקשות Open-Meteo הגיעה למגבלה")
+                    return None, {"error": reason, "rate_limited": True}  # FR-D-299: (תשובה, שגיאה)
+                r.raise_for_status()
+                d = r.json()
+                if not (d.get("hourly") or {}).get("time"):  # FR-D-299: תשובה בלי שעות = כשל (לא נשמרת במטמון)
+                    return None, {"error": "לא התקבלו נתוני מטאו לשעה המבוקשת"}  # FR-D-299: אותה הודעה כמו קודם
+                return d, None  # FR-D-299: הצלחה
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))  # 2s/4s backoff, כמו /temp_grid
+                else:
+                    return None, {"error": str(e)}  # FR-D-299: (תשובה, שגיאה)
+            except Exception as e:
+                return None, {"error": str(e)}  # FR-D-299: (תשובה, שגיאה)
+        return None, {"error": "שליפת התחזית נכשלה"}  # FR-D-299: לא אמור לקרות (הלולאה תמיד מחזירה)
+
+    d, i, cache_info, err = met_cache.fetch(lat, lon, remote, when_iso)  # FR-D-299: מטמון טרי → רשת → תחזית שמורה → שגיאה עם הסבר
+    if err:  # FR-D-299: אין תחזית בכלל
+        return None, None, err  # FR-D-299: השגיאה (כוללת מה לעשות)
     H = d.get("hourly") or {}
     times = H.get("time") or []
-    if not times:
-        return None, None, {"error": "לא התקבלו נתוני מטאו לשעה המבוקשת"}
-    i = 0  # השעה הראשונה שהוחזרה — תמיד תואמת ל-start_hour/end_hour שביקשנו (או השעה הנוכחית אם לא ביקשנו)
+    # FR-D-299: i = השעה הקרובה לעכשיו (או when_iso) מתוך הסדרה. קודם נלקחה תמיד השעה הראשונה, ו-Open-Meteo מתחיל
+    # ב-00:00 של היום ("Time always starts at 0:00 today") — כלומר המטאו "החי" היה של 00:00 UTC ולא של השעה הנוכחית.
 
     def val(key):  # שולף שדה-שעתי בודד; None אם חסר (Open-Meteo יכול להחזיר None לשכבה לא-נתמכת)
         v = H.get(key)
@@ -2140,7 +2148,7 @@ def _fetch_met_profile_live(lat, lon, alt_m, when_iso=None):
         surface["pressure_hpa"] = surface["pressure_hpa"] * math.exp(-9.80665 * dz / (287.05 * (T - 0.00325 * dz)))
         surface["temp_c"] = surface["temp_c"] - 0.0065 * dz
         surface["alt_m"] = float(alt_m)
-    meta = {"source": "open-meteo", "valid_time_utc": times[0], "levels": len(levels)}
+    meta = {"source": "open-meteo", "valid_time_utc": times[i], "levels": len(levels), **cache_info}  # FR-D-299: השעה שנבחרה + מקור (מטמון/גיל)
     return surface, levels, meta
 
 
@@ -2160,7 +2168,7 @@ def _resolve_ballistics_met(met, gun):
     if surface is None:
         return None, meta_or_err  # כשל — meta_or_err הוא ה-error dict
     return {"source": "inline", "surface": surface, "levels": levels, "time_utc": meta_or_err.get("valid_time_utc"),
-            "description": f"Open-Meteo {meta_or_err.get('valid_time_utc', '')} UTC"}, None
+            "description": met_cache.describe(meta_or_err.get('valid_time_utc', ''), meta_or_err)}, None  # FR-D-299: כולל גיל תחזית שמורה
 
 
 def _ballistics_batch_pause():
