@@ -77,22 +77,60 @@
       }
     },
     {
-      "name": "EL/M-2084 MMR סקטור 2",
+      "name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער) 2",
       "_schema_version": 1,
       "params": {
-        "type_key": "lib:ELM-2084_sector_public_data.json",
-        "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)",
-        "lat": 31.732839253650067,
-        "lon": 37.05688476562501,
+        "type_key": "lib:ELM-2311_sector_public_data.json",
+        "type_name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער)",
+        "lat": 31.38177878211098,
+        "lon": 36.76574707031251,
         "boresight_deg": 0,
-        "h_antenna": 5,
-        "range_km": 100,
-        "start_bearing_deg": 295,
-        "end_bearing_deg": 65,
+        "h_antenna": 4,
+        "range_km": 60,
+        "start_bearing_deg": 300,
+        "end_bearing_deg": 60,
         "angle_step_deg": 10,
         "reflectivity": "land",
         "lobing_enabled": false,
         "ridge_margin_deg": 0
+      }
+    },
+    {
+      "name": "EL/M-2084 MMR סקטור 3",
+      "_schema_version": 1,
+      "params": {
+        "angle_step_deg": 10,
+        "boresight_deg": 0,
+        "end_bearing_deg": 359.3,
+        "h_antenna": 5,
+        "lat": 31.38177878211098,
+        "lobing_enabled": false,
+        "lon": 36.76574707031251,
+        "range_km": 79.48,
+        "reflectivity": "land",
+        "ridge_margin_deg": 2.6,
+        "start_bearing_deg": 295,
+        "type_key": "lib:ELM-2311_sector_public_data.json",
+        "type_name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער)"
+      }
+    },
+    {
+      "name": "EL/M-2084 MMR סקטור 2",
+      "_schema_version": 1,
+      "params": {
+        "angle_step_deg": 1,
+        "boresight_deg": 0,
+        "end_bearing_deg": 317,
+        "h_antenna": 5,
+        "lat": 31.25037814985571,
+        "lobing_enabled": false,
+        "lon": 36.74377441406251,
+        "range_km": 300,
+        "reflectivity": "land",
+        "ridge_margin_deg": 0,
+        "start_bearing_deg": 318,
+        "type_key": "lib:ELM-2084_sector_public_data.json",
+        "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)"
       }
     }
   ]
