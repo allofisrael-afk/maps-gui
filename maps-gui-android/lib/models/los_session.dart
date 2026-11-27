@@ -52,5 +52,9 @@ class LosSession {
     required this.totalKm,
     this.firstBlockKm,
     required this.allVisible,
+    this.radarLimits,
   });
+
+  /// FR-D-288: שורת מגבלות המכ"ם הפעיל (סקטור / טווח / שדה אנכי) — null כשאין מכ"ם פעיל או שהכלי מנותק
+  final String? radarLimits;
 }

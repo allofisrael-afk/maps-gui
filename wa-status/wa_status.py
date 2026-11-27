@@ -35,6 +35,8 @@ PAIR_CODE_PATH = STATE_DIR / "pair_code.txt"  # קוד-הצימוד (8 תווי�
 # ── קבועים ──
 MAX_LEN = 500  # הודעות ארוכות מזה נחתכות אוטומטית
 SEND_TIMEOUT_SEC = 60  # זמן מרבי לחיבור+שליחה בפקודות send/summary/daily/test
+FILE_TIMEOUT_SEC = 900  # זמן מרבי לחיבור+העלאה בפקודת send-file — קובץ של ~100MB לוקח כמה דקות
+FILE_MAX_MB = 2000  # מגבלת גודל מסמך בוואטסאפ (~2GB)
 SETUP_TIMEOUT_SEC = 300  # זמן מרבי לסריקת QR / הזנת קוד-צימוד ב-setup
 EMOJI = {  # אימוג'י הסטטוס לפי סוג ההודעה — לפי ההחלטה שסוכמה
     "start": "⏳",  # התחלת משימה
@@ -219,7 +221,7 @@ def _import_neonize():
 
 # ═══════════════════════════ חיבור ושליחה ═══════════════════════════
 
-def deliver(text, cfg, setup_mode=False, use_code=False, timeout=SEND_TIMEOUT_SEC):
+def deliver(text, cfg, setup_mode=False, use_code=False, timeout=SEND_TIMEOUT_SEC, file_path=None):  # file_path: שליחת קובץ (מסמך) עם text ככיתוב
     """
     מתחבר לוואטסאפ, שולח את text ל"הודעה לעצמי" ומתנתק. מחזיר (ok, reason).
     setup_mode=True: אם אין session תקף — מציג QR (או קוד-צימוד עם use_code) ומחכה לסריקה.
@@ -298,7 +300,12 @@ def deliver(text, cfg, setup_mode=False, use_code=False, timeout=SEND_TIMEOUT_SE
                 if setup_mode and target:  # ב-setup — שומרים את המספר להגדרות לשימוש הבא
                     cfg["phone"] = target  # עדכון בזיכרון
                     save_config(cfg)  # עדכון config.json
-            _client.send_message(build_jid(target), text)  # שליחה; חוזר אחרי אישור השרת
+            if file_path:  # שליחת קובץ כמסמך (למשל APK) — הטקסט הוא הכיתוב
+                data = Path(file_path).read_bytes()  # תוכן הקובץ כבייטים — חד-משמעי (מחרוזת עלולה להתפרש ככתובת URL)
+                mime = "application/vnd.android.package-archive" if str(file_path).lower().endswith(".apk") else "application/octet-stream"  # סוג הקובץ להתקנה בטלפון
+                _client.send_document(build_jid(target), data, caption=text, filename=Path(file_path).name, mimetype=mime)  # העלאה ושליחה; חוזר אחרי אישור השרת
+            else:  # הודעת טקסט רגילה — כמו קודם
+                _client.send_message(build_jid(target), text)  # שליחה; חוזר אחרי אישור השרת
             finish(True, "sent")  # הצלחה
         except Exception as exc:  # noqa: BLE001 — כל כשל שליחה נרשם ומוחזר כסיבה, לא מפיל את Claude
             logging.error("שליחה נכשלה: %s", exc)  # נרשם בלוג
@@ -476,6 +483,24 @@ def cmd_check_interval(_args):
     return 0  # קוד יציאה תקין
 
 
+def cmd_send_file(args):
+    """שליחת קובץ (למשל APK) ל"הודעה לעצמי" עם כיתוב קצר. הכיתוב עובר את אותו ניקוי כמו הודעות (בלי נתיבים/סודות)."""
+    p = Path(args.path)  # הקובץ לשליחה
+    if not p.is_file():  # קובץ חסר — הודעה ברורה
+        print(f"הקובץ לא נמצא: {p.name}")  # רק שם הקובץ, בלי נתיב מלא
+        return 1  # כשל — פקודה ידנית, מדווחים בבירור
+    size_mb = p.stat().st_size / (1024 * 1024)  # גודל במגה-בייט
+    if size_mb > FILE_MAX_MB:  # מעל מגבלת המסמכים של וואטסאפ
+        print(f"הקובץ גדול מדי ({size_mb:.0f}MB > {FILE_MAX_MB}MB)")  # הסבר
+        return 1  # כשל
+    cfg = load_config()  # ההגדרות (מספר, enabled)
+    caption = sanitize(args.msg or p.name)  # כיתוב מנוקה — כמו כל הודעה
+    ok, reason = deliver(caption, cfg, timeout=FILE_TIMEOUT_SEC, file_path=str(p))  # העלאה ושליחה, עם זמן ארוך לקובץ גדול
+    logging.info("send-file: ok=%s reason=%s name=%s size=%.1fMB", ok, reason, p.name, size_mb)  # תיעוד בלוג
+    print("נשלח." if ok else f"השליחה נכשלה: {reason}")  # תוצאה למשתמש
+    return 0 if ok else 1  # פקודה ידנית — כשל מדווח בקוד יציאה
+
+
 def cmd_test(_args):
     """הודעת בדיקה — כשל מחזיר שגיאה ברורה וקוד-יציאה 1."""
     return send_text("test", "הודעת בדיקה מ-wa-status.", strict=True)  # strict = דיווח כשל ברור
@@ -497,16 +522,20 @@ def main(argv=None):
     sub.add_parser("daily", help="סיכום יומי (ל-Task Scheduler)")  # daily
     sub.add_parser("check-interval", help="האם עבר מרווח העדכון המחזורי (yes/no)")  # check-interval
     sub.add_parser("test", help="הודעת בדיקה")  # test
+    p_file = sub.add_parser("send-file", help="שליחת קובץ (למשל APK) להודעה לעצמי")  # send-file
+    p_file.add_argument("--path", required=True, help="הקובץ לשליחה")  # הקובץ
+    p_file.add_argument("--msg", default="", help="כיתוב קצר (ברירת מחדל: שם הקובץ)")  # כיתוב
     args = parser.parse_args(argv)  # פרסור
     handlers = {  # מיפוי פקודה -> פונקציה
         "setup": cmd_setup, "send": cmd_send, "summary": cmd_summary,
         "daily": cmd_daily, "check-interval": cmd_check_interval, "test": cmd_test,
+        "send-file": cmd_send_file,  # שליחת קובץ
     }
     try:  # רשת ביטחון — באג לא צפוי לא ישבור את עבודת Claude
         return handlers[args.cmd](args)  # הרצת הפקודה
     except Exception as exc:  # noqa: BLE001 — חריגה לא צפויה: נרשמת; פקודות שליחה מחזירות 0
         logging.exception("שגיאה לא צפויה בפקודה %s", args.cmd)  # לוג מלא עם traceback
-        if args.cmd in ("setup", "test"):  # פקודות שחייבות לדווח כשל בבירור
+        if args.cmd in ("setup", "test", "send-file"):  # פקודות שחייבות לדווח כשל בבירור
             print(f"שגיאה: {exc}")  # ל-stdout: ייתכן ש-stderr כבר מופנה ללוג
             return 1  # כשל
         return 0  # send/summary/daily/check-interval — לא שוברים את העבודה

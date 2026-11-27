@@ -24,6 +24,7 @@ import '../widgets/ballistics_panel.dart'; // כלי מסלול בליסטי (MP
 import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
 import '../widgets/radar_track_layers.dart'; // שכבות המפה והגרפים של הכלי
 import '../widgets/radar_track_panel.dart'; // הפאנל של הכלי
+import 'user_guide_screen.dart'; // מדריך ההפעלה המוטמע — נפתח בהפעלה הראשונה
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -53,6 +54,7 @@ class _MapScreenState extends State<MapScreen> {
       _mapController.mapEventStream.listen((_) {
         if (mounted) setState(() {});
       });
+      showUserGuideOnFirstRun(context); // הפעלה ראשונה אחרי ההתקנה: מדריך ההפעלה נפתח פעם אחת
     });
     _radarHitNotifier.addListener(_onRadarRayHit);
     _routeEvalHitNotifier.addListener(_onRouteEvalHit);

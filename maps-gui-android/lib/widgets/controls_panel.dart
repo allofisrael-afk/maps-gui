@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../state/map_state.dart';
 import '../data/notam_categories.dart'; // 7 קטגוריות סיווג NOTAM
 import '../legal/about.dart'; // דיאלוג "אודות ורישיונות" (ביקורת רישוי)
+import '../screens/user_guide_screen.dart'; // מדריך ההפעלה המוטמע (openUserGuide)
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text, this.cs);
@@ -570,6 +571,15 @@ class LayersPanel extends StatelessWidget {
             cs: cs,
           ),
           const Divider(height: 24), // מפריד לפני מקטע "אודות" (ביקורת רישוי)
+          _ActionBtn(
+            label: '📖 מדריך הפעלה', // מדריך ההפעלה המוטמע ב-APK — שלבי הפעלה לכל תהליך
+            icon: Icons.menu_book_outlined, // אייקון ספר
+            enabled: true, // תמיד זמין (לא תלוי ברשת — הקובץ בתוך האפליקציה)
+            active: false, // לא כפתור מצב
+            onTap: () => openUserGuide(context), // פותח את מסך המדריך (lib/screens/user_guide_screen.dart)
+            cs: cs, // ערכת הצבעים של הפאנל
+          ),
+          const SizedBox(height: 6), // רווח בין שני הכפתורים
           _ActionBtn(
             label: 'אודות ורישיונות', // כפתור אודות: הודעת זכויות + רשימת רישיונות צד-שלישי
             icon: Icons.info_outline, // אייקון מידע

@@ -193,6 +193,13 @@ foreach ($density in @('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi')) {  # כל 
     Copy-Item "$PROJECT_SRC\android_res\mipmap-$density\ic_launcher.png" `
         "$PROJECT_DIR\android\app\src\main\res\mipmap-$density\ic_launcher.png" -Force  # דורס את אייקון התבנית שנוצר ע"י flutter create
 }
+# User guide asset (embedded in the APK, shown in-app): fresh copy of the Android user guide on every build, so the
+# repo-root guide stays the single source of truth. Matched by an ASCII wildcard because this script has no BOM
+# (PowerShell 5.1 would misread a Hebrew file name literal).
+$guideFiles = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*-Android.md' -File)  # the Android user guide (the only *-Android.md)
+if ($guideFiles.Count -ne 1) { Err "Expected exactly one *-Android.md user guide in the repo root, found $($guideFiles.Count)" }  # stop if missing/ambiguous
+New-Item -ItemType Directory -Force "$PROJECT_DIR\assets" | Out-Null  # assets folder of the Flutter project
+Copy-Item -LiteralPath $guideFiles[0].FullName "$PROJECT_DIR\assets\user_guide.md" -Force  # path declared in pubspec.yaml
 Ok "Source files copied"
 
 # --- Step 7b: תיקיית-גישור ל-Chaquopy (FR-D-237) ---

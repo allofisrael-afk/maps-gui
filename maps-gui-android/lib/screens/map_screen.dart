@@ -24,6 +24,7 @@ import '../widgets/ballistics_panel.dart'; // כלי מסלול בליסטי (MP
 import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
 import '../widgets/radar_track_layers.dart'; // שכבות המפה והגרפים של הכלי
 import '../widgets/radar_track_panel.dart'; // הפאנל של הכלי
+import 'user_guide_screen.dart'; // מדריך ההפעלה המוטמע — נפתח בהפעלה הראשונה
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -53,6 +54,7 @@ class _MapScreenState extends State<MapScreen> {
       _mapController.mapEventStream.listen((_) {
         if (mounted) setState(() {});
       });
+      showUserGuideOnFirstRun(context); // הפעלה ראשונה אחרי ההתקנה: מדריך ההפעלה נפתח פעם אחת
     });
     _radarHitNotifier.addListener(_onRadarRayHit);
     _routeEvalHitNotifier.addListener(_onRouteEvalHit);
@@ -757,11 +759,11 @@ class _MapScreenState extends State<MapScreen> {
 
           // ── מחוון טעינה (גבהים, טמפ', LOS, חיפוש עיר או NOTAM רחפנים) ──
           if (state.elevLoading || state.tempLoading || state.losLoading || state.citySearchLoading || state.uasNotamLoading)
-            const Positioned(
-              top: 100,
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 124, // FR-D-288: מתחת לבורר המכ"ם הגלובלי (היה 100 קבוע)
               left: 0,
               right: 0,
-              child: Center(child: _LoadingChip()),
+              child: const Center(child: _LoadingChip()),
             ),
 
           // ── תג גרסה — פינה שמאלית-עליונה, מתחת ל-AppBar הצף (סימטרי לכפתורי Undo/Redo בפינה הימנית) ──
@@ -930,7 +932,9 @@ class _MapScreenState extends State<MapScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     child: Text(
-                      state.losCurObs == null
+                      context.watch<RadarTrackController>().sharedObs('los') != null && state.losCurObs == null
+                          ? 'הקש על נקודת היעד (הצופה: המכ"ם הפעיל)' // FR-D-288: מכ"ם פעיל ומחובר
+                          : state.losCurObs == null
                           ? 'הקש על נקודת התצפית' // הוראה ללחיצה ראשונה
                           : 'הקש על נקודת היעד',  // הוראה ללחיצה שנייה
                       textAlign: TextAlign.center,
@@ -1001,7 +1005,7 @@ class _MapScreenState extends State<MapScreen> {
           // רבים ומתנגש חזותית עם ווידג'טים אחרים למטה (סרגל קנה-המידה/כרטיס מזג האוויר) — נמצא
           // בבדיקה חיה של המשתמש (צילום מסך: מספרים חתוכים, טקסט זר מציץ מבין השדות).
           Positioned(
-            top: 150,
+            top: MediaQuery.of(context).padding.top + 126, // FR-D-288: מתחת לבורר המכ"ם הגלובלי (היה 150 קבוע; זהה כשפס הסטטוס 24)
             right: 12,
             child: ConstrainedBox(
               // viewInsets.bottom = גובה המקלדת כשפתוחה (0 כשסגורה) — בלעדיו, גובה הפאנל המותר
@@ -1010,7 +1014,7 @@ class _MapScreenState extends State<MapScreen> {
               // SingleChildScrollView שמסביב מגלגל את השדה הפעיל לתוך השטח הנותר מעל המקלדת
               // (מנגנון סטנדרטי של Flutter — TextField מבקש scroll-into-view מה-Scrollable שמעליו).
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height - 150
+                maxHeight: MediaQuery.of(context).size.height - (MediaQuery.of(context).padding.top + 126) // FR-D-288: אותו top כמו למעלה
                     - MediaQuery.of(context).padding.bottom - 70
                     - MediaQuery.of(context).viewInsets.bottom,
               ),
@@ -1032,6 +1036,29 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+
+          // ── FR-D-288: בורר המכ"ם הגלובלי — תמיד גלוי, בין תג הגרסה לכפתורי Undo/Redo; אחרי עמודת הכלים כדי להיות מעליה ──
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 56,
+            left: 64, right: 104, // בין תג הגרסה (שמאל) לבין Undo/Redo (ימין)
+            child: Align(alignment: Alignment.topCenter, child: GlobalRadarBar(cs: cs)),
+          ),
+
+          // ── FR-D-288: פס המכ"ם בכלי קו הראייה (אין לכלי פאנל פרמטרים) — מיקום הצופה + "צופה נפרד" ──
+          if (state.losMode)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 126,
+              left: 12,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 240),
+                child: Material(color: cs.surface.withAlpha(235), borderRadius: BorderRadius.circular(8), elevation: 3,
+                    child: Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Directionality(textDirection: TextDirection.rtl, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          ActiveProfileBar(cs: cs, detach: 'los', notes: false), // המכ"ם הפעיל + "צופה נפרד"
+                          LosParamsForm(cs: cs), // FR-D-290: גובה בחינה, מרווח רכס וגזרה
+                        ])))),
+              ),
+            ),
 
           // ── מקראות שכבות רחפנים + הודעת כלל VLOS — עמודה אחת כדי שלא יתנגשו זו בזו ──
           // viewPadding.bottom = גובה פס הניווט הפיזי של אנדרואיד (לא רק BottomAppBar של האפליקציה) —
@@ -1882,6 +1909,9 @@ class _MapScreenState extends State<MapScreen> {
     if (state.losMode) {
       if (state.losLoading) return;  // מנע פעולה בזמן חישוב — הגנה מפני מצב מקביל
       if (state.losCurObs == null) {
+        final rt = context.read<RadarTrackController>(); // FR-D-288: מכ"ם פעיל ומחובר — הצופה הוא המכ"ם והלחיצה היא היעד
+        final so = rt.sharedObs('los'); // מיקום המכ"ם (null = ידני / צופה נפרד / לא הוצב)
+        if (so != null) { state.setLosObserver(so); state.runLos(point, radar: rt.losSnapshot()); return; } // צמד מיידי + מגבלות המכ"ם
         state.setLosObserver(point); // לחיצה ראשונה: שמור נקודת תצפית
       } else {
         state.runLos(point);         // לחיצה שנייה: חשב קו ראייה ליעד
@@ -2352,6 +2382,12 @@ class _LosProfileCard extends StatelessWidget {
             color: session.allVisible ? const Color(0xFF44CC44) : const Color(0xFFFF4444), // ירוק/אדום
           ),
         ),
+        if (session.radarLimits != null) // FR-D-288/290: מגבלות המכ"ם (טווח, גזרה, גובה בחינה, מרווח רכס) — רק כשחושבו
+          Tooltip(
+            message: session.radarLimits!, // הטקסט המלא בלחיצה ארוכה
+            child: Text(session.radarLimits!, maxLines: 2, overflow: TextOverflow.ellipsis, // עד 2 שורות כדי לא לדחוק את הגרף
+                style: TextStyle(fontSize: 8.5, color: cs.onSurfaceVariant)), // טקסט משני
+          ),
         const SizedBox(height: 3),
         // ── גרף פרופיל השטח ──
         Expanded(
@@ -2727,7 +2763,10 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     _vWidthCtrl = TextEditingController(text: _fmt(s.radialVWidthDeg));
     _refreshStations();
     _refreshSettingsPresets(); // טוען גם את רשימת "הגדרות שמורות" (בלי מיקום) עם פתיחת הפאנל
+    _seenRadialEpoch = s.radialParamsEpoch; // FR-D-288: המונה ברגע הפתיחה
   }
+
+  int _seenRadialEpoch = 0; // FR-D-288: מונה ההחלות מהמכ"ם הפעיל שכבר סונכרן לשדות
 
   Future<void> _refreshStations() async {
     final list = await widget.state.loadStations('radial_los');
@@ -2750,6 +2789,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
       'start_bearing_deg': s.radialStartBearingDeg, 'end_bearing_deg': s.radialEndBearingDeg,
       'obs_h': s.radialObsH, 'tgt_h': s.radialTgtH, 'ridge_margin_deg': s.radialRidgeMarginDeg,
       'vertical_center_deg': s.radialVCenterDeg, 'vertical_width_deg': s.radialVWidthDeg,
+      'tgt_unit': s.radialTgtUnit, 'tgt_ref': s.radialTgtRef, // FR-D-290: יחידות וייחוס גובה הבחינה (כמו בדסקטופ)
     };
     if (includePosition) {
       params['lat'] = s.radialLosObs?.latitude;
@@ -2805,6 +2845,8 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
       s.radialRidgeMarginDeg = d('ridge_margin_deg', s.radialRidgeMarginDeg);
       s.radialVCenterDeg = d('vertical_center_deg', s.radialVCenterDeg);
       s.radialVWidthDeg = d('vertical_width_deg', s.radialVWidthDeg);
+      if (params['tgt_unit'] is String) s.radialTgtUnit = params['tgt_unit'] as String; // FR-D-290: יחידות (עמדה ישנה — בלי שינוי)
+      if (params['tgt_ref'] is String) s.radialTgtRef = params['tgt_ref'] as String; // FR-D-290: ייחוס
     });
     if (params['lat'] != null && params['lon'] != null) {
       final loadedPoint = LatLng((params['lat'] as num).toDouble(), (params['lon'] as num).toDouble());
@@ -2830,6 +2872,8 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
       s.radialRidgeMarginDeg = d('ridge_margin_deg', s.radialRidgeMarginDeg);
       s.radialVCenterDeg = d('vertical_center_deg', s.radialVCenterDeg);
       s.radialVWidthDeg = d('vertical_width_deg', s.radialVWidthDeg);
+      if (params['tgt_unit'] is String) s.radialTgtUnit = params['tgt_unit'] as String; // FR-D-290: יחידות (עמדה ישנה — בלי שינוי)
+      if (params['tgt_ref'] is String) s.radialTgtRef = params['tgt_ref'] as String; // FR-D-290: ייחוס
     });
     _syncAllControllers();
   }
@@ -2988,6 +3032,10 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
     _syncIfNeeded(_rangeCtrl, widget.state.radialRangeKm);
     _syncIfNeeded(_startCtrl, widget.state.radialStartBearingDeg);
     _syncIfNeeded(_endCtrl, widget.state.radialEndBearingDeg);
+    if (widget.state.radialParamsEpoch != _seenRadialEpoch) { // FR-D-288: המכ"ם הפעיל החיל שדות — כולם משתנים
+      _seenRadialEpoch = widget.state.radialParamsEpoch; // סונכרן
+      _syncAllControllers(); // כל שדות הטקסט מה-state
+    }
   }
 
   void _syncIfNeeded(TextEditingController ctrl, double value) {
@@ -3020,7 +3068,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   }
 
   // שורת שדה בודד: תווית מימין (RTL) + תיבת קלט קטנה — תבנית אחידה לכל 10 הפרמטרים
-  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
+  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged, {bool enabled = true}) { // enabled=false: שדה סוג נעול (FR-D-288)
     final cs = widget.cs;
     // FocusNode נוצר פעם אחת בלבד לכל בקר (putIfAbsent) — לא בכל build, אחרת הפוקוס היה מתאפס בכל רינדור
     final focusNode = _fieldFocusNodes.putIfAbsent(ctrl, () {
@@ -3049,6 +3097,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
             child: TextField(
               controller: ctrl,
               focusNode: focusNode,
+              enabled: enabled, // FR-D-288: נעילה
               keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 11),
@@ -3073,6 +3122,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
   Widget build(BuildContext context) {
     final cs = widget.cs;
     final s = widget.state;
+    final lk = context.watch<RadarTrackController>().lockedFor('radial'); // FR-D-288: שדות הסוג נעולים (מכ"ם פעיל מהספרייה, לא מנותק)
 
     if (!s.radialLosMode) {
       // מצב כבוי — עיגול אייקון בלבד, כמו _CollapsibleLegend, לא חוסם את המפה
@@ -3084,7 +3134,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
           label: 'פתח כלי רדיוס ראייה רדיאלי', // F-027
           child: InkWell(
             customBorder: const CircleBorder(),
-            onTap: s.toggleRadialLosMode, // מפעיל את מצב הכלי — פותח את הפאנל המלא
+            onTap: () { s.toggleRadialLosMode(); context.read<RadarTrackController>().onToolOpened('radial'); }, // מפעיל את מצב הכלי — פותח את הפאנל המלא; FR-D-288: מחובר למכ"ם — המשקיף מוצב במיקומו
             child: Padding(
               padding: const EdgeInsets.all(12), // F-026: שטח-מגע ≥44x44 (היה 8, נותן 36x36)
               child: Icon(Icons.radar, size: 20, color: cs.onSurface),
@@ -3129,6 +3179,7 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
                 ],
               ),
               const SizedBox(height: 4),
+              ActiveProfileBar(cs: cs, detach: 'radial', notes: false), // FR-D-288: המכ"ם הפעיל + "צופה נפרד"
               if (s.radialLosObs == null)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
@@ -3136,15 +3187,29 @@ class _RadialLosPanelState extends State<_RadialLosPanel> {
                       style: TextStyle(fontSize: 10, color: cs.primary), textAlign: TextAlign.center),
                 ),
               _field('טווח (ק"מ, עד 300)', _rangeCtrl, (v) => s.radialRangeKm = v),
-              _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radialMinRangeKm = v),
+              _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radialMinRangeKm = v, enabled: !lk), // FR-D-288: מהסוג
               _field('צעד זווית (°)', _stepCtrl, (v) => s.radialAngleStepDeg = v),
               _field('אזימוט התחלה (°)', _startCtrl, (v) => s.radialStartBearingDeg = v),
               _field('אזימוט סיום (°)', _endCtrl, (v) => s.radialEndBearingDeg = v),
               _field('גובה משקיף (מ\')', _obsHCtrl, (v) => s.radialObsH = v),
-              _field('גובה יעד (מ\')', _tgtHCtrl, (v) => s.radialTgtH = v),
+              _field('גובה בחינה', _tgtHCtrl, (v) => s.radialTgtH = v), // FR-D-290: גובה בחינה — ביחידות ובייחוס שמתחת
+              Wrap(spacing: 6, children: [ // FR-D-290: יחידות + ייחוס לגובה הבחינה
+                DropdownButton<String>(value: s.radialTgtUnit, isDense: true, // יחידות: מטר / רגל / אלפי רגל
+                    items: const [DropdownMenuItem(value: 'm', child: Text('מטר', style: TextStyle(fontSize: 10))),
+                      DropdownMenuItem(value: 'ft', child: Text('רגל', style: TextStyle(fontSize: 10))),
+                      DropdownMenuItem(value: 'kft', child: Text('א"ר', style: TextStyle(fontSize: 10)))],
+                    onChanged: (v) { if (v != null) s.updateRadialLosParam(() => s.radialTgtUnit = v); }), // שמירה במצב
+                DropdownButton<String>(value: s.radialTgtRef, isDense: true, // ייחוס: מעל הקרקע / מעל פני הים
+                    items: const [DropdownMenuItem(value: 'agl', child: Text('מעל הקרקע', style: TextStyle(fontSize: 10))),
+                      DropdownMenuItem(value: 'msl', child: Text('מעל פני הים', style: TextStyle(fontSize: 10)))],
+                    onChanged: (v) { if (v != null) s.updateRadialLosParam(() => s.radialTgtRef = v); }), // שמירה במצב
+                TextButton(onPressed: () { final se = sectorFromRadar(s); // FR-D-290: גזרה מהמכ"ם — כיוון הפנים ± זווית הסריקה
+                    s.applyRadialParams(() { s.radialStartBearingDeg = se.$1; s.radialEndBearingDeg = se.$2; }); }, // applyRadialParams — מסנכרן את שדות הטקסט
+                    child: const Text('📐 גזרה מהמכ"ם', style: TextStyle(fontSize: 10))),
+              ]),
               _field('מרווח רכס (°)', _marginCtrl, (v) => s.radialRidgeMarginDeg = v),
-              _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radialVCenterDeg = v),
-              _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radialVWidthDeg = v),
+              _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radialVCenterDeg = v, enabled: !lk), // FR-D-288: מהסוג
+              _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radialVWidthDeg = v, enabled: !lk), // FR-D-288: מהסוג
 
               _header('עמדות שמורות (מיקום+הגדרות)'),
               _stationUI(),
@@ -3263,15 +3328,22 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     _headingCtrl = TextEditingController(text: _fmt(s.radarTargetHeadingDeg));
     _boresightCtrl = TextEditingController(text: _fmt(s.radarBoresightDeg));
     _maxScanCtrl = TextEditingController(text: _fmt(s.radarMaxScanDeg));
+    _seenParamsEpoch = s.radarParamsEpoch; // FR-D-286: המונה ברגע הפתיחה — שינוי שלו = נטען פרופיל מבחוץ
     _refreshStations();
     _refreshSettingsPresets(); // טוען גם את רשימת "הגדרות שמורות" (בלי מיקום) עם פתיחת הפאנל
   }
 
   String _fmt(double v) => v.toStringAsFixed(1);
 
+  int _seenParamsEpoch = 0; // FR-D-286: מונה טעינות הפרופיל שכבר סונכרן לשדות
+
   @override
   void didUpdateWidget(covariant _RadarDopplerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.state.radarParamsEpoch != _seenParamsEpoch) { // FR-D-286: נטען פרופיל (מהבורר / מכלי המעקב) — כל השדות השתנו
+      _seenParamsEpoch = widget.state.radarParamsEpoch; // סונכרן
+      _syncAllControllers(); // כל שדות הטקסט מה-state
+    }
     // גרירת ידית על המפה משנה את השדות מבחוץ — מסנכרן בלי לדרוס הקלדה פעילה (כמו ב-_RadialLosPanel)
     _syncIfNeeded(_rangeCtrl, widget.state.radarRangeKm);
     _syncIfNeeded(_startCtrl, widget.state.radarStartBearingDeg);
@@ -3340,7 +3412,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     };
   }
 
-  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged) {
+  Widget _field(String label, TextEditingController ctrl, void Function(double) onChanged, {bool enabled = true}) { // enabled=false: שדה סוג נעול (FR-D-288)
     final cs = widget.cs;
     final focusNode = _fieldFocusNodes.putIfAbsent(ctrl, () {
       final fn = FocusNode();
@@ -3367,6 +3439,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
             height: 26,
             child: TextField(
               controller: ctrl,
+              enabled: enabled, // FR-D-288: נעילה
               focusNode: focusNode,
               keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
               textAlign: TextAlign.center,
@@ -3401,7 +3474,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
     );
   }
 
-  Widget _dropdownRow<T>(String label, T value, List<T> options, List<String> labels, void Function(T) onChanged) {
+  Widget _dropdownRow<T>(String label, T value, List<T> options, List<String> labels, void Function(T) onChanged, {bool enabled = true}) { // enabled=false: נעול (FR-D-288)
     final cs = widget.cs;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1.5),
@@ -3415,7 +3488,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
             style: TextStyle(fontSize: 9, color: cs.onSurface),
             underline: const SizedBox.shrink(),
             items: [for (int i = 0; i < options.length; i++) DropdownMenuItem(value: options[i], child: Text(labels[i]))],
-            onChanged: (v) {
+            onChanged: !enabled ? null : (v) { // null = מושבת (FR-D-288)
               if (v == null || v == value) return;
               final prev = value;
               widget.state.updateRadarParam(() => onChanged(v));
@@ -3722,6 +3795,12 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
   Widget build(BuildContext context) {
     final cs = widget.cs;
     final s = widget.state;
+    final rt = context.watch<RadarTrackController>(); // FR-D-286: תווית הפרופיל שלפיו חושבה כל תוצאה
+    final lk = rt.lockedFor('radar'); // FR-D-288: שדות הסוג נעולים (מכ"ם פעיל מהספרייה)
+
+    // FR-D-286: תדר מפרופיל (למשל 5500 / 9500) שאינו ברשימה הקבועה — מתווסף כאפשרות, אחרת DropdownButton קורס
+    final freqOpts = [..._freqOptions], freqLabels = [..._freqLabels]; // עותקים
+    if (!freqOpts.contains(s.radarFreqMhz)) { freqOpts.add(s.radarFreqMhz); freqLabels.add('${s.radarFreqMhz.toStringAsFixed(0)} MHz'); } // הערך הנוכחי
 
     if (!s.radarMode) {
       // מצב כבוי — עיגול אייקון בלבד, כמו _RadialLosPanel
@@ -3779,6 +3858,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                   ],
                 ),
                 const SizedBox(height: 4),
+                ActiveProfileBar(cs: cs), // FR-D-286: בורר "פרופיל פעיל" — קובע את הפרמטרים לכל תהליכי המכ"ם
                 if (s.radarObs == null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -3787,34 +3867,34 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                   ),
                 _header('גיאומטריה'),
                 _field('טווח (ק"מ, עד 300)', _rangeCtrl, (v) => s.radarRangeKm = v),
-                _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radarMinRangeKm = v),
+                _field('טווח מינימלי (ק"מ)', _minRangeCtrl, (v) => s.radarMinRangeKm = v, enabled: !lk),
                 _field('צעד זווית (°)', _stepCtrl, (v) => s.radarAngleStepDeg = v),
                 _field('אזימוט התחלה (°)', _startCtrl, (v) => s.radarStartBearingDeg = v),
                 _field('אזימוט סיום (°)', _endCtrl, (v) => s.radarEndBearingDeg = v),
                 _field('גובה אנטנה (מ\')', _hAntCtrl, (v) => s.radarHAntenna = v),
                 _field('מרווח רכס (°)', _marginCtrl, (v) => s.radarRidgeMarginDeg = v),
-                _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radarVCenterDeg = v),
-                _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radarVWidthDeg = v),
+                _field('מרכז אלומה אנכי (°)', _vCenterCtrl, (v) => s.radarVCenterDeg = v, enabled: !lk),
+                _field('רוחב אלומה אנכי (°)', _vWidthCtrl, (v) => s.radarVWidthDeg = v, enabled: !lk),
 
                 _header('משוואת מכ"ם — טווח גילוי'),
-                _field('הספק שידור (קילוואט)', _powerCtrl, (v) => s.radarPowerKw = v),
-                _field('רווח אנטנה (dBi)', _gainCtrl, (v) => s.radarGainDbi = v),
-                _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, _freqOptions, _freqLabels, (v) => s.radarFreqMhz = v),
-                _field('רגישות מקלט (dBm)', _sensCtrl, (v) => s.radarSensitivityDbm = v),
+                _field('הספק שידור (קילוואט)', _powerCtrl, (v) => s.radarPowerKw = v, enabled: !lk),
+                _field('רווח אנטנה (dBi)', _gainCtrl, (v) => s.radarGainDbi = v, enabled: !lk),
+                _dropdownRow<double>('תדר עבודה', s.radarFreqMhz, freqOpts, freqLabels, (v) => s.radarFreqMhz = v, enabled: !lk), // FR-D-286: כולל תדר מפרופיל
+                _field('רגישות מקלט (dBm)', _sensCtrl, (v) => s.radarSensitivityDbm = v, enabled: !lk),
                 _field('שטח חתך רדארי (RCS, מ"ר)', _rcsCtrl, (v) => s.radarRcsM2 = v),
                 _rcsPresetRow(),
 
                 _header('סוג אנטנה'),
                 _dropdownRow<String>('סוג אנטנה', s.radarAntennaType, const ['generic', 'phased_array'],
-                    const ['גנרי (רווח אחיד)', 'מערך-מופעים'], (v) => s.radarAntennaType = v),
+                    const ['גנרי (רווח אחיד)', 'מערך-מופעים'], (v) => s.radarAntennaType = v, enabled: !lk),
                 if (s.radarAntennaType == 'phased_array') ...[
                   _field('כיוון-פנים (°)', _boresightCtrl, (v) => s.radarBoresightDeg = v),
-                  _field('זווית סריקה מקסימלית (°)', _maxScanCtrl, (v) => s.radarMaxScanDeg = v),
+                  _field('זווית סריקה מקסימלית (°)', _maxScanCtrl, (v) => s.radarMaxScanDeg = v, enabled: !lk),
                 ],
 
                 _header('דופלר — האם התנועה מתגלה'),
-                _field('תדר חזרת פולסים (Hz)', _prfCtrl, (v) => s.radarPrfHz = v),
-                _field('מהירות מינימלית לגילוי (קשר)', _mdvCtrl, (v) => s.radarMdvKt = v),
+                _field('תדר חזרת פולסים (Hz)', _prfCtrl, (v) => s.radarPrfHz = v, enabled: !lk),
+                _field('מהירות מינימלית לגילוי (קשר)', _mdvCtrl, (v) => s.radarMdvKt = v, enabled: !lk),
                 _field('מהירות המטרה (קשר)', _speedCtrl, (v) => s.radarTargetSpeedKt = v),
                 _field('כיוון תנועת המטרה (°)', _headingCtrl, (v) => s.radarTargetHeadingDeg = v),
 
@@ -3872,14 +3952,15 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
                         '${s.radarResult!.rangeKm.toStringAsFixed(0)} ק"מ, ${s.radarResult!.nBearings} כיוונים, '
-                        '${s.radarResult!.clearCount} מזוהים, ${s.radarResult!.dopplerBlockedRays} חסומי-דופלר',
+                        '${s.radarResult!.clearCount} מזוהים, ${s.radarResult!.dopplerBlockedRays} חסומי-דופלר'
+                        '${rt.dopplerProfileLbl.isNotEmpty ? '\n📡 ${rt.dopplerProfileLbl}' : ''}', // FR-D-286: לפי איזה פרופיל
                         style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
                       ),
                     ),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.tonal(
-                      onPressed: s.radarObs != null ? s.runRadarDoppler : null,
+                      onPressed: s.radarObs != null ? () { rt.markDopplerRun(); s.runRadarDoppler(); } : null, // FR-D-286: לוכד את הפרופיל הפעיל לפני החישוב
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF22D3EE), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
                       child: const Text('הפעל חישוב', style: TextStyle(fontSize: 11)),
@@ -3916,7 +3997,8 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                       child: Text(
                         '${s.routeEvalResult!.detectedCount} מזוהות, ${s.routeEvalResult!.dopplerBlindCount} עיוורות-דופלר, '
                         '${s.routeEvalResult!.blockedCount} חסומות, ${s.routeEvalResult!.outOfRangeCount} מחוץ-לטווח '
-                        '(מתוך ${s.routeEvalResult!.pointsTotal}) — RCS משוער: ${s.routeEvalResult!.rcsUsed.toStringAsFixed(1)} מ"ר',
+                        '(מתוך ${s.routeEvalResult!.pointsTotal}) — RCS משוער: ${s.routeEvalResult!.rcsUsed.toStringAsFixed(1)} מ"ר'
+                        '${rt.routeEvalProfileLbl.isNotEmpty ? '\n📡 ${rt.routeEvalProfileLbl}' : ''}', // FR-D-286: לפי איזה פרופיל
                         style: TextStyle(fontSize: 9.5, color: cs.onSurfaceVariant), textAlign: TextAlign.center,
                       ),
                     ),
@@ -3924,7 +4006,7 @@ class _RadarDopplerPanelState extends State<_RadarDopplerPanel> {
                     width: double.infinity,
                     child: FilledButton.tonal(
                       onPressed: (s.radarObs != null && !s.radarLoading && (s.flightData?.trail.isNotEmpty ?? false))
-                          ? s.evaluateFlightRoute : null,
+                          ? () { rt.markRouteEvalRun(); s.evaluateFlightRoute(); } : null, // FR-D-286: לוכד את הפרופיל הפעיל לפני ההערכה
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFCBA6F7), foregroundColor: Colors.black, visualDensity: VisualDensity.compact),
                       child: const Text('הערך מסלול טיסה מול המכ"ם', style: TextStyle(fontSize: 11)),
