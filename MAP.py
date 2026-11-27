@@ -540,6 +540,61 @@ def create_map(target='desktop', api_base='', output_path=None):
         var _losBtnEl   = null;   // הפניה לכפתור 👁 לצורך שינוי צבעו
         var _losObsInput = null; // שדה קלט גובה הצופה מעל הקרקע (מ')
         var _losTgtInput = null; // שדה קלט גובה היעד מעל הקרקע (מ')
+        // ── FR-D-290: גובה בחינה (מ'/רגל/א"ר, AGL/MSL) וגזרת מכ"ם לכלי קווי הראייה ──
+        var _losTgtUnitSel = null, _losTgtRefSel = null, _losStartInput = null, _losEndInput = null;  // קו ראייה נקודתי: יחידות, ייחוס, גזרה
+        var _radialTgtUnitSel = null, _radialTgtRefSel = null;  // רדיוס ראייה: יחידות וייחוס
+        var _losMarginInput = null;  // קו ראייה נקודתי: מרווח רכס (°)
+
+        function _rsHeightM(v, unit) {{ return unit === 'kft' ? v * 304.8 : (unit === 'ft' ? v * 0.3048 : v); }}  // המרה למטרים (א"ר = אלפי רגל)
+
+        function _rsHeightText(inp, unitSel, refSel) {{
+            // תיאור גובה הבחינה לתוצאה, למשל "32 א"ר (9754 מ') מעל פני הים"
+            var v = inp ? parseFloat(inp.value) : 0; if (isNaN(v)) v = 0;  // הערך
+            var u = unitSel ? unitSel.value : 'm', r = refSel ? refSel.value : 'agl';  // יחידות וייחוס
+            var lbl = {{m: " מ'", ft: ' רגל', kft: ' א"ר'}}[u] || '';  // שם היחידה
+            return v + lbl + (u !== 'm' ? ' (' + Math.round(_rsHeightM(v, u)) + " מ')" : '') + (r === 'msl' ? ' מעל פני הים' : ' מעל הקרקע');  // הטקסט
+        }}
+
+        function _rsBuildHeightRow(parent, onChange) {{
+            // שורת יחידות (מטר/רגל/א"ר) וייחוס (AGL/MSL) לגובה הבחינה
+            var row = L.DomUtil.create('div', '', parent); row.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;color:#666;flex-wrap:wrap;';  // שורה
+            function sel(opts, tip) {{  // בורר קטן
+                var s = L.DomUtil.create('select', '', row); s.title = tip; s.setAttribute('aria-label', tip); s.style.cssText = 'font-size:9px;min-height:22px;max-width:110px;';
+                opts.forEach(function(o) {{ var e = L.DomUtil.create('option', '', s); e.value = o[0]; e.textContent = o[1]; }});  // אפשרויות
+                if (onChange) L.DomEvent.on(s, 'change', onChange); return s;  // שינוי
+            }}
+            var unit = sel([['m', 'מטר'], ['ft', 'רגל'], ['kft', 'א"ר (אלפי רגל)']], 'יחידות גובה הבחינה');  // יחידות
+            var ref = sel([['agl', 'מעל הקרקע (AGL)'], ['msl', 'מעל פני הים (MSL)']], 'ייחוס: AGL עוקב אחרי השטח; MSL — גובה קבוע מעל פני הים (כמו מטוס בגובה שיוט)');  // ייחוס
+            L.DomEvent.disableClickPropagation(row);  // לא מגיע למפה
+            return {{unit: unit, ref: ref}};  // שני הבוררים
+        }}
+
+        function _rsBuildSectorButton(parent, startIn, endIn, after) {{
+            // "📐 גזרה מהמכ"ם": כיוון הפנים ± זווית הסריקה (מערך מופע), או 0–360 (אנטנה גנרית)
+            var b = L.DomUtil.create('button', '', parent); b.textContent = '📐 גזרה מהמכ"ם';  // הכפתור
+            b.title = 'ממלא את הגזרה מכיוון הפנים ± זווית הסריקה של המכ"ם (מערך מופע), או 0–360 (אנטנה גנרית)'; b.setAttribute('aria-label', b.title);  // הסבר
+            b.style.cssText = 'font-size:9px;min-height:22px;padding:1px 4px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // עיצוב
+            L.DomEvent.on(b, 'click', function(e) {{
+                L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);  // לא מגיע למפה
+                var bo = _radarBoresightInput ? (parseFloat(_radarBoresightInput.value) || 0) : 0;  // כיוון הפנים
+                var ms = _radarMaxScanInput ? (parseFloat(_radarMaxScanInput.value) || 180) : 180;  // זווית הסריקה
+                var ph = _radarAntennaSelect && _radarAntennaSelect.value === 'phased_array';  // מערך מופע?
+                startIn.value = ph ? (((bo - ms) % 360 + 360) % 360).toFixed(1) : 0;  // התחלה
+                endIn.value = ph ? (((bo + ms) % 360 + 360) % 360).toFixed(1) : 360;  // סיום
+                startIn.dispatchEvent(new Event('input')); endIn.dispatchEvent(new Event('input'));  // סנכרון (מכ"ם פעיל) ותצוגה מקדימה
+                if (after) after();  // ציור מחדש
+            }});
+            return b;  // הכפתור
+        }}
+
+        function _rsSectorSpan(start, end) {{ return ((end - start) % 360 + 360) % 360; }}  // רוחב הגזרה במעלות (0 = מעגל מלא)
+
+        function _rsInSector(brg, start, end) {{
+            // האם אזימוט בתוך הגזרה (כולל גזרה שעוברת דרך הצפון, למשל 315→45)
+            var span = _rsSectorSpan(start, end); if (span === 0) return true;  // מעגל מלא
+            return ((brg - start) % 360 + 360) % 360 <= span;  // בתוך הגזרה
+        }}
+
         var _losFieldsWrapEl = null; // מיכל שדות הגובה — מוסתר עד שהכלי נבחר (אותה חוויית משתמש כמו רדיוס-ראייה)
         // פלטת צבעים — כל סשן מקבל צבע אחר לסמניו ולכותרת גרפו
         var _losPalette = ['#4488ff','#ffaa00','#cc44ff','#00cccc','#ff4488','#88ff44'];
@@ -2052,6 +2107,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         map.on('click', function(e) {{
             var lat = e.latlng.lat.toFixed(4);
             var lon = e.latlng.lng.toFixed(4);
+            if (_rsPickClick(e.latlng)) return;  // FR-D-288: מצב "📍 מקם" של הבורר הגלובלי — הלחיצה קובעת את מיקום המכ"ם הפעיל
             if (heatmapPickerActive) {{
                 heatmapData.push([parseFloat(lat), parseFloat(lon), 1.0]);
                 heatmap.setLatLngs(heatmapData);
@@ -2067,6 +2123,13 @@ def create_map(target='desktop', api_base='', output_path=None):
             }} else if (losActive) {{
                 // losActive בודק לפני elevationActive — מצב LOS גובר על כל שכבה פעילה אחרת
                 // מצב LOS פעיל — לחיצה 1 = תצפית, לחיצה 2 = יעד + חישוב + מיד מוכן לצמד הבא
+                var _rsObs = !losCurObs ? _rsSharedObs('los') : null;  // FR-D-288: מכ"ם פעיל ומחובר — הצופה הוא המכ"ם, והלחיצה היא היעד
+                if (_rsObs) {{
+                    var _rsIdx = losSessions.length, _rsCol = _losPalette[_rsIdx % _losPalette.length];  // מספר וצבע הסשן
+                    losCurObs = _rsObs;  // נקודת התצפית = מיקום המכ"ם
+                    losCurObsMk = L.marker(_rsObs, {{icon: _losMarkerIcon(_rsCol, false), draggable: false}}).addTo(map);  // לא נגרר — מזיזים את המכ"ם עצמו
+                    losCurObsMk.bindTooltip('תצפית ' + (_rsIdx + 1) + ' (המכ"ם הפעיל)', {{permanent:false, direction:'top'}});  // הסבר
+                }}
                 if (!losCurObs) {{
                     // לחיצה ראשונה — שמירת נקודת התצפית
                     losCurObs    = e.latlng;
@@ -2091,10 +2154,18 @@ def create_map(target='desktop', api_base='', output_path=None):
                     var tgtH = _losTgtInput ? parseFloat(_losTgtInput.value) : NaN;
                     if (isNaN(obsH)) obsH = 11;
                     if (isNaN(tgtH)) tgtH = 0;
+                    var tgtTxt = _rsHeightText(_losTgtInput, _losTgtUnitSel, _losTgtRefSel);  // FR-D-290: תיאור גובה הבחינה (לפני ההמרה)
+                    tgtH = _rsHeightM(tgtH, _losTgtUnitSel ? _losTgtUnitSel.value : 'm');  // FR-D-290: המרה למטרים (מ'/רגל/א"ר)
+                    var tgtRef = _losTgtRefSel ? _losTgtRefSel.value : 'agl';  // FR-D-290: AGL / MSL
+                    var mrg = _losMarginInput ? parseFloat(_losMarginInput.value) : 0; if (isNaN(mrg)) mrg = 0;  // FR-D-290: מרווח רכס
+                    var sec = {{start: parseFloat(_losStartInput && _losStartInput.value) || 0, end: _losEndInput ? (parseFloat(_losEndInput.value)) : 360}};  // FR-D-290: גזרה
+                    if (isNaN(sec.end)) sec.end = 360;  // ריק = בלי הגבלה
                     losCurObsMk.setTooltipContent('תצפית ' + (sIdx + 1) + ' (+' + obsH + 'מ\\')');
-                    tgtMk.setTooltipContent('יעד ' + (sIdx + 1) + ' (+' + tgtH + 'מ\\')');
+                    tgtMk.setTooltipContent('יעד ' + (sIdx + 1) + ' (' + tgtTxt + ')');  // FR-D-290: גובה הבחינה ביחידות ובייחוס שנבחרו
                     // יצירת אובייקט הסשן — data=null עד שהשרת יחזיר תשובה
-                    var session = {{obsMk:losCurObsMk, tgtMk:tgtMk, lineLayers:[], data:null, color:col, idx:sIdx + 1, obsH:obsH, tgtH:tgtH}};
+                    var session = {{obsMk:losCurObsMk, tgtMk:tgtMk, lineLayers:[], data:null, color:col, idx:sIdx + 1, obsH:obsH, tgtH:tgtH,
+                                    rs: _rsLosSnapshot(),  // FR-D-288: מגבלות המכ"ם הפעיל ברגע יצירת הצמד (null = ידני / צופה נפרד)
+                                    tgtRef: tgtRef, tgtTxt: tgtTxt, margin: mrg, sec: sec}};  // FR-D-290: ייחוס, תיאור גובה, מרווח רכס, גזרה
                     losSessions.push(session);               // הוספה למערך הסשנים
                     var obsPoint = losCurObs;                 // שמירת נקודת התצפית לפני האיפוס
                     losCurObs = null; losCurObsMk = null;    // איפוס — מוכן לצמד הבא מיד
@@ -2314,11 +2385,12 @@ def create_map(target='desktop', api_base='', output_path=None):
             var url = 'http://localhost:5002/los?lat1=' + obs.lat + '&lon1=' + obs.lng +
                       '&lat2=' + tgt.lat + '&lon2=' + tgt.lng +
                       '&obs_h=' + (session.obsH != null ? session.obsH : 11) +
-                      '&tgt_h=' + (session.tgtH != null ? session.tgtH : 0);
+                      '&tgt_h=' + (session.tgtH != null ? session.tgtH : 0) +
+                      '&tgt_ref=' + (session.tgtRef || 'agl') + '&ridge_margin_deg=' + (session.margin || 0);  // FR-D-290: ייחוס גובה ומרווח רכס (ברירות המחדל = כמו קודם)
             fetch(url)
             .then(function(r) {{
-                if (!r.ok) throw new Error('HTTP ' + r.status);  // שגיאת HTTP
-                return r.json();                                   // פענוח JSON
+                // FR-D-288 (תיקון): הודעת השרת מוצגת (למשל "מכסת נתוני הגובה נוצלה") — ולא רק "HTTP 500"
+                return r.json().catch(function() {{ return {{}}; }}).then(function(d) {{ if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }});
             }}).then(function(data) {{
                 if (data.error) throw new Error(data.error);       // שגיאה מהשרת
                 session.data = data;               // שמירת נתוני התשובה באובייקט הסשן
@@ -2421,6 +2493,14 @@ def create_map(target='desktop', api_base='', output_path=None):
                 subHdr.appendChild(lbl);
                 subHdr.appendChild(rmBtn);
                 col.appendChild(subHdr);
+                var _rsLim = _rsLosLimitsText(session);  // FR-D-288: מגבלות המכ"ם (סקטור/טווח/שדה אנכי) לצמד הזה
+                if (_rsLim) {{
+                    var limEl = document.createElement('div');  // שורה מתחת לכותרת
+                    limEl.textContent = _rsLim;  // טקסט בלבד (שם מכ"ם הוא טקסט חופשי של המשתמש)
+                    limEl.style.cssText = 'font:10px Arial;color:#cdd6f4;padding:1px 6px;background:#181825;direction:rtl;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;';  // שורה אחת
+                    limEl.title = _rsLim;  // הטקסט המלא בריחוף
+                    col.appendChild(limEl);
+                }}
                 // canvas לגרף הסשן — flex:1 ממלא את שארית גובה העמודה
                 var canvas = document.createElement('canvas');
                 canvas.style.cssText = 'flex:1;width:100%;display:block;';
@@ -2679,7 +2759,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 // מיכל בסגנון חופשי (לא leaflet-bar) כדי לאפשר שילוב כפתור + שדות קלט בשורה אחת
                 var container = L.DomUtil.create('div', 'leaflet-control');
                 container.style.cssText = 'display:flex;align-items:center;gap:5px;background:white;' +
-                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:3px 6px;font-family:Arial;';
+                    'border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,0.4);padding:3px 6px;font-family:Arial;max-width:280px;';  // FR-D-288 (תיקון): רוחב מרבי — פס המכ"ם בפנים הרחיב את הכלי עד שעלה על תפריטים אחרים
 
                 var btn = L.DomUtil.create('a', '', container);
                 btn.href  = '#';           // ללא ניווט — מונע גלילה לראש הדף
@@ -2703,8 +2783,9 @@ def create_map(target='desktop', api_base='', output_path=None):
                 // כמו כלי רדיוס-הראייה הרדיאלי — אייקון בלבד קודם, פרמטרים רק אחרי בחירה מפורשת.
                 // עמודה (לא שורה כמו קודם) כדי לפנות מקום ל"עמדות שמורות" מתחת לשדות הגובה עצמם
                 var losFieldsWrap = L.DomUtil.create('div', '', container);
-                losFieldsWrap.style.cssText = 'display:none;flex-direction:column;gap:2px;';
+                losFieldsWrap.style.cssText = 'display:none;flex-direction:column;gap:2px;min-width:0;max-width:240px;';  // FR-D-288 (תיקון): לא מתרחב לפי טקסט ארוך בבורר
                 _losFieldsWrapEl = losFieldsWrap;
+                _rtBuildActiveBar(losFieldsWrap, {{detach: 'los', notes: false}});  // FR-D-288: פס המכ"ם הפעיל + "צופה נפרד" (מחובר: הלחיצה היא היעד)
 
                 var heightsRow = L.DomUtil.create('div', '', losFieldsWrap);
                 heightsRow.style.cssText = 'display:flex;align-items:center;gap:5px;';
@@ -2721,10 +2802,23 @@ def create_map(target='desktop', api_base='', output_path=None):
                     return inp;
                 }}
                 _losObsInput = _mkHeightField('צופה (מ\\')', 11, 'גובה הצופה מעל הקרקע, במטרים');
-                _losTgtInput = _mkHeightField('יעד (מ\\')',  0,  'גובה היעד מעל הקרקע, במטרים');
+                _losTgtInput = _mkHeightField('יעד', 0, 'גובה הבחינה של היעד — ביחידות ובייחוס שבשורה מתחת (FR-D-290)');
+                _losTgtInput.style.width = '48px';  // FR-D-290: מקום לערכים כמו 32 (א"ר) או 9754 (מ')
+                _losMarginInput = _mkHeightField('רכס°', 0, 'מרווח רכס (°) — שולי ביטחון מעל הרכס הגבוה; משפיע על הטווח. עם מכ"ם פעיל — של ההצבה (FR-D-290)');  // מרווח רכס
+                var _losTgtRow = _rsBuildHeightRow(losFieldsWrap, null);  // FR-D-290: יחידות (מ'/רגל/א"ר) + ייחוס (AGL/MSL)
+                _losTgtUnitSel = _losTgtRow.unit; _losTgtRefSel = _losTgtRow.ref;  // לחישוב ולשמירה
+                var _losSecRow = L.DomUtil.create('div', '', losFieldsWrap);  // FR-D-290: גזרת המכ"ם לבדיקת המגבלות
+                _losSecRow.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;color:#666;';  // שורה
+                L.DomUtil.create('span', '', _losSecRow).textContent = 'גזרה°';  // תווית
+                function _mkSecIn(v, tip) {{ var i = L.DomUtil.create('input', '', _losSecRow); i.type = 'number'; i.value = v; i.step = '1'; i.title = tip;
+                    i.setAttribute('aria-label', tip); i.style.cssText = 'width:42px;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;'; return i; }}  // שדה
+                _losStartInput = _mkSecIn(0, 'גזרה — אזימוט התחלה (°)'); L.DomUtil.create('span', '', _losSecRow).textContent = '–';
+                _losEndInput = _mkSecIn(360, 'גזרה — אזימוט סיום (°). 0–360 = בלי הגבלת גזרה');
+                _rsBuildSectorButton(_losSecRow, _losStartInput, _losEndInput, null);  // "📐 מהמכ"ם"
 
                 // "עמדה" ל-LOS = רק גובהי צופה/יעד (אין מיקום קבוע לשמור — כל שימוש מתחיל בלחיצה חדשה)
-                _buildStationUI(losFieldsWrap, 'los', {{obs_h: _losObsInput, tgt_h: _losTgtInput}}, null, null, null);
+                _buildStationUI(losFieldsWrap, 'los', {{obs_h: _losObsInput, tgt_h: _losTgtInput, tgt_unit: _losTgtUnitSel, tgt_ref: _losTgtRefSel,
+                    start_bearing_deg: _losStartInput, end_bearing_deg: _losEndInput, ridge_margin_deg: _losMarginInput}}, null, null, null);  // FR-D-290: גם יחידות, ייחוס, גזרה ומרווח רכס
 
                 L.DomEvent.disableClickPropagation(container);  // הגנה נוספת על כל ה-Control
                 L.DomEvent.disableScrollPropagation(container); // מניעת זום במפה בעת גלילה/שינוי ערך בשדה המספרי
@@ -2762,6 +2856,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 var _prevDrag = radialLosObs;  // מיקום לפני הגרירה — לצורך Undo
                 radialLosObs = radialLosObsMk.getLatLng();
                 _updateRadialLosPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
+                _rsOnObserverMoved('radial', radialLosObs);  // FR-D-288: אם מחובר למכ"ם הפעיל — המכ"ם וכל הכלים זזים איתו
                 if (!_isRestoringUndo) {{
                     _pushUndo('רדיוס ראייה: הזזת משקיף', _makeMarkerMoveRestore(
                         function(v) {{ radialLosObs = v; if (radialLosObsMk) radialLosObsMk.setLatLng(v); }},
@@ -2770,6 +2865,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 }}
             }});
             _updateRadialLosPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
+            _rsOnObserverMoved('radial', latlng);  // FR-D-288: אם מחובר למכ"ם הפעיל — המכ"ם וכל הכלים זזים איתו
             if (!_isRestoringUndo) {{
                 _pushUndo('רדיוס ראייה: מיקום משקיף', _makePlacementRestore(
                     _placeRadialLosObserver, clearRadialLosResult,
@@ -2817,6 +2913,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (which === 'start' && _radialStartInput) _radialStartInput.value = bearing.toFixed(1);
             if (which === 'end'   && _radialEndInput)   _radialEndInput.value   = bearing.toFixed(1);
             if (_radialRangeInput) _radialRangeInput.value = (distM / 1000).toFixed(2);  // מעדכן את שדה הטווח המשותף
+            _rsSyncFrom(which === 'start' ? _radialStartInput : _radialEndInput); _rsSyncFrom(_radialRangeInput);  // FR-D-288: הסקטור והטווח נשמרים במכ"ם הפעיל ובשאר הכלים
             _updateRadialLosPreview();  // מצייר מחדש את שני הקווים ברדיוס החדש + הזוויות המעודכנות
         }}
 
@@ -2841,17 +2938,21 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (isNaN(endDeg))     endDeg = 45;
             if (isNaN(obsH))       obsH = 11;
             if (isNaN(tgtH))       tgtH = 0;
+            tgtH = _rsHeightM(tgtH, _radialTgtUnitSel ? _radialTgtUnitSel.value : 'm');  // FR-D-290: המרה למטרים (מ'/רגל/א"ר)
+            var tgtRef = _radialTgtRefSel ? _radialTgtRefSel.value : 'agl';  // FR-D-290: AGL / MSL
             if (isNaN(marginDeg))  marginDeg = 0;
             if (isNaN(vCenter))    vCenter = 0;
             if (isNaN(vWidth))     vWidth = 4;
             radialLosLoading = true;
+            _radialRunLbl = (_rs && _rs.detached.radial) ? 'צופה נפרד (לא לפי מכ"ם)' : _rtActiveLabel();  // FR-D-288: לפי איזה מכ"ם חושב — נלכד בתחילת החישוב
+            _radialRunLbl += ' · גובה בחינה ' + _rsHeightText(_radialTgtInput, _radialTgtUnitSel, _radialTgtRefSel);  // FR-D-290: באיזה גובה נבדק
             document.title = '__radial_los_loading__';  // איתות ל-Python — שורת לוג
             if (radialLosInfoEl) radialLosInfoEl.textContent = 'מתחיל חישוב…';
             if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'block';  // מציג את כפתור הביטול רק בזמן ריצה
             var url = 'http://localhost:5002/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
-                      '&obs_h=' + obsH + '&tgt_h=' + tgtH + '&ridge_margin_deg=' + marginDeg +
+                      '&obs_h=' + obsH + '&tgt_h=' + tgtH + '&tgt_ref=' + tgtRef + '&ridge_margin_deg=' + marginDeg +  // tgt_ref — FR-D-290
                       '&vertical_center_deg=' + vCenter + '&vertical_width_deg=' + vWidth;
             fetch(url)
             .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
@@ -2868,6 +2969,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 alert('שגיאה בהפעלת חישוב רדיוס ראייה: ' + err.message);
             }});
         }}
+
+        var _radialRunLbl = '';  // FR-D-288: תווית המכ"ם שהיה פעיל בתחילת חישוב רדיוס הראייה האחרון
 
         function _pollRadialLosStatus() {{
             // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
@@ -2891,9 +2994,12 @@ def create_map(target='desktop', api_base='', output_path=None):
                 if (data.status === 'done') {{
                     document.title = '__radial_los_loaded__';
                     _drawRadialLosPolygon(data.result);
-                    if (radialLosInfoEl) radialLosInfoEl.textContent =
-                        data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
-                        data.result.clear_count + ' פנויים לגמרי';
+                    if (radialLosInfoEl) {{
+                        radialLosInfoEl.textContent =
+                            data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                            data.result.clear_count + ' פנויים לגמרי' + '\\n📡 ' + _radialRunLbl;  // FR-D-288: לפי איזה מכ"ם (שורה נפרדת)
+                        radialLosInfoEl.style.whiteSpace = 'pre-line';  // מכבד את מעבר השורה
+                    }}
                 }} else if (data.status === 'error') {{
                     document.title = '__radial_los_error__';
                     if (radialLosInfoEl) radialLosInfoEl.textContent = '';
@@ -3006,6 +3112,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             }}
             if (!radialLosActive) {{
                 clearRadialLosResult();  // כיבוי הכלי מנקה גם משקיף/תצוגה מקדימה/תוצאה — לא נשאר "יתום" על המפה
+            }} else {{
+                _rsOnToolOpened('radial');  // FR-D-288: מחובר למכ"ם הפעיל — המשקיף מוצב מיד במיקום המכ"ם
             }}
         }}
 
@@ -3039,6 +3147,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 panelBody.style.cssText = 'display:none;flex-direction:column;gap:3px;overflow-y:auto;';  // overflow — נוסף בתיקון התאמת הגובה (26/11/2026)
                 _radialPanelBodyEl = panelBody;
                 _fitPanelEls.push(panelBody);  // הגובה המרבי מותאם למקום שנשאר מתחת לפאנל
+                _rtBuildActiveBar(panelBody, {{detach: 'radial', notes: false}});  // FR-D-288: פס המכ"ם הפעיל + "צופה נפרד"
 
                 function _mkField(labelText, defaultVal, step, minV, maxV, tip) {{
                     // בונה שדה קלט מספרי בודד עם תווית — כל שדה מעדכן את התצוגה המקדימה בעת עריכה (דו-כיווני מול הגרירה)
@@ -3061,7 +3170,10 @@ def create_map(target='desktop', api_base='', output_path=None):
                 _radialStartInput    = _mkField('אזימוט התחלה (°)',    315, 1,   0,   360, 'ניתן לגרור גם על המפה');
                 _radialEndInput      = _mkField('אזימוט סיום (°)',     45,  1,   0,   360, 'ניתן לגרור גם על המפה');
                 _radialObsInput      = _mkField('גובה צופה (מ\\')',     11,  1,   0,   500, 'גובה המשקיף מעל הקרקע');
-                _radialTgtInput      = _mkField('גובה יעד (מ\\')',       0,  1,   0,   500, 'גובה עצם/מכשול הנבדק לאורך כל קרן');
+                _radialTgtInput      = _mkField('גובה בחינה',           0,  1,   0,   100000, 'גובה המטרה הנבדק לאורך כל קרן — ביחידות ובייחוס שנבחרו בשורה מתחת (FR-D-290)');
+                var _radialTgtRow = _rsBuildHeightRow(panelBody, function() {{ _updateRadialLosPreview(); }});  // FR-D-290: יחידות (מ'/רגל/א"ר) + ייחוס (AGL/MSL)
+                _radialTgtUnitSel = _radialTgtRow.unit; _radialTgtRefSel = _radialTgtRow.ref;  // לחישוב ולשמירה
+                _rsBuildSectorButton(panelBody, _radialStartInput, _radialEndInput, _updateRadialLosPreview);  // FR-D-290: "📐 גזרה מהמכ"ם"
                 _radialMarginInput   = _mkField('מרווח רכס (°)',        0,  0.5, 0,   10,  'שולי ביטחון מעל הרכס הגבוה ביותר שנצפה');
                 _radialVCenterInput  = _mkField('מרכז אלומה אנכי (°)',  0,  0.5, -45, 45,  'זווית עילוי/הטיה מרכזית (0=אופקי) — שדה-ראייה של "מכ"ם" רעיוני, לא כלי אמיתי');
                 _radialVWidthInput   = _mkField('רוחב אלומה אנכי (°)',  4,  0.5, 1,   90,  'רוחב שדה-הראייה האנכי הכולל סביב המרכז — מוגבל בכוונה, לא כל טווח הגובה נבדק');
@@ -3072,6 +3184,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                     start_bearing_deg: _radialStartInput, end_bearing_deg: _radialEndInput,
                     obs_h: _radialObsInput, tgt_h: _radialTgtInput, ridge_margin_deg: _radialMarginInput,
                     vertical_center_deg: _radialVCenterInput, vertical_width_deg: _radialVWidthInput,
+                    tgt_unit: _radialTgtUnitSel, tgt_ref: _radialTgtRefSel,  // FR-D-290: יחידות וייחוס גובה הבחינה
                 }};
                 _buildStationUI(panelBody, 'radial_los', _radialFieldMap,
                     function() {{ return radialLosObs; }}, _placeRadialLosObserver, _updateRadialLosPreview,
@@ -3137,6 +3250,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 radarObs = radarObsMk.getLatLng();
                 _updateRadarDopplerPreview();  // רק מעדכן תצוגה מקדימה — לא מריץ חישוב אוטומטית
                 _radarTrackOnRadarMoved();  // בדיקת מעקב מכ"ם (אם מוצגת) רצה מחדש מהמיקום החדש — FR-D-261 שלב א1
+                _rsOnObserverMoved('radar', radarObs);  // FR-D-288: מיקום המכ"ם הפעיל מתעדכן, ושאר הכלים זזים איתו
                 if (!_isRestoringUndo) {{
                     _pushUndo('מכ"ם דופלר: הזזת משקיף', _makeMarkerMoveRestore(
                         function(v) {{ radarObs = v; if (radarObsMk) radarObsMk.setLatLng(v); }},
@@ -3146,6 +3260,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             }});
             _updateRadarDopplerPreview();  // מציג תצוגה מקדימה מיידית (מהשדות הנוכחיים) — לא מפעיל חישוב
             _radarTrackOnRadarMoved();  // מכ"ם הוצב מחדש — בדיקת מעקב מכ"ם (אם מוצגת) רצה מחדש מהמיקום החדש
+            _rsOnObserverMoved('radar', latlng);  // FR-D-288: מיקום המכ"ם הפעיל מתעדכן, ושאר הכלים זזים איתו
             if (!_isRestoringUndo) {{
                 _pushUndo('מכ"ם דופלר: מיקום משקיף', _makePlacementRestore(
                     _placeRadarObserver, clearRadarDopplerResult,
@@ -3192,6 +3307,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (which === 'start' && _radarStartInput) _radarStartInput.value = bearing.toFixed(1);
             if (which === 'end'   && _radarEndInput)   _radarEndInput.value   = bearing.toFixed(1);
             if (_radarRangeInput) _radarRangeInput.value = (distM / 1000).toFixed(2);
+            _rsSyncFrom(which === 'start' ? _radarStartInput : _radarEndInput); _rsSyncFrom(_radarRangeInput);  // FR-D-288: הסקטור והטווח נשמרים במכ"ם הפעיל ובשאר הכלים
             _updateRadarDopplerPreview();
         }}
 
@@ -3992,6 +4108,10 @@ def create_map(target='desktop', api_base='', output_path=None):
             var doc;  // התוכן
             try {{ doc = JSON.parse(text); }} catch (e) {{ return 'הקובץ אינו JSON תקין'; }}  // פענוח
             if (!doc || doc.format !== 'maps-gui-radar-profile' || !doc.params) return 'זה לא קובץ פרופיל מכ"ם של maps-gui';  // סוג הקובץ
+            if (typeof _rsActiveSite === 'function' && _rsActiveSite()) {{  // FR-D-288: יש מכ"ם פעיל — לא דורסים את שדותיו; הפרופיל נוסף כסוג ונוצר ממנו מכ"ם
+                _rsImport(text, function(m) {{ _rsMsg(m); }}, '');  // אותו ייבוא כמו בבורר הגלובלי
+                return 'הפרופיל נוסף כסוג ב"הפרופילים שלי" ונוצר ממנו מכ"ם מוצב (ר\\' הבורר העליון)';  // הודעה
+            }}
             var n = _rtApplyParams(doc.params);  // FR-D-286: אותה החלה כמו בבורר הפרופיל הפעיל
             if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה מעודכנת
             _rtRefreshActiveStatus();  // FR-D-286: הייבוא משנה שדות — הבורר יציג "שונה ידנית" אם היה פרופיל פעיל
@@ -4019,41 +4139,28 @@ def create_map(target='desktop', api_base='', output_path=None):
             return n;  // FR-D-286: מספר השדות שהוחלו — ההודעה והתצוגה המקדימה אצל הקורא
         }}
 
-        // ── FR-D-286: פרופיל פעיל — בורר אחד שקובע לפי איזה פרופיל ירוצו כל תהליכי המכ"ם ──
-        // התהליכים: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח ומפת חום — כולם קוראים מאותם שדות,
-        // ולכן בחירה בבורר = טעינת הפרופיל לשדות. כל תוצאה מסומנת בשם הפרופיל שהיה פעיל כשהתהליך התחיל.
-        var _rtLib = [];  // הספרייה המובנית (radar-profiles/, לקריאה בלבד): [{{name, file, params, notes}}]
-        var _rtMyProfiles = [];  // הפרופילים שהמשתמש שמר (radar_profile בעמדות השמורות): [{{name, params}}]
-        var _rtActive = {{key: '', name: null, snap: null, notes: null, lib: false}};  // הפרופיל הפעיל ותמונת השדות ברגע הטעינה
-        var _rtActiveBars = [];  // כל מופעי הבורר (פאנל המכ"ם + טאב המעקב) — מסונכרנים
+        // ── FR-D-288: מכ"מים מוצבים — מכ"ם פעיל אחד שכל הכלים עובדים עליו (מחליף את "פרופיל פעיל" של FR-D-286) ──
+        // סוג מכ"ם = פרופיל (ספרייה מובנית / הפרופילים שלי). מכ"ם מוצב = סוג + פרמטרים של הצבה: מיקום, כיוון פנים, גובה אנטנה,
+        // סקטור, טווח, משטח מחזיר וריבוד. נתוני המטרה (RCS, גובה יעד, מהירות) נשארים בכל כלי ולא נדרסים.
+        // שדות הסוג נעולים כשהסוג מהספרייה ("⧉ שכפל לעריכה" יוצר עותק פתוח ב"הפרופילים שלי"). מיקום משותף לכל הכלים,
+        // ורדיוס הראייה וקו הראייה יכולים להתנתק ("צופה נפרד"). "ללא מכ"ם (ידני)" = התנהגות הכלים כמו קודם.
+        var _rtLib = [];  // סוגי מכ"ם מהספרייה המובנית (radar-profiles/, לקריאה בלבד): [{{name, file, params, notes}}]
+        var _rtMyProfiles = [];  // סוגי מכ"ם של המשתמש (radar_profile בעמדות השמורות): [{{name, params}}]
         var _rtLibRequested = false;  // הספרייה נטענת מהשרת פעם אחת
-        var _RT_SITE_KEYS = ['boresight_deg'];  // שדות של האתר ולא של המכ"ם: הבורר לא דורס אותם ולא נחשבים "שינוי ידני"
-
-        function _rtFieldValue(el) {{ return el.type === 'checkbox' ? String(el.checked) : String(el.value); }}  // ערך שדה כטקסט, להשוואה
-
-        function _rtSnapshot() {{
-            // תמונת שדות הפרופיל כרגע (בלי שדות האתר) — לזיהוי "שונה ידנית"
-            var m = _rtBuildProfileFieldMap(), s = {{}};  // השדות שקיימים
-            Object.keys(m).forEach(function(k) {{ if (_RT_SITE_KEYS.indexOf(k) < 0) s[k] = _rtFieldValue(m[k]); }});  // כל שדה חוץ משדות האתר
-            return s;  // התמונה
-        }}
-
-        function _rtActiveModified() {{
-            // האם שדה כלשהו השתנה מאז שהפרופיל הפעיל נטען
-            if (!_rtActive.snap) return false;  // אין פרופיל פעיל
-            var now = _rtSnapshot();  // המצב הנוכחי
-            return Object.keys(_rtActive.snap).some(function(k) {{ return now[k] !== undefined && now[k] !== _rtActive.snap[k]; }});  // שדה ששונה
-        }}
-
-        function _rtActiveLabel() {{
-            // התווית שנכתבת על כל תוצאה: שם הפרופיל הפעיל, ו"שונה ידנית" אם שדה השתנה אחרי הטעינה
-            if (!_rtActive.name) return 'פרופיל: ידני (ללא פרופיל)';  // אין פרופיל
-            return 'פרופיל: ' + _rtActive.name + (_rtActiveModified() ? ' (שונה ידנית)' : '');  // שם + מצב
-        }}
+        var _rtActiveBars = _rtActiveBars || [];  // כל הפסים המסונכרנים — "|| []" כי כלי LOS ורדיוס הראייה נבנים לפני השורה הזו ורושמים פסים מוקדם
+        // שדות שמגיעים מסוג המכ"ם (נעולים לסוג מהספרייה)
+        var _RT_TYPE_KEYS = ['min_range_km', 'vertical_center_deg', 'vertical_width_deg', 'power_kw', 'gain_dbi', 'freq_mhz', 'sensitivity_dbm',
+                             'prf_hz', 'mdv_kt', 'antenna_type', 'max_scan_deg', 'scan_mode', 'rot_period_s', 'revisit_s', 'track_rate_hz',
+                             'max_ang_rate_dps', 'cue_delay_s', 'track_m', 'track_n', 'coast_s'];
+        // שדות של ההצבה (נשמרים עם המכ"ם המוצב, מסונכרנים בין הכלים, ניתנים לעריכה)
+        var _RT_SITE_KEYS = ['boresight_deg', 'h_antenna', 'start_bearing_deg', 'end_bearing_deg', 'angle_step_deg', 'range_km',
+                             'reflectivity', 'lobing_enabled', 'ridge_margin_deg'];
+        var _rs = {{sites: [], active: '', detached: {{los: false, radial: false}}, applying: false, saveTimer: null, typeSaveTimer: null,
+                   pick: false, global: null, editing: null}};  // מצב המכ"מים המוצבים
 
         function _rtNotesText(n) {{
-            // טקסט המקורות של פרופיל מהספרייה: מה פורסם (עם הקישור) ומה הונח. קישורים כטקסט ולא כ-<a> — לחיצה
-            // על קישור בתוך QtWebEngine הייתה מעבירה את כל המפה לאתר אחר
+            // טקסט המקורות של סוג מהספרייה: מה פורסם (עם הקישור) ומה הונח. קישורים כטקסט ולא כ-<a> — לחיצה על קישור
+            // בתוך QtWebEngine הייתה מעבירה את כל המפה לאתר אחר
             var lines = [];  // השורות
             if (n.system) lines.push(n.system);  // תיאור המערכת
             if (n.published) {{ lines.push('', 'פורסם:'); Object.keys(n.published).forEach(function(k) {{ lines.push('• ' + k, '   ' + n.published[k]); }}); }}  // נתון + מקור
@@ -4061,104 +4168,499 @@ def create_map(target='desktop', api_base='', output_path=None):
             return lines.join('\\n');  // הטקסט
         }}
 
-        function _rtFillActiveSelect(bar) {{
-            // ממלא בורר אחד: "ידני", הספרייה המובנית, והפרופילים שלי — ומסמן את הפעיל
-            var sel = bar.sel; sel.innerHTML = '';  // ניקוי
-            var o0 = L.DomUtil.create('option', '', sel); o0.value = ''; o0.textContent = '— ידני (השדות כפי שהם) —';  // בלי פרופיל
-            if (_rtLib.length) {{  // יש ספרייה
-                var g1 = L.DomUtil.create('optgroup', '', sel); g1.label = 'ספרייה מובנית — נתונים פומביים (לקריאה בלבד)';  // קבוצה
-                _rtLib.forEach(function(p, i) {{ var o = L.DomUtil.create('option', '', g1); o.value = 'lib:' + i; o.textContent = p.name; }});  // כל פרופיל
+        function _rsAdd(m, k, el) {{ if (el) (m[k] = m[k] || []).push(el); }}  // מוסיף אלמנט לרשימת השדות של מפתח
+
+        function _rsTypeFields(all) {{
+            // שדות הסוג בכל הכלים: מפתח -> [אלמנטים]. all=true כולל גם כלים מנותקים (לחיבור מאזינים)
+            var m = {{}}, pf = _rtBuildProfileFieldMap();  // שדות המכ"ם, הסריקה וה-RCS
+            _RT_TYPE_KEYS.forEach(function(k) {{ _rsAdd(m, k, pf[k]); }});  // פאנל הדופלר + טאב המעקב
+            if (all || !_rs.detached.radial) {{  // רדיוס הראייה — רק כשמחובר למכ"ם
+                _rsAdd(m, 'min_range_km', _radialMinRangeInput); _rsAdd(m, 'vertical_center_deg', _radialVCenterInput);
+                _rsAdd(m, 'vertical_width_deg', _radialVWidthInput);
             }}
-            if (_rtMyProfiles.length) {{  // יש פרופילים שמורים
-                var g2 = L.DomUtil.create('optgroup', '', sel); g2.label = 'הפרופילים שלי';  // קבוצה
-                _rtMyProfiles.forEach(function(p) {{ var o = L.DomUtil.create('option', '', g2); o.value = 'my:' + p.name; o.textContent = p.name; }});  // כל פרופיל
+            return m;  // המפה
+        }}
+
+        function _rsSiteFields(all) {{
+            // שדות ההצבה בכל הכלים: מפתח -> [אלמנטים]
+            var m = {{}}, rad = all || !_rs.detached.radial, los = all || !_rs.detached.los;  // אילו כלים מחוברים
+            _rsAdd(m, 'h_antenna', _radarHAntInput); if (rad) _rsAdd(m, 'h_antenna', _radialObsInput); if (los) _rsAdd(m, 'h_antenna', _losObsInput);  // גובה אנטנה = גובה צופה
+            _rsAdd(m, 'start_bearing_deg', _radarStartInput); if (rad) _rsAdd(m, 'start_bearing_deg', _radialStartInput);  // סקטור
+            _rsAdd(m, 'end_bearing_deg', _radarEndInput); if (rad) _rsAdd(m, 'end_bearing_deg', _radialEndInput);
+            _rsAdd(m, 'angle_step_deg', _radarStepInput); if (rad) _rsAdd(m, 'angle_step_deg', _radialStepInput);
+            _rsAdd(m, 'range_km', _radarRangeInput); if (rad) _rsAdd(m, 'range_km', _radialRangeInput);  // טווח הבדיקה
+            _rsAdd(m, 'ridge_margin_deg', _radarMarginInput); if (rad) _rsAdd(m, 'ridge_margin_deg', _radialMarginInput); if (los) _rsAdd(m, 'ridge_margin_deg', _losMarginInput);  // מרווח רכס — גם בקו הראייה (FR-D-290)
+            if (los) {{ _rsAdd(m, 'start_bearing_deg', _losStartInput); _rsAdd(m, 'end_bearing_deg', _losEndInput); }}  // FR-D-290: גזרת המכ"ם גם בקו הראייה הנקודתי
+            _rsAdd(m, 'boresight_deg', _radarBoresightInput); _rsAdd(m, 'reflectivity', _radarReflSelect); _rsAdd(m, 'lobing_enabled', _radarLobingCheck);
+            return m;  // המפה
+        }}
+
+        function _rsGet(el) {{ return el.type === 'checkbox' ? el.checked : el.value; }}  // ערך שדה
+
+        function _rsVal(el) {{ var v = _rsGet(el); return (el.type === 'number' && !isNaN(parseFloat(v))) ? parseFloat(v) : v; }}  // ערך לשמירה (מספר כמספר)
+
+        function _rsSet(el, v) {{
+            // כותב ערך לשדה; תדר שאינו ברשימה מתווסף כאפשרות (כמו בייבוא פרופיל)
+            if (el.type === 'checkbox') {{ el.checked = (v === true || v === 'true'); return; }}  // תיבה
+            if (el.tagName === 'SELECT' && !Array.from(el.options).some(function(o) {{ return o.value === String(v); }})) {{  // לא ברשימה
+                var o = document.createElement('option'); o.value = String(v); o.textContent = v + (el === _radarFreqSelect ? ' MHz' : ''); el.appendChild(o);  // מתווסף
             }}
-            sel.value = _rtActive.key || '';  // הפעיל
-            if (sel.value !== (_rtActive.key || '')) sel.value = '';  // הפעיל נמחק מהרשימה — מציגים "ידני" (השדות נשארים כמו שהם)
+            el.value = v;  // הערך
         }}
 
-        function _rtLoadLibrary() {{
-            // טוען את הספרייה המובנית מהשרת פעם אחת, וממלא את כל הבוררים
-            if (_rtLibRequested) return; _rtLibRequested = true;  // פעם אחת
-            fetch('http://localhost:5002/radar_profiles/library').then(function(r) {{ return r.json(); }})
-            .then(function(d) {{ _rtLib = d.profiles || []; _rtActiveBars.forEach(_rtFillActiveSelect); }})  // מילוי
-            .catch(function() {{ _rtLibRequested = false; }});  // כשל רשת — ינסה שוב בבניית הבורר הבא
-        }}
-
-        function _rtOnMyProfilesChanged(stations) {{
-            // נקרא מ-_buildStationUI בכל רענון של רשימת radar_profile (בנייה, שמירה, מחיקה) — הבורר מתעדכן איתה
-            _rtMyProfiles = stations || [];  // הרשימה
-            _rtActiveBars.forEach(_rtFillActiveSelect);  // מילוי מחדש
-            _rtRefreshActiveStatus();  // מצב
-        }}
-
-        function _rtSetActive(key) {{
-            // בחירה בבורר: טוען את הפרופיל לשדות (בלי שדות האתר) והופך אותו לפעיל; "" = ידני, השדות לא משתנים
-            if (!key) {{ _rtActive = {{key: '', name: null, snap: null, notes: null, lib: false}}; }}  // ידני
-            else {{
-                var lib = key.indexOf('lib:') === 0;  // מהספרייה או שלי
-                var p = lib ? _rtLib[parseInt(key.substr(4), 10)] : _rtMyProfiles.filter(function(s) {{ return 'my:' + s.name === key; }})[0];  // הפרופיל
-                if (!p) return;  // לא נמצא
-                var params = Object.assign({{}}, p.params);  // עותק — לא משנים את הרשימה
-                _RT_SITE_KEYS.forEach(function(k) {{ delete params[k]; }});  // כיוון הפנים נשאר כמו שכוון לאיום
-                _rtApplyParams(params);  // החלה על השדות
-                _rtActive = {{key: key, name: p.name, snap: _rtSnapshot(), notes: p.notes || null, lib: lib}};  // הפעיל, ותמונת השדות אחרי הטעינה
-            }}
-            _rtActiveBars.forEach(function(b) {{ b.sel.value = _rtActive.key; }});  // סנכרון כל הבוררים
-            _rtRefreshActiveStatus();  // מצב
-            if (radarObs) _updateRadarDopplerPreview();  // תצוגה מקדימה לפי הפרמטרים החדשים
-        }}
-
-        function _rtRefreshActiveStatus() {{
-            // שורת המצב מתחת לכל בורר: פעיל / שונה ידנית / ידני, ואזור המקורות לפרופיל מהספרייה
-            var mod = _rtActiveModified();  // שונה ידנית?
-            _rtActiveBars.forEach(function(b) {{  // כל בורר
-                if (!_rtActive.name) {{  // ידני
-                    b.status.textContent = 'ידני: התהליכים ירוצו לפי השדות כפי שהוזנו.'; b.status.style.color = '#555';  // הסבר
-                    b.src.style.display = 'none'; return;  // אין מקורות
-                }}
-                b.status.textContent = mod ? '✎ ' + _rtActive.name + ' — שונה ידנית אחרי הטעינה' : '✔ ' + _rtActive.name + ' — פעיל בכל תהליכי המכ"ם';  // מצב, עם סימן ולא רק צבע
-                b.status.style.color = mod ? '#9a5b00' : '#15803d';  // כתום-כהה / ירוק-כהה — ניגודיות טובה על רקע בהיר
-                var n = _rtActive.notes;  // המקורות
-                if (n && (n.published || n.assumed_not_published)) {{ b.src.style.display = 'block'; b.srcBody.textContent = _rtNotesText(n); }}  // מציגים
-                else b.src.style.display = 'none';  // פרופיל שלי — אין מקורות
+        function _rsApplyToFields(m, params) {{
+            // מחיל ערכים על שדות; בחירות ותיבות מפעילות change (הצגת שדות תלויים, למשל מערך מופע)
+            Object.keys(m).forEach(function(k) {{
+                if (params[k] === undefined || params[k] === null || params[k] === '') return;  // אין ערך — לא נוגעים
+                m[k].forEach(function(el) {{ _rsSet(el, params[k]); if (el.tagName === 'SELECT' || el.type === 'checkbox') el.dispatchEvent(new Event('change')); }});
             }});
+        }}
+
+        function _rsTypeOf(key) {{
+            // סוג מכ"ם לפי מפתח: 'lib:<קובץ>' (יציב גם אם הספרייה ממוינת אחרת) או 'my:<שם>'
+            if (!key) return null;  // אין
+            if (key.indexOf('lib:') === 0) {{  // מהספרייה
+                var f = key.substr(4), p = _rtLib.filter(function(x) {{ return x.file === f; }})[0];
+                return p ? {{key: key, name: p.name, params: p.params, notes: p.notes, lib: true}} : null;
+            }}
+            if (key.indexOf('my:') === 0) {{  // שלי
+                var n = key.substr(3), q = _rtMyProfiles.filter(function(x) {{ return x.name === n; }})[0];
+                return q ? {{key: key, name: q.name, params: q.params, notes: null, lib: false}} : null;
+            }}
+            return null;  // לא מוכר
+        }}
+
+        function _rsActiveSite() {{ var a = _rs.active; return _rs.sites.filter(function(s) {{ return s.name === a; }})[0] || null; }}  // המכ"ם הפעיל
+
+        function _rsTypeName(site) {{ var t = _rsTypeOf(site.params.type_key); return t ? t.name : (site.params.type_name || '?'); }}  // שם הסוג לתצוגה
+
+        function _rtActiveLabel() {{
+            // התווית שנכתבת על כל תוצאה: המכ"ם הפעיל וסוגו, או "ידני"
+            var s = _rsActiveSite();  // הפעיל
+            return s ? 'מכ"ם: ' + s.name + ' (' + _rsTypeName(s) + ')' : 'מכ"ם: ידני (ללא מכ"ם)';  // התווית
+        }}
+
+        function _rsSaveSite(site) {{
+            // שמירת מכ"ם מוצב לשרת (אותו מנגנון "עמדות שמורות", מפתח radar_sites)
+            return fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{tool: 'radar_sites', name: site.name, params: site.params}})}}).catch(function() {{}});
+        }}
+
+        function _rsSaveSoon() {{ clearTimeout(_rs.saveTimer); _rs.saveTimer = setTimeout(function() {{ var s = _rsActiveSite(); if (s) _rsSaveSite(s); }}, 600); }}  // שמירה מושהית (בזמן הקלדה/גרירה)
+
+        function _rsLoadSites(then) {{
+            // טוען את רשימת המכ"מים המוצבים מהשרת
+            fetch('http://localhost:5002/stations/list?tool=radar_sites').then(function(r) {{ return r.json(); }})
+            .then(function(d) {{ _rs.sites = d.stations || []; if (then) then(); _rsRefreshBars(); }})
+            .catch(function() {{}});
+        }}
+
+        function _rsApplyLock() {{
+            // נעילת שדות הסוג כשהמכ"ם הפעיל מסוג מהספרייה; כל השאר פתוחים
+            document.querySelectorAll('[data-rs-locked]').forEach(function(el) {{ el.disabled = false; el.removeAttribute('data-rs-locked'); }});  // שחרור קודם
+            var s = _rsActiveSite(), t = s ? _rsTypeOf(s.params.type_key) : null;  // הפעיל וסוגו
+            if (!(t && t.lib)) return;  // ידני / סוג שלי — פתוח
+            var tf = _rsTypeFields(false);  // רק כלים מחוברים
+            Object.keys(tf).forEach(function(k) {{ tf[k].forEach(function(el) {{ el.disabled = true; el.setAttribute('data-rs-locked', '1'); }}); }});  // נעילה
+        }}
+
+        function _rsMoveObservers(ll, source) {{
+            // מיקום משותף: מזיז את המכ"ם (דופלר + מעקב) ואת רדיוס הראייה אם מחובר ופתוח. source = הכלי שממנו הגיע השינוי
+            _rs.applying = true;  // מונע לולאת עדכונים
+            try {{
+                if (source !== 'radar' && (!radarObs || !radarObs.equals(ll))) _placeRadarObserver(ll);  // המכ"ם
+                if (source !== 'radial' && !_rs.detached.radial && radialLosActive && (!radialLosObs || !radialLosObs.equals(ll))) _placeRadialLosObserver(ll);  // רדיוס הראייה
+            }} finally {{ _rs.applying = false; }}
+        }}
+
+        function _rsOnObserverMoved(source, ll) {{
+            // נקרא מהכלים אחרי הצבה/גרירה של הצופה: מעדכן את מיקום המכ"ם הפעיל ומזיז את שאר הכלים
+            if (_rs.applying || !ll) return;  // שינוי שאנחנו עצמנו גרמנו לו
+            if (source === 'radial' && _rs.detached.radial) return;  // רדיוס ראייה מנותק — עצמאי
+            var s = _rsActiveSite(); if (!s) return;  // ידני — הכלים עצמאיים כמו קודם
+            s.params.lat = ll.lat; s.params.lon = ll.lng; _rsSaveSoon();  // המיקום החדש
+            _rsMoveObservers(ll, source); _rsRefreshBars();  // שאר הכלים + תצוגה
+        }}
+
+        function _rsOnToolOpened(tool) {{
+            // כלי נפתח: אם מחובר למכ"ם פעיל עם מיקום — הצופה שלו מוצב במיקום המכ"ם
+            var ll = _rsSharedObs(tool); if (!ll) return;  // מנותק / ידני / בלי מיקום
+            if (tool === 'radial' && (!radialLosObs || !radialLosObs.equals(ll))) {{ _rs.applying = true; try {{ _placeRadialLosObserver(ll); }} finally {{ _rs.applying = false; }} }}
+        }}
+
+        function _rsSharedObs(tool) {{
+            // מיקום הצופה המשותף לכלי (null = ידני / מנותק / המכ"ם עוד לא הוצב)
+            var s = _rsActiveSite(); if (!s || _rs.detached[tool] || s.params.lat == null || s.params.lon == null) return null;
+            return L.latLng(s.params.lat, s.params.lon);  // המיקום
+        }}
+
+        function _rsSyncFrom(el) {{
+            // שדה השתנה בכלי — אם הוא שדה הצבה: לעדכן את המכ"ם הפעיל ואת אותו שדה בשאר הכלים; אם שדה סוג "שלי" — לשמור לפרופיל
+            if (_rs.applying || !el) return;  // שינוי פנימי
+            var s = _rsActiveSite(); if (!s) return;  // ידני
+            var sf = _rsSiteFields(false), tf = _rsTypeFields(false), v = _rsVal(el), hit = false;  // שדות מחוברים והערך
+            Object.keys(sf).forEach(function(k) {{
+                if (sf[k].indexOf(el) < 0) return;  // לא השדה הזה
+                hit = true; s.params[k] = v;  // נשמר במכ"ם המוצב
+                _rs.applying = true; try {{ sf[k].forEach(function(o) {{ if (o !== el) _rsSet(o, v); }}); }} finally {{ _rs.applying = false; }}  // שאר הכלים
+            }});
+            if (hit) _rsSaveSoon();  // שמירה מושהית
+            var t = _rsTypeOf(s.params.type_key);  // הסוג
+            if (t && !t.lib) Object.keys(tf).forEach(function(k) {{  // סוג שלי — עריכה חופשית שנשמרת לפרופיל
+                if (tf[k].indexOf(el) < 0) return;  // לא השדה הזה
+                t.params[k] = v;  // נשמר בפרופיל
+                _rs.applying = true; try {{ tf[k].forEach(function(o) {{ if (o !== el) _rsSet(o, v); }}); }} finally {{ _rs.applying = false; }}  // שאר הכלים
+                clearTimeout(_rs.typeSaveTimer);  // שמירה מושהית לפרופיל
+                _rs.typeSaveTimer = setTimeout(function() {{
+                    fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{tool: 'radar_profile', name: t.name, params: t.params}})}}).catch(function() {{}});
+                }}, 800);
+            }});
+            if (radarObs) _updateRadarDopplerPreview();  // תצוגות מקדימות
+            if (radialLosObs) _updateRadialLosPreview();
         }}
 
         function _rtHookActiveFields() {{
-            // מאזין לשינויים בכל שדות הפרופיל, כדי שהבורר יציג "שונה ידנית" מיד; אידמפוטנטי — שדה לא נרשם פעמיים
-            var m = _rtBuildProfileFieldMap();  // השדות שקיימים כרגע
-            Object.keys(m).forEach(function(k) {{
-                var el = m[k]; if (el._rtActiveHooked) return; el._rtActiveHooked = true;  // פעם אחת לשדה
-                el.addEventListener('input', _rtRefreshActiveStatus); el.addEventListener('change', _rtRefreshActiveStatus);  // הקלדה ובחירה
+            // מחבר מאזין אחד לכל שדה הצבה/סוג בכל הכלים (אידמפוטנטי); השייכות נבדקת בזמן השינוי (ניתוק יכול להשתנות)
+            var groups = [_rsSiteFields(true), _rsTypeFields(true)];  // כל השדות, כולל כלים מנותקים
+            groups.forEach(function(m) {{ Object.keys(m).forEach(function(k) {{ m[k].forEach(function(el) {{
+                if (el._rsHooked) return; el._rsHooked = true;  // פעם אחת לשדה
+                el.addEventListener('input', function() {{ _rsSyncFrom(el); }}); el.addEventListener('change', function() {{ _rsSyncFrom(el); }});  // הקלדה ובחירה
+            }}); }}); }});
+        }}
+
+        function _rsActivate(name) {{
+            // בחירת מכ"ם פעיל: שדות הסוג מהפרופיל, שדות ההצבה מהמכ"ם המוצב, וכל הצופים למיקום שלו. '' = ידני
+            var s = _rs.sites.filter(function(x) {{ return x.name === name; }})[0] || null;  // המכ"ם
+            _rs.active = s ? s.name : '';  // הפעיל
+            try {{ localStorage.setItem('rs_active', _rs.active); }} catch (e) {{}}  // לזכור בין הפעלות
+            if (s) {{
+                var t = _rsTypeOf(s.params.type_key);  // הסוג
+                _rs.applying = true;  // מונע לולאת עדכונים
+                try {{
+                    if (t) {{ var tp = {{}}; _RT_TYPE_KEYS.forEach(function(k) {{ if (t.params[k] !== undefined) tp[k] = t.params[k]; }}); _rsApplyToFields(_rsTypeFields(false), tp); }}  // הסוג (בלי RCS — המטרה בכל כלי)
+                    _rsApplyToFields(_rsSiteFields(false), s.params);  // ההצבה
+                }} finally {{ _rs.applying = false; }}
+                if (s.params.lat != null && s.params.lon != null) _rsMoveObservers(L.latLng(s.params.lat, s.params.lon), null);  // המיקום
+            }}
+            _rsApplyLock(); _rsRefreshBars();  // נעילה ותצוגה
+            if (radarObs) _updateRadarDopplerPreview();  // תצוגות מקדימות
+            if (radialLosObs) _updateRadialLosPreview();
+        }}
+
+        function _rsSetDetached(tool, on) {{
+            // "צופה נפרד" בכלי: מנותק = עצמאי לגמרי (מיקום ושדות); חיבור מחדש מחיל שוב את המכ"ם הפעיל על הכלי
+            _rs.detached[tool] = !!on;  // המצב
+            try {{ localStorage.setItem('rs_detached', JSON.stringify(_rs.detached)); }} catch (e) {{}}  // לזכור
+            if (!on && _rsActiveSite()) _rsActivate(_rs.active);  // חיבור מחדש — מחילים שוב
+            else {{ _rsApplyLock(); _rsRefreshBars(); }}  // ניתוק — משחררים נעילה בכלי
+        }}
+
+        function _rsSiteDefaults(typeKey, ll) {{
+            // ברירות מחדל למכ"ם מוצב חדש: גובה אנטנה וטווח מהסוג; סקטור = כיוון פנים ± זווית הסריקה (מערך מופע) או 360°
+            var t = _rsTypeOf(typeKey), tp = (t && t.params) || {{}};  // הסוג
+            var phased = tp.antenna_type === 'phased_array', ms = parseFloat(tp.max_scan_deg) || 60;  // מערך מופע
+            return {{type_key: typeKey, type_name: t ? t.name : '', lat: ll ? ll.lat : null, lon: ll ? ll.lng : null, boresight_deg: 0,
+                    h_antenna: tp.h_antenna != null ? tp.h_antenna : 10, range_km: tp.range_km != null ? tp.range_km : 50,
+                    start_bearing_deg: phased ? (360 - ms) % 360 : 0, end_bearing_deg: phased ? ms : 360, angle_step_deg: 10,
+                    reflectivity: tp.reflectivity || 'land', lobing_enabled: false, ridge_margin_deg: 0}};
+        }}
+
+        function _rsUniqueName(base) {{ var n = base, i = 2; while (_rs.sites.some(function(s) {{ return s.name === n; }})) {{ n = base + ' ' + i; i++; }} return n; }}  // שם פנוי
+
+        function _rsTypeOptions(sel, current) {{
+            // ממלא בורר סוג: הספרייה המובנית והפרופילים שלי
+            sel.innerHTML = '';  // ניקוי
+            if (_rtLib.length) {{ var g1 = L.DomUtil.create('optgroup', '', sel); g1.label = 'ספרייה מובנית — נתונים פומביים (נעול)';
+                _rtLib.forEach(function(p) {{ var o = L.DomUtil.create('option', '', g1); o.value = 'lib:' + p.file; o.textContent = p.name; }}); }}
+            if (_rtMyProfiles.length) {{ var g2 = L.DomUtil.create('optgroup', '', sel); g2.label = 'הפרופילים שלי (ניתן לעריכה)';
+                _rtMyProfiles.forEach(function(p) {{ var o = L.DomUtil.create('option', '', g2); o.value = 'my:' + p.name; o.textContent = p.name; }}); }}
+            if (current) sel.value = current;  // הנוכחי
+        }}
+
+        function _rsFillSiteSelect(sel) {{
+            // ממלא בורר מכ"ם פעיל: "ידני", המכ"מים המוצבים, וכל הסוגים ("➕ מכ"ם חדש מסוג…" — בחירה יוצרת מכ"ם מוצב בלחיצה אחת)
+            sel.innerHTML = '';  // ניקוי
+            var o0 = L.DomUtil.create('option', '', sel); o0.value = ''; o0.textContent = '— ללא מכ"ם (ידני) —';  // ידני
+            if (_rs.sites.length) {{ var gs = L.DomUtil.create('optgroup', '', sel); gs.label = 'המכ"מים המוצבים';  // קבוצה
+                _rs.sites.forEach(function(s) {{ var o = L.DomUtil.create('option', '', gs); o.value = s.name; o.textContent = s.name + ' — ' + _rsTypeName(s); }}); }}  // כל מכ"ם
+            if (_rtLib.length) {{ var gl = L.DomUtil.create('optgroup', '', sel); gl.label = '➕ מכ"ם חדש מסוג — ספרייה מובנית';  // כל סוגי הספרייה
+                _rtLib.forEach(function(p) {{ var o = L.DomUtil.create('option', '', gl); o.value = 'new:lib:' + p.file; o.textContent = '➕ ' + p.name; }}); }}
+            if (_rtMyProfiles.length) {{ var gm = L.DomUtil.create('optgroup', '', sel); gm.label = '➕ מכ"ם חדש מסוג — הפרופילים שלי';  // הסוגים שלי
+                _rtMyProfiles.forEach(function(p) {{ var o = L.DomUtil.create('option', '', gm); o.value = 'new:my:' + p.name; o.textContent = '➕ ' + p.name; }}); }}
+            if (!_rtLib.length) {{ var ow = L.DomUtil.create('option', '', sel); ow.disabled = true; ow.textContent = '(ספריית הסוגים נטענת…)'; }}  // עדיין לא נטען — לא רשימה ריקה בשקט
+            sel.value = _rs.active;  // הפעיל
+        }}
+
+        function _rsMsg(t) {{ if (_rs.global) _rs.global.msg.textContent = t; }}  // הודעה בבורר הגלובלי
+
+        function _rsQuickCreate(typeKey) {{
+            // יצירת מכ"ם מוצב מסוג בלחיצה אחת: שם = שם הסוג (ייחודי), מיקום = המכ"ם הנוכחי, או לחיצה על המפה
+            var t = _rsTypeOf(typeKey); if (!t) {{ _rsMsg('הסוג לא נמצא'); return; }}  // אין סוג
+            var name = _rsUniqueName(t.name.replace(' (נתונים פומביים)', '').slice(0, 90)), params = _rsSiteDefaults(typeKey, radarObs);  // שם וברירות מחדל
+            _rsSaveSite({{name: name, params: params}}).then(function() {{ _rsLoadSites(function() {{
+                _rsActivate(name);  // הפעלה
+                if (params.lat == null) {{ _rs.pick = true; map.getContainer().style.cursor = 'crosshair'; _rsMsg('נוצר "' + name + '" — לחץ על המפה למיקום המכ"ם'); }}  // בלי מיקום
+                else _rsMsg('נוצר "' + name + '" במיקום המכ"ם הנוכחי (📍 מקם — להזזה)');  // עם מיקום
+            }}); }});
+        }}
+
+        function _rsStatusText() {{
+            // שורת המצב: סוג, נעילה, ומיקום
+            var s = _rsActiveSite(); if (!s) return {{text: 'ידני: כל כלי עובד עם השדות שלו, כמו קודם.', color: '#555'}};  // ידני
+            var t = _rsTypeOf(s.params.type_key);  // הסוג
+            var where = (s.params.lat != null) ? Number(s.params.lat).toFixed(4) + ', ' + Number(s.params.lon).toFixed(4) : 'לא הוצב — "📍 מקם" או הצב בכלי המכ"ם';  // מיקום
+            return {{text: (t && t.lib ? '🔒 ' : '✎ ') + 'סוג: ' + _rsTypeName(s) + (t && t.lib ? ' (ספרייה, נעול)' : t ? ' (שלי, ניתן לעריכה)' : ' (סוג חסר!)') + ' · מיקום: ' + where,
+                    color: t ? '#15803d' : '#b91c1c'}};  // ירוק-כהה / אדום-כהה — עם סימן, לא רק צבע
+        }}
+
+        function _rsRefreshBars() {{
+            // מעדכן את כל הפסים: הבורר, שורת המצב, "צופה נפרד", ואזור המקורות
+            var st = _rsStatusText(), s = _rsActiveSite(), t = s ? _rsTypeOf(s.params.type_key) : null;  // המצב
+            _rtActiveBars.forEach(function(b) {{
+                _rsFillSiteSelect(b.sel);  // הבורר
+                var det = b.detach && _rs.detached[b.detach];  // הכלי מנותק?
+                b.status.textContent = det ? 'צופה נפרד: הכלי הזה עובד עם השדות והמיקום שלו.' : st.text;  // מצב
+                b.status.style.color = det ? '#555' : st.color;  // צבע
+                if (b.detachCb) b.detachCb.checked = !!det;  // תיבת הניתוק
+                if (b.src) {{ var n = t && t.notes; if (n && (n.published || n.assumed_not_published)) {{ b.src.style.display = 'block'; b.srcBody.textContent = _rtNotesText(n); }} else b.src.style.display = 'none'; }}  // מקורות
+                if (b.cloneBtn) b.cloneBtn.style.display = (t && t.lib) ? 'inline-block' : 'none';  // שכפל לעריכה — רק לסוג נעול
             }});
         }}
 
-        function _rtBuildActiveBar(parent) {{
-            // בונה בורר "פרופיל פעיל" בולט: בחירה, שורת מצב, ואזור מתקפל "מה פורסם ומה הונח"
+        function _rtRefreshActiveStatus() {{ _rsRefreshBars(); }}  // תאימות לאחור (נקרא מייבוא פרופיל)
+
+        function _rtLoadLibrary(then) {{
+            // טוען את ספריית הסוגים מהשרת פעם אחת
+            if (_rtLibRequested) {{ if (then) then(); return; }} _rtLibRequested = true;  // פעם אחת
+            fetch('http://localhost:5002/radar_profiles/library').then(function(r) {{ return r.json(); }})
+            .then(function(d) {{ _rtLib = d.profiles || []; if (then) then(); _rsRefreshBars(); }})
+            .catch(function() {{ _rtLibRequested = false; if (then) then(); }});  // כשל רשת — ינסה שוב
+        }}
+
+        function _rtOnMyProfilesChanged(stations) {{
+            // נקרא מ-_buildStationUI בכל רענון של רשימת radar_profile — הסוגים "שלי" מתעדכנים
+            _rtMyProfiles = stations || [];  // הרשימה
+            _rsRefreshBars(); if (_rs.global && _rs.global.typeSel) _rsTypeOptions(_rs.global.typeSel, _rs.global.typeSel.value);  // תצוגה
+        }}
+
+        function _rsReloadMyTypes(then) {{
+            // טוען מחדש את "הפרופילים שלי" (אחרי שכפול/ייבוא)
+            fetch('http://localhost:5002/stations/list?tool=radar_profile').then(function(r) {{ return r.json(); }})
+            .then(function(d) {{ _rtMyProfiles = d.stations || []; if (then) then(); }}).catch(function() {{ if (then) then(); }});
+        }}
+
+        function _rtBuildActiveBar(parent, opts) {{
+            // פס מכ"ם פעיל בכלי (מסונכרן עם הבורר הגלובלי). opts.detach = 'los'/'radial' מוסיף "צופה נפרד"
+            opts = opts || {{}};  // אפשרויות
             var wrap = L.DomUtil.create('div', '', parent);  // מסגרת
             wrap.style.cssText = 'border:1px solid #2ecc40;border-radius:3px;padding:2px 4px;background:#f3fcf5;display:flex;flex-direction:column;gap:2px;';  // בצבע כלי המכ"ם
             var row = L.DomUtil.create('label', '', wrap);  // שורת הבחירה
             row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#333;font-weight:bold;';  // פריסה
-            row.title = 'הפרופיל שלפיו ירוצו כל תהליכי המכ"ם: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח ומפת חום. כיוון הפנים לא משתנה — כוון אותו לאיום';  // הסבר
-            L.DomUtil.create('span', '', row).textContent = '📡 פרופיל פעיל';  // תווית
+            row.title = 'המכ"ם הפעיל — כל הכלים עובדים עליו (פרט לנתוני המטרה ולשדות של ההצבה). ניהול הרשימה: בבורר העליון';  // הסבר
+            L.DomUtil.create('span', '', row).textContent = '📡 מכ"ם פעיל';  // תווית
             var sel = L.DomUtil.create('select', '', row);  // הבורר
-            sel.style.cssText = 'flex:1;min-width:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;';  // רוחב גמיש
-            sel.setAttribute('aria-label', 'פרופיל מכ"ם פעיל לכל התהליכים');  // נגישות
-            var status = L.DomUtil.create('div', '', wrap);  // שורת המצב
-            status.style.cssText = 'font-size:8.5px;color:#555;';  // טקסט משני
-            var src = L.DomUtil.create('details', '', wrap);  // מקורות
-            src.style.cssText = 'font-size:8.5px;color:#555;display:none;';  // מוסתר עד שנבחר פרופיל מהספרייה
-            var srcSum = L.DomUtil.create('summary', '', src); srcSum.textContent = 'מה פורסם ומה הונח'; srcSum.style.cursor = 'pointer';  // כותרת
-            var srcBody = L.DomUtil.create('div', '', src);  // התוכן
-            srcBody.style.cssText = 'white-space:pre-wrap;direction:ltr;text-align:left;max-height:140px;overflow-y:auto;user-select:text;font-size:8px;';  // המקורות באנגלית — משמאל לימין, עם גלילה
-            L.DomEvent.on(sel, 'change', function() {{ _rtSetActive(sel.value); }});  // בחירה
-            var bar = {{sel: sel, status: status, src: src, srcBody: srcBody}};  // המופע
-            _rtActiveBars.push(bar);  // לסנכרון
-            _rtFillActiveSelect(bar); _rtRefreshActiveStatus();  // מצב התחלתי
-            _rtLoadLibrary();  // הספרייה (פעם אחת)
-            return bar;  // המופע
+            sel.style.cssText = 'flex:1;min-width:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-height:22px;';  // רוחב גמיש
+            sel.setAttribute('aria-label', 'מכ"ם פעיל לכל הכלים');  // נגישות
+            var status = L.DomUtil.create('div', '', wrap); status.style.cssText = 'font-size:8.5px;color:#555;';  // שורת המצב
+            var b = {{sel: sel, status: status, detach: opts.detach || null}};  // המופע
+            if (opts.detach) {{  // "צופה נפרד"
+                var dl = L.DomUtil.create('label', '', wrap); dl.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:8.5px;color:#555;';  // שורה
+                var cb = L.DomUtil.create('input', '', dl); cb.type = 'checkbox';  // התיבה
+                L.DomUtil.create('span', '', dl).textContent = 'צופה נפרד (לא לפי המכ"ם הפעיל)';  // תווית
+                L.DomEvent.on(cb, 'change', function() {{ _rsSetDetached(opts.detach, cb.checked); }});  // ניתוק/חיבור
+                b.detachCb = cb;  // לסנכרון
+            }}
+            if (opts.notes !== false) {{  // מה פורסם ומה הונח
+                var src = L.DomUtil.create('details', '', wrap); src.style.cssText = 'font-size:8.5px;color:#555;display:none;';  // מקורות
+                var ss = L.DomUtil.create('summary', '', src); ss.textContent = 'מה פורסם ומה הונח'; ss.style.cursor = 'pointer';  // כותרת
+                var sb = L.DomUtil.create('div', '', src); sb.style.cssText = 'white-space:pre-wrap;direction:ltr;text-align:left;max-height:140px;overflow-y:auto;user-select:text;font-size:8px;';  // תוכן
+                b.src = src; b.srcBody = sb;  // לסנכרון
+            }}
+            L.DomEvent.on(sel, 'change', function() {{  // בחירה
+                if (sel.value.indexOf('new:') === 0) {{ var k = sel.value.substr(4); sel.value = _rs.active; _rsQuickCreate(k); return; }}  // סוג — יצירת מכ"ם חדש ממנו
+                _rsActivate(sel.value);  // מכ"ם מוצב / ידני
+            }});
+            _rtActiveBars = _rtActiveBars || []; _rtActiveBars.push(b);  // רישום (גם אם נבנה לפני אתחול המשתנים)
+            if (typeof _rs !== 'undefined' && _rs) _rsRefreshBars();  // תצוגה — אם המצב כבר אותחל; אחרת _rsInit ירענן
+            return b;  // המופע
         }}
+
+        function _rsDownload(name, text) {{
+            // הורדת קובץ (בדסקטופ main.py פותח חלון שמירה)
+            var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {{type: 'application/json'}})); a.download = name;  // קישור
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);  // הורדה
+        }}
+
+        function _rsExport() {{
+            // ייצוא כל המכ"מים המוצבים + הסוגים "שלי" שהם משתמשים בהם (כדי שהקובץ יעבוד גם במכשיר אחר)
+            var mine = {{}};  // סוגים שלי בשימוש
+            _rs.sites.forEach(function(s) {{ var t = _rsTypeOf(s.params.type_key); if (t && !t.lib) mine[t.name] = t.params; }});
+            var doc = {{format: 'maps-gui-radar-sites', version: 1, active: _rs.active, sites: _rs.sites.map(function(s) {{ return {{name: s.name, params: s.params}}; }}),
+                       my_types: Object.keys(mine).map(function(n) {{ return {{name: n, params: mine[n]}}; }})}};  // המבנה
+            _rsDownload('radar_sites.json', JSON.stringify(doc, null, 2));  // הורדה
+        }}
+
+        function _rsImport(text, done, fileName) {{
+            // ייבוא: (1) קובץ פרופיל מכ"ם (maps-gui-radar-profile) — נוסף כסוג "שלי" ונוצר ממנו מכ"ם מוצב;
+            // (2) קובץ מכ"מים מוצבים (maps-gui-radar-sites) — סוגים "שלי" ואז המכ"מים (שם קיים — מוחלף). מחזיר הודעה
+            var doc; try {{ doc = JSON.parse(text); }} catch (e) {{ done('הקובץ אינו JSON תקין'); return; }}  // פענוח
+            if (doc && doc.format === 'maps-gui-radar-profile' && doc.params && typeof doc.params === 'object') {{  // פרופיל בודד
+                var nm = String(doc.name || (fileName || '').replace(/\\.json$/i, '') || 'פרופיל מיובא').trim().slice(0, 100);  // שם הסוג
+                fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{tool: 'radar_profile', name: nm, params: doc.params}})}})
+                .then(function() {{ _rsReloadMyTypes(function() {{ _rsRefreshBars(); _rsQuickCreate('my:' + nm); done('נוסף הסוג "' + nm + '" ל"הפרופילים שלי" ונוצר ממנו מכ"ם ✔'); }}); }})
+                .catch(function() {{ done('שמירת הסוג נכשלה (השרת לא זמין?)'); }});
+                return;
+            }}
+            if (!doc || doc.format !== 'maps-gui-radar-sites' || !Array.isArray(doc.sites)) {{ done('זה לא קובץ מכ"ם של maps-gui (פרופיל או מכ"מים מוצבים)'); return; }}  // סוג
+            var jobs = [];  // שמירות
+            (doc.my_types || []).forEach(function(t) {{ if (t && t.name && t.params) jobs.push(fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{tool: 'radar_profile', name: t.name, params: t.params}})}})); }});
+            var n = 0;  // כמה מכ"מים
+            doc.sites.forEach(function(s) {{ if (s && s.name && s.params && s.params.type_key) {{ n++; jobs.push(_rsSaveSite({{name: String(s.name).slice(0, 100), params: s.params}})); }} }});
+            Promise.all(jobs).then(function() {{ _rsReloadMyTypes(function() {{ _rsLoadSites(function() {{ done('נטענו ' + n + ' מכ"מים ✔'); }}); }}); }});  // רענון
+        }}
+
+        function _rsClone() {{
+            // "שכפל לעריכה": עותק של סוג מהספרייה תחת "הפרופילים שלי", והמכ"ם הפעיל עובר אליו (שדות פתוחים)
+            var s = _rsActiveSite(), t = s ? _rsTypeOf(s.params.type_key) : null; if (!t || !t.lib) return;  // רק סוג נעול
+            var name = prompt('שם לעותק הניתן לעריכה:', t.name.replace(' (נתונים פומביים)', '') + ' (עותק)'); if (!name) return;  // שם
+            name = name.trim().slice(0, 100); if (!name) return;  // תקין
+            var params = JSON.parse(JSON.stringify(t.params));  // עותק מלא של הסוג
+            fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{tool: 'radar_profile', name: name, params: params}})}})
+            .then(function() {{ _rsReloadMyTypes(function() {{ s.params.type_key = 'my:' + name; s.params.type_name = name; _rsSaveSite(s); _rsActivate(s.name); }}); }});  // מעבר לעותק
+        }}
+
+        function _rsBuildGlobalBar() {{
+            // הבורר הגלובלי הקבוע בראש המפה: מכ"ם פעיל + ניהול הרשימה (חדש/עריכה/מחיקה/שכפול/ייצוא/ייבוא)
+            // FR-D-288 (תיקון): פקד Leaflet בפינה השמאלית-עליונה (מתחת לזום ול-Undo) — Leaflet מסדר את הפקדים בעמודה,
+            // ולכן אין חפיפה עם הזום או עם הפאנלים בצד ימין (קודם: div צף במרכז, שעלה על פקדים אחרים)
+            var box = L.DomUtil.create('div', 'leaflet-control');  // מיכל
+            box.style.cssText = 'background:white;border:1px solid #2ecc40;border-radius:6px;box-shadow:0 1px 5px rgba(0,0,0,0.35);padding:3px 6px;' +
+                'font-family:Arial;direction:rtl;width:300px;max-width:300px;display:flex;flex-direction:column;gap:2px;';  // רוחב קבוע — לא מתרחב לפי טקסט ארוך
+            var RsCtl = L.Control.extend({{options: {{position: 'topleft'}}, onAdd: function() {{ return box; }}}});  // הפקד
+            new RsCtl().addTo(map);  // מתחת לפקדים הקיימים בפינה
+            L.DomEvent.disableClickPropagation(box); L.DomEvent.disableScrollPropagation(box);  // לא מגיע למפה
+            var bar = _rtBuildActiveBar(box, {{notes: true}});  // אותו פס כמו בכלים
+            var btns = L.DomUtil.create('div', '', box); btns.style.cssText = 'display:flex;gap:3px;flex-wrap:wrap;';  // כפתורים
+            function mk(txt, tip, fn) {{ var x = L.DomUtil.create('button', '', btns); x.textContent = txt; x.title = tip; x.setAttribute('aria-label', tip);
+                x.style.cssText = 'font-size:10px;min-height:24px;padding:1px 6px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
+                L.DomEvent.on(x, 'click', function(e) {{ L.DomEvent.stopPropagation(e); fn(); }}); return x; }}  // כפתור
+            var msg = L.DomUtil.create('div', '', box); msg.style.cssText = 'font-size:9px;color:#555;';  // הודעות
+            var ed = L.DomUtil.create('div', '', box); ed.style.cssText = 'display:none;flex-direction:column;gap:3px;border-top:1px solid #ddd;padding-top:3px;';  // עורך
+            var nameIn = L.DomUtil.create('input', '', ed); nameIn.type = 'text'; nameIn.placeholder = 'שם המכ"ם המוצב'; nameIn.setAttribute('aria-label', 'שם המכ"ם המוצב');  // שם
+            nameIn.style.cssText = 'font-size:11px;padding:2px 4px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-height:22px;';
+            var typeSel = L.DomUtil.create('select', '', ed); typeSel.setAttribute('aria-label', 'סוג המכ"ם'); typeSel.style.cssText = 'font-size:10px;min-height:22px;';  // סוג
+            var edRow = L.DomUtil.create('div', '', ed); edRow.style.cssText = 'display:flex;gap:3px;';  // שמירה/ביטול
+            var saveB = L.DomUtil.create('button', '', edRow), cancelB = L.DomUtil.create('button', '', edRow);  // הכפתורים
+            saveB.textContent = '✔ שמור'; cancelB.textContent = 'ביטול';
+            [saveB, cancelB].forEach(function(x) {{ x.style.cssText = 'flex:1;font-size:10px;min-height:24px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;'; }});
+            var fileIn = L.DomUtil.create('input', '', box); fileIn.type = 'file'; fileIn.accept = '.json'; fileIn.style.display = 'none';  // בורר קבצים לייבוא
+            function openEditor(site) {{  // עורך: חדש (site=null) או עריכה
+                _rs.editing = site; ed.style.display = 'flex'; _rsTypeOptions(typeSel, site ? site.params.type_key : (_rsActiveSite() ? _rsActiveSite().params.type_key : (_rtLib[0] ? 'lib:' + _rtLib[0].file : '')));
+                nameIn.value = site ? site.name : _rsUniqueName('מכ"ם ' + (_rs.sites.length + 1)); nameIn.focus();
+            }}
+            mk('➕ חדש', 'הוספת מכ"ם מוצב: שם וסוג. המיקום — המכ"ם הנוכחי, או לחיצה על המפה', function() {{ _rtLoadLibrary(function() {{ openEditor(null); }}); }});
+            mk('✏️ עריכה', 'שינוי שם או סוג של המכ"ם הפעיל', function() {{ var s = _rsActiveSite(); if (!s) {{ msg.textContent = 'בחר קודם מכ"ם פעיל'; return; }} openEditor(s); }});
+            mk('📍 מקם', 'הלחיצה הבאה על המפה קובעת את מיקום המכ"ם הפעיל', function() {{ if (!_rsActiveSite()) {{ msg.textContent = 'בחר קודם מכ"ם פעיל'; return; }}
+                _rs.pick = true; map.getContainer().style.cursor = 'crosshair'; msg.textContent = 'לחץ על המפה למיקום המכ"ם'; }});
+            bar.cloneBtn = mk('⧉ שכפל לעריכה', 'יוצר עותק פתוח לעריכה של הסוג (תחת "הפרופילים שלי") ומעביר אליו את המכ"ם הפעיל', _rsClone);
+            mk('🗑 מחק', 'מחיקת המכ"ם הפעיל מהרשימה', function() {{ var s = _rsActiveSite(); if (!s) return; if (!confirm('למחוק את "' + s.name + '"?')) return;
+                fetch('http://localhost:5002/stations/delete', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{tool: 'radar_sites', name: s.name}})}})
+                .then(function() {{ _rsLoadSites(function() {{ _rsActivate(''); }}); }}); }});
+            mk('⬇ ייצוא', 'ייצוא כל המכ"מים המוצבים לקובץ JSON (גם לאנדרואיד)', _rsExport);
+            mk('⬆ ייבוא', 'ייבוא JSON: קובץ פרופיל מכ"ם (נוסף כסוג ונוצר ממנו מכ"ם) או קובץ מכ"מים מוצבים. אפשר כמה קבצים', function() {{ fileIn.click(); }});
+            fileIn.multiple = true;  // אפשר לבחור כמה קבצי פרופיל בבת אחת
+            L.DomEvent.on(fileIn, 'change', function() {{
+                var files = Array.from(fileIn.files || []); fileIn.value = ''; if (!files.length) return;  // הקבצים שנבחרו
+                var msgs = [];  // הודעה לכל קובץ
+                (function next(i) {{  // אחד אחרי השני — כדי שהשמירות לא יתנגשו
+                    if (i >= files.length) {{ msg.textContent = msgs.join(' | '); return; }}  // סיום
+                    var rd = new FileReader();
+                    rd.onload = function() {{ _rtLoadLibrary(function() {{ _rsImport(String(rd.result), function(m) {{ msgs.push(files[i].name + ': ' + m); next(i + 1); }}, files[i].name); }}); }};
+                    rd.readAsText(files[i]);  // קריאה
+                }})(0);
+            }});
+            L.DomEvent.on(cancelB, 'click', function(e) {{ L.DomEvent.stopPropagation(e); ed.style.display = 'none'; _rs.editing = null; }});
+            L.DomEvent.on(saveB, 'click', function(e) {{
+                L.DomEvent.stopPropagation(e);
+                var name = nameIn.value.trim().slice(0, 100), key = typeSel.value; if (!name || !key) {{ msg.textContent = 'נדרשים שם וסוג'; return; }}  // ולידציה
+                var old = _rs.editing;  // עריכה או חדש
+                if (!old && _rs.sites.some(function(s) {{ return s.name === name; }})) {{ msg.textContent = 'השם כבר קיים'; return; }}  // כפילות
+                var params = old ? JSON.parse(JSON.stringify(old.params)) : _rsSiteDefaults(key, radarObs);  // פרמטרים
+                if (old && old.params.type_key !== key) {{ var t = _rsTypeOf(key); params.type_key = key; params.type_name = t ? t.name : ''; }}  // סוג חדש — ההצבה נשמרת
+                var after = function() {{ _rsLoadSites(function() {{ _rsActivate(name); if (params.lat == null) {{ _rs.pick = true; map.getContainer().style.cursor = 'crosshair'; msg.textContent = 'לחץ על המפה למיקום המכ"ם'; }} else msg.textContent = '✔ נשמר'; }}); }};
+                var save = function() {{ _rsSaveSite({{name: name, params: params}}).then(after); }};  // שמירה
+                if (old && old.name !== name) fetch('http://localhost:5002/stations/delete', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{tool: 'radar_sites', name: old.name}})}}).then(save); else save();  // שינוי שם = מחיקה + שמירה
+                ed.style.display = 'none'; _rs.editing = null;  // סגירת העורך
+            }});
+            _rs.global = {{box: box, msg: msg, typeSel: typeSel}};  // לסנכרון
+        }}
+
+        function _rsPickClick(latlng) {{
+            // לחיצה על המפה במצב "📍 מקם": מיקום המכ"ם הפעיל. מחזיר true אם הלחיצה טופלה כאן
+            if (!_rs.pick) return false;  // לא במצב מיקום
+            _rs.pick = false; map.getContainer().style.cursor = '';  // יציאה מהמצב
+            var s = _rsActiveSite(); if (!s) return true;  // אין פעיל
+            s.params.lat = latlng.lat; s.params.lon = latlng.lng; _rsSaveSite(s);  // המיקום
+            _rsMoveObservers(latlng, null); _rsRefreshBars();  // הצופים + תצוגה
+            if (_rs.global) _rs.global.msg.textContent = '✔ המכ"ם הוצב';  // משוב
+            return true;  // טופל
+        }}
+
+        function _rsLosSnapshot() {{
+            // מגבלות המכ"ם לקו ראייה נקודתי (נלכד ביצירת הצמד): סקטור, טווח, טווח מינימלי, שדה ראייה אנכי
+            var s = _rsActiveSite(); if (!s || _rs.detached.los) return null;  // ידני / מנותק
+            var t = _rsTypeOf(s.params.type_key), tp = (t && t.params) || {{}};  // הסוג
+            return {{label: s.name + ' (' + _rsTypeName(s) + ')', boresight: parseFloat(s.params.boresight_deg) || 0, antenna: tp.antenna_type || 'generic',
+                    maxScan: parseFloat(tp.max_scan_deg) || 180, range: parseFloat(s.params.range_km) || 0, minRange: parseFloat(tp.min_range_km) || 0,
+                    vc: parseFloat(tp.vertical_center_deg) || 0, vw: tp.vertical_width_deg != null ? parseFloat(tp.vertical_width_deg) : 180}};
+        }}
+
+        function _rsLosLimitsText(session) {{
+            // שורת מגבלות המכ"ם לצמד קו-ראייה: בסקטור? בטווח? מעל הטווח המינימלי? בשדה האנכי? (גיאומטריה — משוואת המכ"ם בכלי הדופלר)
+            // FR-D-290: הגזרה נלקחת מהשדות (גזרת המכ"ם שהמשתמש הגדיר) — גם בלי מכ"ם פעיל; גובה הבחינה ומרווח הרכס מוצגים
+            var r = session.rs, d = session.data, sec = session.sec; if (!d) return '';  // אין תוצאה
+            var hasSec = sec && _rsSectorSpan(sec.start, sec.end) !== 0;  // הוגדרה גזרה (לא 360°)
+            if (!r && !hasSec && !session.tgtTxt) return '';  // ידני בלי גזרה — אין מה להציג
+            var km = d.total_km, parts = [], brg = (_bearingDeg(session.obsMk.getLatLng(), session.tgtMk.getLatLng()) + 360) % 360;  // מרחק וכיוון
+            if (hasSec) parts.push(_rsInSector(brg, sec.start, sec.end) ? 'בגזרה ✔' : 'מחוץ לגזרה ✖ (' + brg.toFixed(0) + '°, גזרה ' + sec.start + '°–' + sec.end + '°)');  // גזרה
+            else if (r && r.antenna === 'phased_array') {{ var off = Math.abs(((brg - r.boresight + 540) % 360) - 180);  // בלי גזרה — סטייה מכיוון הפנים
+                parts.push(off <= r.maxScan ? 'בסקטור ✔' : 'מחוץ לסקטור ✖ (' + off.toFixed(0) + '°)'); }}
+            var tail = ' | גובה בחינה ' + (session.tgtTxt || '') + (session.margin ? ' · מרווח רכס ' + session.margin + '°' : '');  // גובה ומרווח
+            if (!r) return '📐 ' + (parts.length ? parts.join(' · ') : 'ללא מכ"ם') + tail;  // ידני — גזרה וגובה בלבד
+            parts.push(km <= r.range ? 'בטווח ✔' : 'מעבר לטווח ✖ (' + km + ' > ' + r.range + ' ק"מ)');  // טווח
+            if (km < r.minRange) parts.push('בתוך הטווח המינימלי ✖');  // אזור מת
+            var dM = km * 1000, drop = dM * dM / (2 * 6371000) * (1 - 0.13);  // עקמומיות פחות שבירה — אותה נוסחה כמו radar_track.curvature_drop_m
+            var el = Math.atan2((d.target_h - d.observer_h) - drop, Math.max(dM, 1)) * 180 / Math.PI;  // זווית העילוי ליעד
+            var lo = r.vc - r.vw / 2, hi = r.vc + r.vw / 2;  // גבולות השדה האנכי
+            parts.push((el >= lo && el <= hi ? 'עילוי ' + el.toFixed(1) + '° בשדה ✔' : 'עילוי ' + el.toFixed(1) + '° מחוץ לשדה האנכי ✖'));  // שדה אנכי
+            return '📡 ' + r.label + ': ' + parts.join(' · ') + tail;  // השורה (+ גובה הבחינה ומרווח הרכס, FR-D-290)
+        }}
+
+        function _rsInit() {{
+            // אתחול אחרי שכל הכלים נבנו: הספרייה, הסוגים שלי, המכ"מים המוצבים, ושחזור המכ"ם הפעיל מההפעלה הקודמת
+            try {{ var d = JSON.parse(localStorage.getItem('rs_detached') || 'null'); if (d) _rs.detached = {{los: !!d.los, radial: !!d.radial}}; }} catch (e) {{}}  // ניתוק שמור
+            _rsBuildGlobalBar(); _rtHookActiveFields();  // הבורר הגלובלי + מאזינים
+            _rsInitLoad(0);  // טעינה (עם ניסיונות חוזרים)
+        }}
+
+        function _rsInitLoad(attempt) {{
+            // טוען ספרייה, סוגים שלי ומכ"מים מוצבים. השרת המקומי עולה במקביל למפה — אם עוד לא ענה, מנסים שוב כל 2 שנ' (עד 30 פעם)
+            _rtLoadLibrary(function() {{ _rsReloadMyTypes(function() {{ _rsLoadSites(function() {{
+                _rs.sitesLoaded = true;  // הרשימה נטענה
+                var a = ''; try {{ a = localStorage.getItem('rs_active') || ''; }} catch (e) {{}}  // הפעיל הקודם
+                if (!_rs.active && a && _rs.sites.some(function(s) {{ return s.name === a; }})) _rsActivate(a); else _rsRefreshBars();  // שחזור (ברירת מחדל: ידני)
+            }}); }}); }});
+            setTimeout(function() {{  // בדיקה: האם הכל נטען?
+                if ((!_rtLib.length || !_rs.sitesLoaded) && attempt < 30) {{ _rtLibRequested = false; _rsInitLoad(attempt + 1); }}  // עוד לא — שוב
+                else if (_rs.active) _rsActivate(_rs.active);  // נטען — מחילים שוב את המכ"ם הפעיל (אם נבחר לפני שהסוג נטען)
+            }}, 2000);
+        }}
+        setTimeout(_rsInit, 0);  // אחרי שכל הסקריפט רץ וכל הכלים נבנו
 
         // ── שלב ב': הצעת מיקום עם מפת חום ──
         var _rtPlace = {{layers: [], jobId: null, timer: null}};  // שדות, שכבות ומצב ה-job

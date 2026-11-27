@@ -146,6 +146,23 @@ check("ספרייה: תיקייה חסרה = רשימה ריקה", rs.load_profi
 lr = client.get("/radar_profiles/library")  # דרך השרת
 check("שרת /radar_profiles/library: 200 ואותה רשימה", lr.status_code == 200 and [p["name"] for p in lr.get_json()["profiles"]] == [p["name"] for p in lib])
 
+# ── FR-D-288: מכ"מים מוצבים — שמירה/קריאה/מחיקה דרך /stations עם המפתח radar_sites (קובץ זמני, לא האמיתי) ──
+_real_st = ws._STATIONS_FILE  # הקובץ האמיתי — לא נוגעים בו
+with tempfile.TemporaryDirectory() as td:
+    ws._STATIONS_FILE = os.path.join(td, "saved_stations.json")  # קובץ זמני
+    site = {"type_key": "lib:COBRA_public_data.json", "type_name": "COBRA (נתונים פומביים)", "lat": 31.25, "lon": 34.8,
+            "boresight_deg": 30.0, "h_antenna": 4.0, "range_km": 40.0, "start_bearing_deg": 345.0, "end_bearing_deg": 75.0,
+            "angle_step_deg": 10.0, "reflectivity": "land", "lobing_enabled": False, "ridge_margin_deg": 0.0}  # מכ"ם מוצב
+    sv = client.post("/stations/save", json={"tool": "radar_sites", "name": "מכ\"ם צפון", "params": site})  # שמירה
+    lst = client.get("/stations/list?tool=radar_sites").get_json()["stations"]  # קריאה
+    check("radar_sites: נשמר ונקרא בדיוק (round-trip, כולל עברית)", sv.status_code == 200 and len(lst) == 1 and lst[0]["name"] == "מכ\"ם צפון"
+          and lst[0]["params"] == site and lst[0].get("_schema_version") == 1, str(lst)[:120])
+    check("radar_sites: סוג המכ\"ם מצביע על קובץ קיים בספרייה", any("lib:" + p["file"] == site["type_key"] for p in lib))
+    client.post("/stations/delete", json={"tool": "radar_sites", "name": "מכ\"ם צפון"})  # מחיקה
+    check("radar_sites: נמחק", client.get("/stations/list?tool=radar_sites").get_json()["stations"] == [])
+    check("radar_sites: כלי לא מוכר עדיין נדחה (400)", client.post("/stations/save", json={"tool": "radar_sitez", "name": "x", "params": {}}).status_code == 400)
+ws._STATIONS_FILE = _real_st  # שחזור
+
 passed = sum(results)  # כמה עברו
 print(f"\n{passed}/{len(results)} passed")  # סיכום
 sys.exit(0 if passed == len(results) else 1)  # קוד יציאה

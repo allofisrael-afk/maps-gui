@@ -453,6 +453,29 @@ class MapState extends ChangeNotifier {
   LatLng? losCurObs;             // נקודת תצפית זמנית לפני בחירת נקודת יעד
   bool losLoading = false;       // האם יש בקשת LOS פעילה בעיבוד ברקע
   String? losError;              // הודעת שגיאה מהבקשה האחרונה
+  double losObsH = 11.0;         // FR-D-288: גובה הצופה (מ' מעל הקרקע) — 11 כמו קודם; מכ"ם פעיל ומחובר קובע = גובה האנטנה
+  // FR-D-290: גובה בחינה, יחידות, ייחוס, מרווח רכס וגזרה לקו הראייה (ברירות המחדל = ההתנהגות הקודמת)
+  double losTgtH = 0.0;          // גובה הבחינה של היעד (ביחידה שנבחרה)
+  String losTgtUnit = 'm';       // 'm' / 'ft' / 'kft' (אלפי רגל)
+  String losTgtRef = 'agl';      // 'agl' (מעל הקרקע) / 'msl' (מעל פני הים)
+  double losMarginDeg = 0.0;     // מרווח רכס (°)
+  double losSecStart = 0.0, losSecEnd = 360.0; // גזרה (0–360 = בלי הגבלה)
+
+  /// FR-D-290: המרה למטרים — מטר / רגל / א"ר (אלפי רגל).
+  static double heightM(double v, String unit) => unit == 'kft' ? v * 304.8 : (unit == 'ft' ? v * 0.3048 : v);
+
+  /// FR-D-290: תיאור גובה בחינה, למשל "32 א"ר (9754 מ') מעל פני הים".
+  static String heightText(double v, String unit, String ref) {
+    const names = {'m': " מ'", 'ft': ' רגל', 'kft': ' א"ר'}; // שמות היחידות
+    final vs = v == v.roundToDouble() ? v.toStringAsFixed(0) : '$v'; // בלי ".0"
+    return '$vs${names[unit] ?? ''}${unit != 'm' ? ' (${heightM(v, unit).round()} מ\')' : ''}${ref == 'msl' ? ' מעל פני הים' : ' מעל הקרקע'}';
+  }
+
+  /// FR-D-290: האם אזימוט בתוך גזרה (גם כשהיא עוברת דרך הצפון); רוחב 0 = מעגל מלא.
+  static bool inSector(double brg, double start, double end) {
+    final span = ((end - start) % 360 + 360) % 360; if (span == 0) return true; // מעגל מלא
+    return ((brg - start) % 360 + 360) % 360 <= span; // בתוך הגזרה
+  }
 
   // הפעל או כבה את מצב LOS
   void toggleLosMode() {
@@ -468,22 +491,29 @@ class MapState extends ChangeNotifier {
   }
 
   // חשב קו ראייה (לחיצה שנייה) — שלח בקשה לשרת ושמור תוצאה
-  Future<void> runLos(LatLng tgt) async {
+  /// radar (FR-D-288): מגבלות המכ"ם הפעיל (מ-RadarTrackController.losSnapshot) — אם קיים, נכתבת לסשן שורת מגבלות
+  Future<void> runLos(LatLng tgt, {Map<String, dynamic>? radar}) async {
     final obs = losCurObs;
     if (obs == null) return;     // חובה שיהיה מוצא — אחרת בטל
     losCurObs = null;            // אפס מיד כדי שהכלי יהיה מוכן לסשן הבא
     final sIdx = losSessions.length + 1; // מספר סידורי: הסשן הבא ברצף
     final color = _losPalette[(sIdx - 1) % _losPalette.length]; // בחר צבע מהפלטה
     losLoading = true; losError = null; notifyListeners();
+    final tgtM = heightM(losTgtH, losTgtUnit); // FR-D-290: גובה הבחינה במטרים
     try {
       final r = await ApiService.fetchLos( // שליחת בקשת LOS לשרת
         lat1: obs.latitude,  lon1: obs.longitude,
         lat2: tgt.latitude,  lon2: tgt.longitude,
+        obsH: losObsH, // FR-D-288: גובה הצופה (11 כברירת מחדל — אותה התנהגות כמו קודם)
+        tgtH: tgtM, tgtMsl: losTgtRef == 'msl', marginDeg: losMarginDeg, // FR-D-290: גובה בחינה, ייחוס ומרווח רכס
       );
+      final tgtAbs = r.points.isEmpty ? 0.0 : (losTgtRef == 'msl' ? tgtM : r.points.last.elevation + tgtM); // FR-D-290: גובה היעד מעל פני הים
+      final tail = ' | גובה בחינה ${heightText(losTgtH, losTgtUnit, losTgtRef)}${losMarginDeg != 0 ? ' · מרווח רכס ${losMarginDeg.toStringAsFixed(1)}°' : ''}'; // FR-D-290
       final session = LosSession(
         obs: obs, tgt: tgt, points: r.points, color: color,
         idx: sIdx, totalKm: r.totalKm,
         firstBlockKm: r.firstBlockKm, allVisible: r.allVisible,
+        radarLimits: r.points.isEmpty ? null : losLimitsText(radar, obs, tgt, r.totalKm, r.points.first.losH, tgtAbs, losSecStart, losSecEnd, tail), // FR-D-288/290
       );
       losSessions = [...losSessions, session]; // הוסף סשן חדש לרשימה הפעילה
     } catch (e) {
@@ -491,6 +521,30 @@ class MapState extends ChangeNotifier {
     } finally {
       losLoading = false; notifyListeners(); // מובטח תמיד לאפס — גם במקרה חריג לא-צפוי
     }
+  }
+
+  /// FR-D-288: שורת מגבלות המכ"ם לצמד קו-ראייה — בסקטור? בטווח? מעל הטווח המינימלי? בשדה האנכי? (זהה לדסקטופ:
+  /// _rsLosLimitsText). obsAbs/tgtAbs — גבהים מעל פני הים; עקמומיות עם אותו מקדם שבירה כמו המנוע (0.13)
+  static String? losLimitsText(Map<String, dynamic>? r, LatLng obs, LatLng tgt, double km, double obsAbs, double tgtAbs,
+      [double secStart = 0, double secEnd = 360, String tail = '']) { // FR-D-290: גזרה + גובה בחינה/מרווח רכס
+    final parts = <String>[]; // החלקים
+    const dc = Distance(); final brg = (dc.bearing(obs, tgt) + 360) % 360; // כיוון ליעד
+    final hasSec = ((secEnd - secStart) % 360 + 360) % 360 != 0; // הוגדרה גזרה (לא 360°)
+    if (hasSec) { // FR-D-290: גזרת המכ"ם שהמשתמש הגדיר — גם בלי מכ"ם פעיל
+      parts.add(inSector(brg, secStart, secEnd) ? 'בגזרה ✔' : 'מחוץ לגזרה ✖ (${brg.toStringAsFixed(0)}°)');
+    }
+    if (r == null) return (hasSec || tail.isNotEmpty) ? '📐 ${parts.isEmpty ? 'ללא מכ"ם' : parts.join(' · ')}$tail' : null; // ידני
+    if (!hasSec && r['antenna'] == 'phased_array') { // מערך מופע בלי גזרה — סקטור לפי כיוון הפנים
+      final off = (((brg - (r['boresight'] as double) + 540) % 360) - 180).abs(); // סטייה מכיוון הפנים
+      parts.add(off <= (r['maxScan'] as double) ? 'בסקטור ✔' : 'מחוץ לסקטור ✖ (${off.toStringAsFixed(0)}°)');
+    }
+    parts.add(km <= (r['range'] as double) ? 'בטווח ✔' : 'מעבר לטווח ✖ (${km.toStringAsFixed(2)} > ${r['range']} ק"מ)'); // טווח
+    if (km < (r['minRange'] as double)) parts.add('בתוך הטווח המינימלי ✖'); // אזור מת
+    final dM = km * 1000, drop = dM * dM / (2 * 6371000) * (1 - 0.13); // עקמומיות פחות שבירה
+    final el = atan2((tgtAbs - obsAbs) - drop, max(dM, 1.0)) * 180 / pi; // זווית העילוי ליעד
+    final vc = r['vc'] as double, vw = r['vw'] as double; // שדה אנכי
+    parts.add(el >= vc - vw / 2 && el <= vc + vw / 2 ? 'עילוי ${el.toStringAsFixed(1)}° בשדה ✔' : 'עילוי ${el.toStringAsFixed(1)}° מחוץ לשדה האנכי ✖');
+    return '📡 ${r['label']}: ${parts.join(' · ')}$tail'; // השורה (+ גובה הבחינה ומרווח הרכס, FR-D-290)
   }
 
   // מחק סשן LOS בודד לפי מספר סידורי
@@ -527,6 +581,8 @@ class MapState extends ChangeNotifier {
   double radialRidgeMarginDeg = 0.0;
   double radialVCenterDeg = 0.0;       // מרכז שדה-הראייה האנכי (0=אופקי) — "מכ"ם תצפית" רעיוני, לא כלי אמיתי
   double radialVWidthDeg = 4.0;        // רוחב שדה-הראייה האנכי הכולל (±2° מהמרכז)
+  String radialTgtUnit = 'm';          // FR-D-290: יחידות גובה הבחינה — 'm' / 'ft' / 'kft'
+  String radialTgtRef = 'agl';         // FR-D-290: ייחוס — 'agl' (כמו קודם) / 'msl'
   bool radialLosLoading = false;       // חישוב רץ כרגע (batches נשלפים ברקע)
   int radialLosBatchesDone = 0;
   int radialLosBatchesTotal = 0;
@@ -546,6 +602,16 @@ class MapState extends ChangeNotifier {
   void updateRadialLosParam(void Function() mutate) {
     mutate();
     notifyListeners();
+  }
+
+  /// FR-D-288: מונה החלות מבחוץ (מכ"ם פעיל) — פאנל רדיוס הראייה מסנכרן את כל שדות הטקסט שלו כשהוא משתנה
+  int radialParamsEpoch = 0;
+
+  /// FR-D-288: החלת שדות על רדיוס הראייה מבחוץ (מהמכ"ם הפעיל) — כמו updateRadialLosParam, ובנוסף מקדם את המונה
+  void applyRadialParams(void Function() mutate) {
+    mutate(); // השינוי
+    radialParamsEpoch++; // סימן לפאנל
+    notifyListeners(); // ציור מחדש
   }
 
   // הצבת/הזזת נקודת המשקיף (לחיצה על המפה) — לא מפעילה חישוב, רק תצוגה מקדימה (מטופלת ב-UI לפי השדות)
@@ -594,8 +660,9 @@ class MapState extends ChangeNotifier {
         observer: radialLosObs!,
         rangeKm: radialRangeKm, minRangeKm: radialMinRangeKm, angleStepDeg: radialAngleStepDeg,
         startBearingDeg: radialStartBearingDeg, endBearingDeg: radialEndBearingDeg,
-        obsH: radialObsH, tgtH: radialTgtH, ridgeMarginDeg: radialRidgeMarginDeg,
+        obsH: radialObsH, tgtH: heightM(radialTgtH, radialTgtUnit), ridgeMarginDeg: radialRidgeMarginDeg, // FR-D-290: גובה הבחינה במטרים
         verticalCenterDeg: radialVCenterDeg, verticalWidthDeg: radialVWidthDeg,
+        tgtMsl: radialTgtRef == 'msl', // FR-D-290: ייחוס הגובה
         onProgress: (done, total) { // נקרא אחרי כל batch — מציג התקדמות חיה בממשק
           radialLosBatchesDone = done; radialLosBatchesTotal = total;
           notifyListeners();

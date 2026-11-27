@@ -34,6 +34,7 @@ class RadarTrackController extends ChangeNotifier {
   }
 
   void _onMapChanged() {
+    _syncSiteFromMap(); // FR-D-288: מיקום/שדות הצבה/סוג "שלי" — מסונכרנים בין הכלים ונשמרים במכ"ם הפעיל
     final r = _map?.radarObs; // המכ"ם הנוכחי
     if (r == null || running || result == null || _lastRunRadar == null) return; // אין מה להריץ מחדש
     if (r.latitude == _lastRunRadar!.latitude && r.longitude == _lastRunRadar!.longitude) return; // לא זז
@@ -101,6 +102,7 @@ class RadarTrackController extends ChangeNotifier {
   /// עדכון שדה מהפאנל + ציור מחדש.
   void update(void Function() mutate) {
     mutate(); // השינוי
+    _syncSiteFromMap(); // FR-D-288: שדה סריקה של סוג "שלי" — נשמר לפרופיל
     notifyListeners(); // ציור מחדש
   }
 
@@ -511,24 +513,36 @@ class RadarTrackController extends ChangeNotifier {
     await refreshMyProfiles(); // FR-D-286: בורר הפרופיל הפעיל מתעדכן (ואם הפעיל נמחק — חוזרים ל"ידני")
   }
 
-  // ═══════════════════════ פרופיל פעיל (FR-D-286) ═══════════════════════
-  // בורר אחד שקובע לפי איזה פרופיל ירוצו כל תהליכי המכ"ם: כיסוי דופלר, הערכת מסלול טיסה, בדיקת מעקב, פרופיל שטח
-  // ומפת חום — כולם קוראים מאותם שדות, ולכן בחירה = טעינת הפרופיל לשדות. כל תוצאה מסומנת בשם הפרופיל.
+  // ═══════════════════════ מכ"מים מוצבים (FR-D-288) ═══════════════════════
+  // סוג מכ"ם = פרופיל (ספרייה מובנית / הפרופילים שלי). מכ"ם מוצב = סוג + פרמטרים של הצבה: מיקום, כיוון פנים, גובה אנטנה,
+  // סקטור, טווח, משטח וריבוד. מכ"ם פעיל אחד שכל הכלים עובדים עליו; נתוני המטרה (RCS, מהירות) נשארים בכל כלי;
+  // שדות של סוג מהספרייה נעולים ("שכפל לעריכה" יוצר עותק פתוח). אותו מודל ואותו קובץ JSON כמו בדסקטופ.
 
-  List<Map<String, dynamic>> library = []; // הספרייה המובנית (radar-profiles/ בתוך ה-APK, לקריאה בלבד)
+  List<Map<String, dynamic>> library = []; // סוגי מכ"ם מהספרייה המובנית (radar-profiles/ בתוך ה-APK, לקריאה בלבד)
   bool _libRequested = false; // נטענת פעם אחת
-  List<String> myProfileNames = []; // הפרופילים שהמשתמש שמר (מקומית בטלפון)
-  String activeKey = ''; // '' = ידני; 'lib:<i>' = מהספרייה; 'my:<name>' = שלי
-  String? activeName; // שם הפרופיל הפעיל
-  Map<String, dynamic>? activeNotes; // מה פורסם ומה הונח (רק לפרופיל מהספרייה)
-  String? _activeSnap; // תמונת השדות ברגע הטעינה — לזיהוי "שונה ידנית"
-  static const _siteKeys = ['boresight_deg']; // שדות של האתר ולא של המכ"ם: הבורר לא דורס אותם ולא נחשבים "שינוי ידני"
-  String runProfileLbl = ''; // הפרופיל שהיה פעיל כשבדיקת המעקב האחרונה התחילה
+  int _libRetries = 0; // ניסיונות חוזרים לטעינת הספרייה
+  List<String> myProfileNames = []; // סוגי מכ"ם של המשתמש (מקומית בטלפון)
+  Map<String, dynamic> _myStore = {}; // שם -> פרמטרים של הסוגים שלי (עותק בזיכרון לגישה סינכרונית)
+  static const typeKeys = ['min_range_km', 'vertical_center_deg', 'vertical_width_deg', 'power_kw', 'gain_dbi', 'freq_mhz', 'sensitivity_dbm',
+      'prf_hz', 'mdv_kt', 'antenna_type', 'max_scan_deg', 'scan_mode', 'rot_period_s', 'revisit_s', 'track_rate_hz', 'max_ang_rate_dps',
+      'cue_delay_s', 'track_m', 'track_n', 'coast_s']; // שדות שמגיעים מסוג המכ"ם (זהה לדסקטופ)
+  static const _sitesPrefsKey = 'radar_sites_v1'; // מפתח השמירה המקומית של המכ"מים המוצבים
+  List<Map<String, dynamic>> sites = []; // המכ"מים המוצבים: [{name, params}]
+  String activeSite = ''; // שם המכ"ם הפעיל; '' = ידני
+  Map<String, bool> detached = {'los': false, 'radial': false}; // "צופה נפרד" לכלי
+  bool sitePick = false; // הלחיצה הבאה על המפה ממקמת את המכ"ם הפעיל
+  bool _sitesLoaded = false; // המכ"מים נטענו מהאחסון
+  bool _applying = false; // שינוי פנימי — לא לסנכרן חזרה
+  Map<String, dynamic> _lastSite = {}, _lastRadialSite = {}, _lastType = {}; // ערכים בסנכרון האחרון — לזיהוי מה השתנה
+  LatLng? _lastLoc, _lastRadialObs; // מיקומים בסנכרון האחרון
+  Map<String, dynamic> _lastLosSite = {}; // FR-D-290: שדות ההצבה בקו הראייה בסנכרון האחרון
+  Timer? _siteSaveTimer, _typeSaveTimer; // שמירות מושהות
+  String runProfileLbl = ''; // המכ"ם שהיה פעיל כשבדיקת המעקב האחרונה התחילה
   String plProfileLbl = ''; // אותו דבר למפת החום
   String dopplerProfileLbl = ''; // אותו דבר לכיסוי הדופלר (נלכד בלחיצה על "הפעל חישוב")
   String routeEvalProfileLbl = ''; // אותו דבר להערכת מסלול הטיסה
 
-  /// טוען את הספרייה המובנית מ-Python (פעם אחת) ואת שמות הפרופילים שלי.
+  /// טוען את הספרייה המובנית מ-Python (פעם אחת), את הסוגים שלי ואת המכ"מים המוצבים.
   Future<void> loadLibrary() async {
     if (!_libRequested) { // פעם אחת
       _libRequested = true;
@@ -536,59 +550,96 @@ class RadarTrackController extends ChangeNotifier {
         final d = await MpmBridge.call('radar_profiles_library', {}); // קריאה סינכרונית קצרה ב-Python
         library = ((d['profiles'] as List?) ?? const []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList(); // הרשימה
       } catch (_) {
-        _libRequested = false; // כשל בגישור — ינסה שוב בפתיחה הבאה
+        library = []; // כשל בגישור
+      }
+      if (library.isEmpty) { // לא נטען (Python עוד עולה / כשל) — ניסיון חוזר עד 10 פעמים כל 2 שנ'
+        _libRequested = false; // יאפשר ניסיון נוסף
+        if (_libRetries++ < 10) Future.delayed(const Duration(seconds: 2), loadLibrary);
       }
     }
-    await refreshMyProfiles(); // הפרופילים שלי + ציור
+    await refreshMyProfiles(); // הסוגים שלי
+    if (!_sitesLoaded) { _sitesLoaded = true; await _loadSites(); } // המכ"מים המוצבים (פעם אחת)
   }
 
-  /// מרענן את רשימת הפרופילים שלי; אם הפרופיל הפעיל נמחק — חוזרים ל"ידני" (השדות נשארים כמו שהם).
+  /// מרענן את הסוגים שלי (עותק בזיכרון + שמות).
   Future<void> refreshMyProfiles() async {
-    myProfileNames = await profileNames(); // השמות
-    if (activeKey.startsWith('my:') && !myProfileNames.contains(activeKey.substring(3))) _clearActive(); // הפעיל נמחק
+    _myStore = await _loadStore(); // מהאחסון
+    myProfileNames = _myStore.keys.toList()..sort(); // השמות
     notifyListeners(); // ציור
   }
 
-  void _clearActive() { activeKey = ''; activeName = null; activeNotes = null; _activeSnap = null; } // "ידני"
-
-  String _snapshot() {
-    // תמונת שדות הפרופיל כרגע (בלי שדות האתר), כטקסט JSON להשוואה
-    final p = currentProfile(); // כל השדות
-    for (final k in _siteKeys) { p.remove(k); } // בלי כיוון הפנים
-    return jsonEncode(p); // טקסט
+  Future<void> _loadSites() async {
+    // טוען את המכ"מים המוצבים, את הניתוק ואת המכ"ם הפעיל מההפעלה הקודמת (ברירת מחדל: ידני)
+    final prefs = await SharedPreferences.getInstance(); // אחסון
+    final raw = prefs.getString(_sitesPrefsKey); // ה-JSON
+    if (raw == null) return; // אין עדיין
+    try {
+      final d = jsonDecode(raw) as Map; // פענוח
+      sites = ((d['sites'] as List?) ?? const []).whereType<Map>().map(_normSite).toList(); // הרשימה
+      final det = d['detached'] as Map?; // ניתוק
+      if (det != null) detached = {'los': det['los'] == true, 'radial': det['radial'] == true};
+      final a = '${d['active'] ?? ''}'; // הפעיל
+      if (a.isNotEmpty && sites.any((s) => s['name'] == a)) { await activateSite(a); } else { notifyListeners(); } // שחזור
+    } catch (_) {
+      // קובץ פגום — מתחילים ריק, בלי לדרוס עד השמירה הבאה
+    }
   }
 
-  /// האם שדה כלשהו השתנה מאז שהפרופיל הפעיל נטען.
-  bool get activeModified => _activeSnap != null && _map != null && _activeSnap != _snapshot();
+  static Map<String, dynamic> _normSite(Map m) => {'name': '${m['name']}', 'params': Map<String, dynamic>.from((m['params'] as Map?) ?? const {})}; // מבנה אחיד
+
+  Future<void> _saveSites() async {
+    // שמירת הרשימה, המכ"ם הפעיל והניתוק — עם שדה גרסה
+    final prefs = await SharedPreferences.getInstance(); // אחסון
+    await prefs.setString(_sitesPrefsKey, jsonEncode({'v': 1, 'sites': sites, 'active': activeSite, 'detached': detached})); // שמירה
+  }
+
+  void _saveSitesSoon() { _siteSaveTimer?.cancel(); _siteSaveTimer = Timer(const Duration(milliseconds: 600), _saveSites); } // שמירה מושהית
+
+  void _saveTypeSoon(String name, Map<String, dynamic> params) {
+    // שמירה מושהית של סוג "שלי" שנערך
+    _typeSaveTimer?.cancel();
+    _typeSaveTimer = Timer(const Duration(milliseconds: 800), () async {
+      final store = await _loadStore(); store[name] = params; // עדכון
+      final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    });
+  }
+
+  /// סוג מכ"ם לפי מפתח: 'lib:<קובץ>' (יציב) או 'my:<שם>'.
+  Map<String, dynamic>? typeOf(String? key) {
+    if (key == null) return null; // אין
+    if (key.startsWith('lib:')) { // מהספרייה
+      final f = key.substring(4);
+      for (final p in library) {
+        if (p['file'] == f) return {'key': key, 'name': '${p['name']}', 'params': (p['params'] as Map).cast<String, dynamic>(), 'notes': (p['notes'] as Map?)?.cast<String, dynamic>(), 'lib': true};
+      }
+      return null; // לא נמצא
+    }
+    if (key.startsWith('my:')) { // שלי
+      final n = key.substring(3), p = _myStore[n];
+      return p == null ? null : {'key': key, 'name': n, 'params': (p as Map).cast<String, dynamic>(), 'notes': null, 'lib': false};
+    }
+    return null; // לא מוכר
+  }
+
+  /// המכ"ם הפעיל (null = ידני).
+  Map<String, dynamic>? get site { for (final s in sites) { if (s['name'] == activeSite) return s; } return null; }
+
+  Map<String, dynamic> get _sp => (site?['params'] as Map<String, dynamic>?) ?? <String, dynamic>{}; // פרמטרי המכ"ם הפעיל
+
+  String siteTypeName(Map<String, dynamic> s) { final p = s['params'] as Map; final t = typeOf(p['type_key'] as String?); return t != null ? '${t['name']}' : '${p['type_name'] ?? '?'}'; } // שם הסוג
+
+  /// האם שדות הסוג נעולים (סוג מהספרייה); בכלי מנותק — לא.
+  bool lockedFor(String tool) { if (site == null || (detached[tool] ?? false)) return false; final t = typeOf(_sp['type_key'] as String?); return t != null && t['lib'] == true; }
+
+  /// סוג המכ"ם הפעיל (למקורות ולכפתור השכפול).
+  Map<String, dynamic>? get activeType => site == null ? null : typeOf(_sp['type_key'] as String?);
+
+  Map<String, dynamic>? get activeNotes => activeType?['notes'] as Map<String, dynamic>?; // מה פורסם ומה הונח
 
   /// התווית שנכתבת על כל תוצאה.
-  String activeLabel() => activeName == null ? 'פרופיל: ידני (ללא פרופיל)' : 'פרופיל: $activeName${activeModified ? ' (שונה ידנית)' : ''}';
+  String activeLabel() { final s = site; return s == null ? 'מכ"ם: ידני (ללא מכ"ם)' : 'מכ"ם: ${s['name']} (${siteTypeName(s)})'; }
 
-  /// בחירה בבורר: טוען את הפרופיל לשדות (בלי שדות האתר) והופך אותו לפעיל; '' = ידני, השדות לא משתנים.
-  Future<void> setActive(String key) async {
-    if (key.isEmpty) { _clearActive(); notifyListeners(); return; } // ידני
-    Map<String, dynamic>? params; String? name; Map<String, dynamic>? notes; // הפרופיל
-    if (key.startsWith('lib:')) { // מהספרייה
-      final i = int.tryParse(key.substring(4)); // האינדקס
-      if (i == null || i < 0 || i >= library.length) return; // לא קיים
-      params = (library[i]['params'] as Map).cast<String, dynamic>(); name = '${library[i]['name']}'; // הערכים והשם
-      notes = (library[i]['notes'] as Map?)?.cast<String, dynamic>(); // המקורות
-    } else if (key.startsWith('my:')) { // שלי
-      name = key.substring(3); // השם
-      final p = (await _loadStore())[name]; // מהאחסון
-      if (p == null) return; // נמחק בינתיים
-      params = (p as Map).cast<String, dynamic>(); // הערכים
-    } else {
-      return; // מפתח לא מוכר
-    }
-    final copy = Map<String, dynamic>.from(params); // עותק — לא משנים את הספרייה
-    for (final k in _siteKeys) { copy.remove(k); } // כיוון הפנים נשאר כמו שכוון לאיום
-    applyProfile(copy); // החלה על השדות
-    activeKey = key; activeName = name; activeNotes = notes; _activeSnap = _snapshot(); // הפעיל, ותמונת השדות אחרי הטעינה
-    notifyListeners(); // ציור
-  }
-
-  /// טקסט המקורות של פרופיל מהספרייה: מה פורסם (עם הקישור) ומה הונח.
+  /// טקסט המקורות של סוג מהספרייה: מה פורסם (עם הקישור) ומה הונח.
   String notesText() {
     final n = activeNotes; // המקורות
     if (n == null) return ''; // אין
@@ -601,11 +652,264 @@ class RadarTrackController extends ChangeNotifier {
     return lines.join('\n'); // הטקסט
   }
 
-  /// נלכד בלחיצה על "הפעל חישוב" בפאנל הדופלר — לפי איזה פרופיל חושב הכיסוי.
+  /// נלכד בלחיצה על "הפעל חישוב" בפאנל הדופלר — לפי איזה מכ"ם חושב הכיסוי.
   void markDopplerRun() => dopplerProfileLbl = activeLabel();
 
   /// נלכד בלחיצה על "הערך מסלול טיסה מול המכ"ם".
   void markRouteEvalRun() => routeEvalProfileLbl = activeLabel();
+
+  // ── קריאה/כתיבה של שדות ההצבה והסוג בכלים ──
+  Map<String, dynamic> _radarSiteVals() { final m = _map!; return {'h_antenna': m.radarHAntenna, 'start_bearing_deg': m.radarStartBearingDeg,
+      'end_bearing_deg': m.radarEndBearingDeg, 'angle_step_deg': m.radarAngleStepDeg, 'range_km': m.radarRangeKm, 'ridge_margin_deg': m.radarRidgeMarginDeg,
+      'boresight_deg': m.radarBoresightDeg, 'reflectivity': m.radarReflectivity, 'lobing_enabled': m.radarLobingEnabled}; } // פאנל הדופלר
+
+  Map<String, dynamic> _radialSiteVals() { final m = _map!; return {'h_antenna': m.radialObsH, 'start_bearing_deg': m.radialStartBearingDeg,
+      'end_bearing_deg': m.radialEndBearingDeg, 'angle_step_deg': m.radialAngleStepDeg, 'range_km': m.radialRangeKm, 'ridge_margin_deg': m.radialRidgeMarginDeg}; } // רדיוס הראייה
+
+  Map<String, dynamic> _typeVals() { final cp = currentProfile(); return {for (final k in typeKeys) if (cp.containsKey(k)) k: cp[k]}; } // שדות הסוג (דופלר + סריקה)
+
+  Map<String, dynamic> _radialTypeVals() { final m = _map!; return {'min_range_km': m.radialMinRangeKm, 'vertical_center_deg': m.radialVCenterDeg, 'vertical_width_deg': m.radialVWidthDeg}; }
+
+  void _writeSite(Map<String, dynamic> p) {
+    // מחיל את שדות ההצבה על כל הכלים המחוברים
+    final m = _map!; // המצב
+    double? d(String k) => (p[k] as num?)?.toDouble(); // מספר
+    m.applyRadarParams(() {
+      m.radarHAntenna = d('h_antenna') ?? m.radarHAntenna; m.radarStartBearingDeg = d('start_bearing_deg') ?? m.radarStartBearingDeg;
+      m.radarEndBearingDeg = d('end_bearing_deg') ?? m.radarEndBearingDeg; m.radarAngleStepDeg = d('angle_step_deg') ?? m.radarAngleStepDeg;
+      m.radarRangeKm = d('range_km') ?? m.radarRangeKm; m.radarRidgeMarginDeg = d('ridge_margin_deg') ?? m.radarRidgeMarginDeg;
+      m.radarBoresightDeg = d('boresight_deg') ?? m.radarBoresightDeg;
+      if (p['reflectivity'] != null) m.radarReflectivity = '${p['reflectivity']}';
+      if (p['lobing_enabled'] != null) m.radarLobingEnabled = p['lobing_enabled'] == true || '${p['lobing_enabled']}' == 'true';
+    });
+    if (!(detached['radial'] ?? false)) {
+      m.applyRadialParams(() {
+        m.radialObsH = d('h_antenna') ?? m.radialObsH; m.radialStartBearingDeg = d('start_bearing_deg') ?? m.radialStartBearingDeg;
+        m.radialEndBearingDeg = d('end_bearing_deg') ?? m.radialEndBearingDeg; m.radialAngleStepDeg = d('angle_step_deg') ?? m.radialAngleStepDeg;
+        m.radialRangeKm = d('range_km') ?? m.radialRangeKm; m.radialRidgeMarginDeg = d('ridge_margin_deg') ?? m.radialRidgeMarginDeg;
+      });
+    }
+    if (!(detached['los'] ?? false)) { // קו הראייה — גובה צופה, ו-FR-D-290: מרווח רכס וגזרה
+      m.losObsH = d('h_antenna') ?? m.losObsH; m.losMarginDeg = d('ridge_margin_deg') ?? m.losMarginDeg;
+      m.losSecStart = d('start_bearing_deg') ?? m.losSecStart; m.losSecEnd = d('end_bearing_deg') ?? m.losSecEnd;
+    }
+  }
+
+  Map<String, dynamic> _losSiteVals() { final m = _map!; return {'h_antenna': m.losObsH, 'ridge_margin_deg': m.losMarginDeg,
+      'start_bearing_deg': m.losSecStart, 'end_bearing_deg': m.losSecEnd}; } // FR-D-290: שדות ההצבה שמופיעים בקו הראייה
+
+  void _writeRadialType(Map<String, dynamic> tp) {
+    // שדות הסוג שמופיעים גם ברדיוס הראייה (טווח מינימלי, שדה ראייה אנכי)
+    if (_map == null || (detached['radial'] ?? false)) return; // מנותק
+    final m = _map!; double? d(String k) => (tp[k] as num?)?.toDouble(); // מספר
+    m.applyRadialParams(() {
+      m.radialMinRangeKm = d('min_range_km') ?? m.radialMinRangeKm; m.radialVCenterDeg = d('vertical_center_deg') ?? m.radialVCenterDeg;
+      m.radialVWidthDeg = d('vertical_width_deg') ?? m.radialVWidthDeg;
+    });
+  }
+
+  void _snapAll() {
+    // תמונת המצב אחרי סנכרון — כדי לזהות בפעם הבאה מה המשתמש שינה ובאיזה כלי
+    final m = _map; if (m == null) return;
+    _lastSite = _radarSiteVals(); _lastRadialSite = _radialSiteVals(); _lastType = {..._typeVals(), ..._radialTypeVals()};
+    _lastLoc = m.radarObs; _lastRadialObs = m.radialLosObs; _lastLosSite = _losSiteVals(); // FR-D-290
+  }
+
+  void _moveObservers(LatLng ll, String? source) {
+    // מיקום משותף: המכ"ם (דופלר + מעקב) ורדיוס הראייה אם מחובר ופתוח. source = הכלי שממנו הגיע השינוי
+    final m = _map!; _applying = true; // מונע לולאת עדכונים
+    try {
+      if (source != 'radar' && m.radarObs != ll) m.setRadarObserver(ll); // המכ"ם
+      if (source != 'radial' && !(detached['radial'] ?? false) && m.radialLosMode && m.radialLosObs != ll) m.setRadialLosObserver(ll); // רדיוס הראייה
+    } finally { _applying = false; }
+  }
+
+  /// נקרא בכל שינוי ב-MapState ובכל update של הבקר: מסנכרן מיקום, שדות הצבה וסוג "שלי" בין הכלים.
+  void _syncSiteFromMap() {
+    if (_applying || _map == null) return; // שינוי פנימי
+    final s = site; if (s == null) return; // ידני — הכלים עצמאיים
+    final m = _map!, p = s['params'] as Map<String, dynamic>; // המצב
+    var dirty = false; // נדרשת שמירה
+    if (m.radarObs != null && m.radarObs != _lastLoc) { // המכ"ם זז
+      p['lat'] = m.radarObs!.latitude; p['lon'] = m.radarObs!.longitude; dirty = true; _moveObservers(m.radarObs!, 'radar');
+    } else if (!(detached['radial'] ?? false) && m.radialLosObs != null && m.radialLosObs != _lastRadialObs && m.radialLosObs != _lastLoc) { // רדיוס הראייה זז
+      p['lat'] = m.radialLosObs!.latitude; p['lon'] = m.radialLosObs!.longitude; dirty = true; _moveObservers(m.radialLosObs!, 'radial');
+    }
+    final changed = <String, dynamic>{}; // שדות הצבה שהשתנו
+    _radarSiteVals().forEach((k, v) { if (v != _lastSite[k]) changed[k] = v; });
+    if (!(detached['radial'] ?? false)) _radialSiteVals().forEach((k, v) { if (v != _lastRadialSite[k]) changed[k] = v; });
+    if (!(detached['los'] ?? false)) _losSiteVals().forEach((k, v) { if (v != _lastLosSite[k]) changed[k] = v; }); // FR-D-290: גובה צופה, מרווח רכס וגזרה
+    if (changed.isNotEmpty) { p.addAll(changed); dirty = true; _applying = true; try { _writeSite(p); } finally { _applying = false; } } // לכל הכלים
+    final t = typeOf(p['type_key'] as String?); // הסוג
+    if (t != null && t['lib'] != true) { // סוג שלי — עריכה חופשית שנשמרת לפרופיל
+      final tv = {..._typeVals(), if (!(detached['radial'] ?? false)) ..._radialTypeVals()}; // ערכים נוכחיים
+      final tch = <String, dynamic>{}; tv.forEach((k, v) { if (v != _lastType[k]) tch[k] = v; }); // שינויים
+      if (tch.isNotEmpty) {
+        final tp = t['params'] as Map<String, dynamic>; tp.addAll(tch); _myStore['${t['name']}'] = tp; // בפרופיל
+        _applying = true; try { applyProfile(Map.of(tch)); _writeRadialType(tch); } finally { _applying = false; } // לשאר הכלים
+        _saveTypeSoon('${t['name']}', tp); // שמירה
+      }
+    }
+    _snapAll(); // תמונה חדשה
+    if (dirty) { _saveSitesSoon(); notifyListeners(); } // שמירה + ציור
+  }
+
+  /// בחירת מכ"ם פעיל: שדות הסוג (בלי RCS), שדות ההצבה, וכל הצופים למיקום שלו. '' = ידני.
+  Future<void> activateSite(String name) async {
+    Map<String, dynamic>? s; for (final x in sites) { if (x['name'] == name) s = x; } // המכ"ם
+    activeSite = s == null ? '' : name; // הפעיל
+    if (s != null && _map != null) {
+      final p = s['params'] as Map<String, dynamic>, t = typeOf(p['type_key'] as String?); // ההצבה והסוג
+      _applying = true; // מונע לולאת עדכונים
+      try {
+        if (t != null) { final tp = t['params'] as Map<String, dynamic>; final sub = {for (final k in typeKeys) if (tp[k] != null) k: tp[k]}; applyProfile(sub); _writeRadialType(sub); } // הסוג
+        _writeSite(p); // ההצבה
+        final lat = (p['lat'] as num?)?.toDouble(), lon = (p['lon'] as num?)?.toDouble(); // מיקום
+        if (lat != null && lon != null) _moveObservers(LatLng(lat, lon), null);
+      } finally { _applying = false; }
+      _snapAll(); // תמונה
+    }
+    _saveSitesSoon(); notifyListeners(); // שמירה + ציור
+  }
+
+  /// ברירות מחדל למכ"ם מוצב חדש (זהה לדסקטופ): גובה אנטנה וטווח מהסוג; סקטור = כיוון פנים ± זווית סריקה, או 360°.
+  Map<String, dynamic> siteDefaults(String typeKey, LatLng? ll) {
+    final t = typeOf(typeKey), tp = (t?['params'] as Map<String, dynamic>?) ?? const <String, dynamic>{}; // הסוג
+    final phased = tp['antenna_type'] == 'phased_array', ms = (tp['max_scan_deg'] as num?)?.toDouble() ?? 60.0; // מערך מופע
+    return {'type_key': typeKey, 'type_name': t?['name'] ?? '', 'lat': ll?.latitude, 'lon': ll?.longitude, 'boresight_deg': 0.0,
+        'h_antenna': (tp['h_antenna'] as num?)?.toDouble() ?? 10.0, 'range_km': (tp['range_km'] as num?)?.toDouble() ?? 50.0,
+        'start_bearing_deg': phased ? (360 - ms) % 360 : 0.0, 'end_bearing_deg': phased ? ms : 360.0, 'angle_step_deg': 10.0,
+        'reflectivity': tp['reflectivity'] ?? 'land', 'lobing_enabled': false, 'ridge_margin_deg': 0.0};
+  }
+
+  /// הוספת מכ"ם מוצב (או עריכת קיים: oldName). מחזיר הודעת שגיאה או null.
+  Future<String?> saveSite(String name, String typeKey, {String? oldName}) async {
+    name = name.trim(); if (name.length > 100) name = name.substring(0, 100); // שם
+    if (name.isEmpty || typeKey.isEmpty) return 'נדרשים שם וסוג'; // ולידציה
+    if (name != oldName && sites.any((s) => s['name'] == name)) return 'השם כבר קיים'; // כפילות
+    Map<String, dynamic> p; // פרמטרים
+    if (oldName != null) { // עריכה
+      final old = sites.firstWhere((s) => s['name'] == oldName, orElse: () => <String, dynamic>{});
+      if (old.isEmpty) return 'המכ"ם לא נמצא';
+      p = Map<String, dynamic>.from(old['params'] as Map);
+      if (p['type_key'] != typeKey) { p['type_key'] = typeKey; p['type_name'] = typeOf(typeKey)?['name'] ?? ''; } // סוג חדש — ההצבה נשמרת
+      sites = sites.where((s) => s['name'] != oldName).toList(); // הסרת הישן
+    } else {
+      p = siteDefaults(typeKey, _map?.radarObs); // חדש
+    }
+    sites = [...sites, {'name': name, 'params': p}]; // הוספה
+    await activateSite(name); // הפעלה
+    if (p['lat'] == null) sitePick = true; // בלי מיקום — הלחיצה הבאה ממקמת
+    await _saveSites(); notifyListeners(); // שמירה
+    return null; // הצלחה
+  }
+
+  /// יצירת מכ"ם מוצב מסוג בלחיצה אחת (בחירת "➕ מכ"ם חדש מסוג…" בבורר): שם = שם הסוג (ייחודי), מיקום = המכ"ם הנוכחי.
+  Future<String> quickCreate(String typeKey) async {
+    final t = typeOf(typeKey); if (t == null) return 'הסוג לא נמצא'; // אין סוג
+    var base = '${t['name']}'.replaceAll(' (נתונים פומביים)', ''); if (base.length > 90) base = base.substring(0, 90); // שם בסיס
+    var name = base; var i = 2; while (sites.any((s) => s['name'] == name)) { name = '$base $i'; i++; } // שם פנוי
+    final e = await saveSite(name, typeKey); // יצירה + הפעלה
+    return e ?? (sitePick ? 'נוצר "$name" — הקש על המפה למיקום המכ"ם' : 'נוצר "$name" במיקום המכ"ם הנוכחי'); // הודעה
+  }
+
+  /// מחיקת המכ"ם הפעיל.
+  Future<void> deleteActiveSite() async {
+    sites = sites.where((s) => s['name'] != activeSite).toList(); activeSite = ''; // הסרה
+    await _saveSites(); notifyListeners(); // שמירה
+  }
+
+  /// לחיצה על המפה במצב "📍 מקם".
+  void placeSiteAt(LatLng ll) {
+    sitePick = false; final s = site; if (s == null || _map == null) { notifyListeners(); return; } // אין פעיל
+    final p = s['params'] as Map<String, dynamic>; p['lat'] = ll.latitude; p['lon'] = ll.longitude; // המיקום
+    _moveObservers(ll, null); _snapAll(); _saveSitesSoon(); notifyListeners(); // הצופים + שמירה
+  }
+
+  /// "שכפל לעריכה": עותק של סוג מהספרייה תחת "הפרופילים שלי", והמכ"ם הפעיל עובר אליו (שדות פתוחים).
+  Future<String?> cloneActiveType(String name) async {
+    final t = activeType; if (t == null || t['lib'] != true) return 'אין סוג נעול לשכפל'; // רק סוג נעול
+    name = name.trim(); if (name.isEmpty) return 'נדרש שם'; // ולידציה
+    final store = await _loadStore(); store[name] = Map<String, dynamic>.from(t['params'] as Map); // עותק מלא של הסוג
+    final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await refreshMyProfiles(); // רענון
+    _sp['type_key'] = 'my:$name'; _sp['type_name'] = name; // המכ"ם עובר לעותק
+    await activateSite(activeSite); // החלה מחדש (פתוח)
+    return null; // הצלחה
+  }
+
+  /// "צופה נפרד": מנותק = הכלי עצמאי (מיקום ושדות); חיבור מחדש מחיל שוב את המכ"ם הפעיל.
+  Future<void> setDetached(String tool, bool on) async {
+    detached = {...detached, tool: on}; // המצב
+    if (!on && site != null) { await activateSite(activeSite); } else { _snapAll(); notifyListeners(); } // חיבור מחדש — החלה
+    _saveSitesSoon(); // שמירה
+  }
+
+  /// מיקום הצופה המשותף לכלי (null = ידני / מנותק / המכ"ם עוד לא הוצב).
+  LatLng? sharedObs(String tool) {
+    if (site == null || (detached[tool] ?? false)) return null; // ידני / מנותק
+    final lat = (_sp['lat'] as num?)?.toDouble(), lon = (_sp['lon'] as num?)?.toDouble(); // המיקום
+    return (lat == null || lon == null) ? null : LatLng(lat, lon);
+  }
+
+  /// כלי נפתח: אם מחובר למכ"ם פעיל עם מיקום — הצופה שלו מוצב במיקום המכ"ם.
+  void onToolOpened(String tool) {
+    final ll = sharedObs(tool); if (ll == null || _map == null) return; // מנותק / ידני / בלי מיקום
+    if (tool == 'radial' && _map!.radialLosObs != ll) { _applying = true; try { _map!.setRadialLosObserver(ll); } finally { _applying = false; } _snapAll(); }
+  }
+
+  /// מגבלות המכ"ם לקו ראייה נקודתי (נלכד ביצירת הצמד): סקטור, טווח, טווח מינימלי, שדה ראייה אנכי.
+  Map<String, dynamic>? losSnapshot() {
+    final s = site; if (s == null || (detached['los'] ?? false)) return null; // ידני / מנותק
+    final tp = (activeType?['params'] as Map<String, dynamic>?) ?? const <String, dynamic>{}; // הסוג
+    double n(dynamic v, double dflt) => (v as num?)?.toDouble() ?? dflt; // מספר
+    return {'label': '${s['name']} (${siteTypeName(s)})', 'boresight': n(_sp['boresight_deg'], 0), 'antenna': tp['antenna_type'] ?? 'generic',
+        'maxScan': n(tp['max_scan_deg'], 180), 'range': n(_sp['range_km'], 0), 'minRange': n(tp['min_range_km'], 0),
+        'vc': n(tp['vertical_center_deg'], 0), 'vw': n(tp['vertical_width_deg'], 180)};
+  }
+
+  /// ייצוא כל המכ"מים המוצבים + הסוגים "שלי" שבשימוש — אותו פורמט כמו בדסקטופ.
+  Future<String> exportSites() async {
+    final mine = <String, dynamic>{}; // סוגים שלי בשימוש
+    for (final s in sites) { final t = typeOf((s['params'] as Map)['type_key'] as String?); if (t != null && t['lib'] != true) mine['${t['name']}'] = t['params']; }
+    final doc = {'format': 'maps-gui-radar-sites', 'version': 1, 'active': activeSite, 'sites': sites,
+        'my_types': [for (final e in mine.entries) {'name': e.key, 'params': e.value}]}; // המבנה
+    try {
+      return await FileBridge.saveText('radar_sites.json', 'application/json', const JsonEncoder.withIndent('  ').convert(doc)) ? 'נשמר ✔' : 'בוטל';
+    } catch (e) {
+      return '$e'; // שגיאה
+    }
+  }
+
+  /// ייבוא מכ"מים מוצבים מקובץ (שם קיים — מוחלף).
+  Future<String> importSites() async {
+    try {
+      final text = await FileBridge.openText(); if (text == null) return 'בוטל'; // חלון הפתיחה
+      final doc = jsonDecode(text); // פענוח
+      if (doc is Map && doc['format'] == 'maps-gui-radar-profile' && doc['params'] is Map) { // קובץ פרופיל בודד — נוסף כסוג "שלי" ונוצר ממנו מכ"ם
+        var nm = '${doc['name'] ?? 'פרופיל מיובא'}'.trim(); if (nm.length > 100) nm = nm.substring(0, 100); if (nm.isEmpty) nm = 'פרופיל מיובא'; // שם הסוג
+        final st = await _loadStore(); st[nm] = Map<String, dynamic>.from(doc['params'] as Map); // הוספה
+        final pr = await SharedPreferences.getInstance(); await pr.setString(_prefsKey, jsonEncode(st)); await refreshMyProfiles(); // שמירה
+        final m = await quickCreate('my:$nm'); // מכ"ם מוצב מהסוג
+        return 'נוסף הסוג "$nm" ל"הפרופילים שלי" ✔ $m';
+      }
+      if (doc is! Map || doc['format'] != 'maps-gui-radar-sites' || doc['sites'] is! List) return 'זה לא קובץ מכ"ם של maps-gui (פרופיל או מכ"מים מוצבים)';
+      final store = await _loadStore(); // סוגים שלי
+      for (final t in (doc['my_types'] as List? ?? const [])) { if (t is Map && t['name'] != null && t['params'] is Map) store['${t['name']}'] = t['params']; }
+      final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); await refreshMyProfiles(); // שמירה
+      var n = 0; // כמה מכ"מים
+      for (final s in (doc['sites'] as List)) {
+        if (s is! Map || s['name'] == null || s['params'] is! Map || (s['params'] as Map)['type_key'] == null) continue; // לא תקין
+        final ns = _normSite(s); sites = [...sites.where((x) => x['name'] != ns['name']), ns]; n++; // החלפה/הוספה
+      }
+      await _saveSites(); notifyListeners(); // שמירה
+      return 'נטענו $n מכ"מים ✔';
+    } on FormatException {
+      return 'הקובץ אינו JSON תקין';
+    } catch (e) {
+      return '$e';
+    }
+  }
 
   Future<String> exportProfileJson() async {
     final doc = {'format': 'maps-gui-radar-profile', 'version': 1, 'params': currentProfile()}; // אותו פורמט כמו בדסקטופ
@@ -623,6 +927,12 @@ class RadarTrackController extends ChangeNotifier {
       if (text == null) return 'בוטל';
       final doc = jsonDecode(text); // פענוח
       if (doc is! Map || doc['format'] != 'maps-gui-radar-profile' || doc['params'] is! Map) return 'זה לא קובץ פרופיל מכ"ם של maps-gui';
+      if (site != null) { // FR-D-288: יש מכ"ם פעיל — לא דורסים את שדותיו; הפרופיל נוסף כסוג "שלי" ונוצר ממנו מכ"ם
+        var nm = '${doc['name'] ?? 'פרופיל מיובא'}'.trim(); if (nm.isEmpty) nm = 'פרופיל מיובא'; if (nm.length > 100) nm = nm.substring(0, 100); // שם
+        final st = await _loadStore(); st[nm] = Map<String, dynamic>.from(doc['params'] as Map); // הוספה
+        final pr = await SharedPreferences.getInstance(); await pr.setString(_prefsKey, jsonEncode(st)); await refreshMyProfiles(); // שמירה
+        return 'נוסף כסוג "$nm" ✔ ${await quickCreate('my:$nm')}'; // מכ"ם מוצב מהסוג
+      }
       return 'נטענו ${applyProfile((doc['params'] as Map).cast<String, dynamic>())} שדות מהפרופיל ✔';
     } on FormatException {
       return 'הקובץ אינו JSON תקין';
@@ -672,6 +982,7 @@ class RadarTrackController extends ChangeNotifier {
 
   /// לחיצה על המפה כשבחירה ממתינה. מחזיר true אם הלחיצה טופלה כאן.
   bool handleMapTap(LatLng p) {
+    if (sitePick) { placeSiteAt(p); return true; } // FR-D-288: "📍 מקם" — מיקום המכ"ם הפעיל
     if (pick == RtPick.none) return false; // לא שלנו
     if (pick == RtPick.radar) { _map?.setRadarObserver(p); } // הצבת מכ"ם
     else { loiterCenter = p; } // מרכז שיוט

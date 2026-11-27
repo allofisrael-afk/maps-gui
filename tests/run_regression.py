@@ -27,6 +27,7 @@ REGRESSION_SUITES = [
     ("radar_physics.py - test_radar_physics.py", PROJECT_ROOT / "tests" / "test_radar_physics.py"),  # נוסחאות משותפות + תיקון הדופלר (FR-D-280)
     ("radar_service.py - test_radar_service.py", PROJECT_ROOT / "tests" / "test_radar_service.py"),  # צינורות משותפים + השרת דרכם (FR-D-281)
     ("radar_android.py - test_radar_android.py", PROJECT_ROOT / "tests" / "test_radar_android.py"),  # מתאם האנדרואיד דרך mpm_api.dispatch_json (FR-D-282)
+    ("LOS target height ref - test_los_target_ref.py", PROJECT_ROOT / "tests" / "test_los_target_ref.py"),  # גובה בחינה AGL/MSL (FR-D-290)
 ]
 
 # צפויות להיכשל כרגע (משחזרות ממצא פתוח) - עוברות רק אחרי תיקון מאושר

@@ -513,6 +513,14 @@ def line_of_sight():
         tgt_h = float(request.args.get('tgt_h', 0.0))  # גובה היעד מעל הקרקע (מ') — ברירת מחדל קרקע
     except (TypeError, ValueError):
         tgt_h = 0.0
+    tgt_ref = 'msl' if request.args.get('tgt_ref') == 'msl' else 'agl'  # FR-D-290: ייחוס גובה היעד — agl (ברירת מחדל, כמו קודם) / msl (גובה קבוע מעל פני הים)
+    try:  # FR-D-290: מרווח רכס (מעלות) — כמו ברדיוס הראייה; 0 = בדיוק ההתנהגות הקודמת
+        ridge_margin_deg = float(request.args.get('ridge_margin_deg', 0.0))
+    except (TypeError, ValueError):
+        ridge_margin_deg = 0.0
+    if not math.isfinite(ridge_margin_deg):  # NaN/אינסוף — 0
+        ridge_margin_deg = 0.0
+    ridge_margin_deg = min(max(ridge_margin_deg, _RADIAL_RIDGE_MARGIN_MIN), _RADIAL_RIDGE_MARGIN_MAX)  # אותו טווח כמו ברדיוס הראייה (0-10°)
 
     step_m = 5000.0     # דגימת גובה כל 5 ק"מ לאורך הקו
     max_m  = 500000.0   # תקרת מרחק — 500 ק"מ
@@ -535,6 +543,13 @@ def line_of_sight():
             params={'latitude': lats_str, 'longitude': lons_str},
             timeout=30
         )
+        if r.status_code == 429:  # מכסת Open-Meteo נוצלה — הודעה ברורה במקום "HTTP 500"
+            try:  # Open-Meteo מחזיר {"reason": "..."} — יומית / לשעה / לדקה
+                reason = (r.json() or {}).get('reason', '')  # הסיבה
+            except ValueError:  # גוף לא JSON
+                reason = ''  # לא ידוע
+            when = 'מחר' if 'Daily' in reason else ('בעוד שעה' if 'Hourly' in reason else 'בעוד דקה')  # מתי זה ישתחרר
+            return jsonify({'error': f'מכסת נתוני הגובה של Open-Meteo נוצלה — נסה שוב {when}'}), 429  # 429 ולא 500 — זו לא תקלה בשרת
         r.raise_for_status()
         elevs = r.json().get('elevation', [])
     except (requests.RequestException, ValueError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
@@ -545,10 +560,16 @@ def line_of_sight():
 
     h_obs = elevs[0] + obs_h  # גובה עין המצפה = גובה קרקע בנקודת ההתחלה + גובה עמידה
     # גובה היעד מתווסף רק לנקודה האחרונה — נקודות ביניים נשארות גובה קרקע גולמי (מכשולים), לא "יעד"
-    h_offsets = [0.0] * (n - 1) + [tgt_h]
+    # FR-D-290: ב-MSL היעד בגובה קבוע מעל פני הים — ההיסט מעל הקרקע בנקודת היעד = גובה היעד פחות הקרקע שם
+    # (ב-AGL — בדיוק כמו קודם). ליבת האלגוריתם לא משתנה.
+    tgt_off = (tgt_h - elevs[-1]) if tgt_ref == 'msl' else tgt_h  # היסט היעד מעל הקרקע
+    h_offsets = [0.0] * (n - 1) + [tgt_off]
     # קורא לליבת האלגוריתם המשותפת (_horizon_ratchet) — ללא margin/הגבלת זווית אנכית כאן,
     # כדי לשמר בדיוק את התנהגות /los המקורית (margin_slope=0, min/max_angle_slope=None)
-    ratchet = _horizon_ratchet([p['dist_m'] for p in pts], elevs, h_obs, h_offsets)
+    ratchet = _horizon_ratchet([p['dist_m'] for p in pts], elevs, h_obs, h_offsets,
+                               math.tan(math.radians(ridge_margin_deg)))  # FR-D-290: מרווח רכס (0 = כמו קודם)
+    if tgt_ref == 'msl' and tgt_off < 0:  # FR-D-290: היעד מתחת לפני הקרקע בנקודה שלו — לא גלוי פיזית
+        ratchet[-1]['visible'] = False
     first_block_m = next((r['dist_m'] for r in ratchet if not r['visible']), None)  # המרחק הראשון החסום, None אם הכל גלוי
 
     result = [
@@ -569,7 +590,9 @@ def line_of_sight():
         'observer_elev':  elevs[0],
         'observer_h':     round(h_obs, 1),
         'target_elev':    elevs[-1],
-        'target_h':       round(elevs[-1] + tgt_h, 1),
+        'target_h':       round(elevs[-1] + tgt_off, 1),  # גובה היעד מעל פני הים (ב-MSL = tgt_h עצמו)
+        'tgt_ref':        tgt_ref,  # FR-D-290: הייחוס שבו חושב
+        'ridge_margin_deg': ridge_margin_deg,  # FR-D-290: מרווח הרכס שבו חושב
         'first_block_km': round(first_block_m / 1000, 2) if first_block_m is not None else None,
         'all_visible':    first_block_m is None
     })
@@ -626,7 +649,7 @@ def _cleanup_old_radial_jobs():
 
 
 def _radial_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg,
-                    obs_h, tgt_h, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg):
+                    obs_h, tgt_h, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg, tgt_ref='agl'):  # tgt_ref (FR-D-290): 'agl' = כמו קודם
     """רץ ב-thread נפרד (daemon) — כל החישוב הכבד של רדיוס-הראייה הרדיאלי, מעדכן את
     מצב ה-job תחת _radial_jobs_lock תוך כדי ריצה כדי שקריאות /status יראו התקדמות חיה."""
     try:
@@ -715,8 +738,15 @@ def _radial_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bea
                 continue
             dists = [p['dist_m'] for p, _ in surviving]  # מרחקי הדגימות ששרדו, לפי סדר עולה
             elevs_only = [e for _, e in surviving]  # הגבהים המקבילים
-            h_offsets = [tgt_h] * len(surviving)  # tgt_h מוחל על כל נקודה — כל נקודה היא "יעד" פוטנציאלי כאן, לא רק האחרונה
+            if tgt_ref == 'msl':  # FR-D-290: יעד בגובה קבוע מעל פני הים — ההיסט בכל נקודה = גובה היעד פחות הקרקע שם
+                h_offsets = [tgt_h - e for e in elevs_only]
+            else:  # AGL — בדיוק כמו קודם
+                h_offsets = [tgt_h] * len(surviving)  # tgt_h מוחל על כל נקודה — כל נקודה היא "יעד" פוטנציאלי כאן, לא רק האחרונה
             ratchet = _horizon_ratchet(dists, elevs_only, h_obs, h_offsets, margin_slope, min_angle_slope, max_angle_slope)
+            if tgt_ref == 'msl':  # FR-D-290: נקודה שבה הקרקע גבוהה מהיעד — היעד "בתוך ההר", לא גלוי
+                for i, e in enumerate(elevs_only):
+                    if e > tgt_h:
+                        ratchet[i]['visible'] = False
             # קודקוד הקרן = הנקודה הגלויה **הרחוקה ביותר**, לא בהכרח רציפה מהקצה הקרוב (עודכן לפי
             # החלטת המשתמש אחרי בדיקה חיה, 18/08/2026 — ר' "תקלה שנמצאה" בתוכנית). לפני העדכון,
             # הליכה שנעצרה בכישלון הראשון פספסה קטע ראייה אמיתי באמצע הטווח (קורה בעיקר עם tgt_h
@@ -737,7 +767,7 @@ def _radial_worker(job_id, obs_lat, obs_lon, range_km, angle_step_deg, start_bea
 
         result = {  # תוצאת ה-job הסופית — נקראת ע"י /los_radial/status כש-status=='done'
             'observer_lat': obs_lat, 'observer_lon': obs_lon, 'observer_elev': observer_elev,
-            'observer_h': round(h_obs, 1), 'obs_h': obs_h, 'tgt_h': tgt_h, 'ridge_margin_deg': ridge_margin_deg,
+            'observer_h': round(h_obs, 1), 'obs_h': obs_h, 'tgt_h': tgt_h, 'tgt_ref': tgt_ref, 'ridge_margin_deg': ridge_margin_deg,  # tgt_ref — FR-D-290
             'range_km': range_km, 'min_range_km': min_range_km, 'angle_step_deg': round(angle_step_deg, 3),
             'vertical_center_deg': vertical_center_deg, 'vertical_width_deg': vertical_width_deg,
             'start_bearing_deg': start_bearing_deg, 'end_bearing_deg': end_bearing_deg, 'span_deg': span,
@@ -804,6 +834,9 @@ def start_radial_los():
         tgt_h = float(request.args.get('tgt_h', 0.0))  # גובה היעד/מכשול, מ' — ברירת מחדל 0
     except (TypeError, ValueError):
         tgt_h = 0.0
+    if not math.isfinite(tgt_h):  # FR-D-290: NaN/אינסוף — ברירת המחדל (גובה בחינה עד עשרות אלפי רגל מותר)
+        tgt_h = 0.0
+    tgt_ref = 'msl' if request.args.get('tgt_ref') == 'msl' else 'agl'  # FR-D-290: ייחוס גובה היעד — agl (ברירת מחדל, כמו קודם) / msl
 
     try:  # מרכז שדה-הראייה האנכי, מעלות — ברירת מחדל 0 (אופקי). נחשף כשדה בפאנל מ-18/08/2026
         vertical_center_deg = float(request.args.get('vertical_center_deg', _RADIAL_VERTICAL_CENTER_DEFAULT_DEG))
@@ -827,7 +860,7 @@ def start_radial_los():
     thread = threading.Thread(  # מריץ את כל החישוב ב-thread נפרד — הבקשה הזו חוזרת מיד, לא מחכה
         target=_radial_worker,
         args=(job_id, lat, lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg, obs_h, tgt_h,
-              ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg),
+              ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg, tgt_ref),  # tgt_ref — FR-D-290
         daemon=True,  # daemon — לא מונע יציאה מהתהליך אם השרת נסגר תוך כדי ריצה
     )
     thread.start()
@@ -1793,6 +1826,8 @@ _STATIONS_VALID_TOOLS = (
     'custom_route',
     # שלב א5 של כלי בדיקת מעקב מכ"ם: פרופיל מכ"ם בשם (פרמטרי המכ"ם + סריקה ומעקב + RCS), בלי מיקום
     'radar_profile',
+    # FR-D-288: מכ"מים מוצבים — {type_key, type_name, lat, lon, boresight_deg, h_antenna, סקטור, טווח, ...}
+    'radar_sites',
 )  # מפתחות תקינים — שם JS מזהה כל כלי
 
 

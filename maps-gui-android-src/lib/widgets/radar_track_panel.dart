@@ -38,17 +38,17 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
   }
 
   // ── רכיבי טופס קטנים ──
-  Widget _num(String label, double value, void Function(double) onChanged, {String? tip}) =>
-      _NumField(label: label, value: value, onChanged: onChanged, cs: widget.cs, tip: tip); // שדה מספרי
+  Widget _num(String label, double value, void Function(double) onChanged, {String? tip, bool enabled = true}) =>
+      _NumField(label: label, value: value, onChanged: onChanged, cs: widget.cs, tip: tip, enabled: enabled); // שדה מספרי (enabled=false: שדה סוג נעול, FR-D-288)
 
-  Widget _drop<T>(String label, T value, List<(T, String)> items, void Function(T) onChanged) {
+  Widget _drop<T>(String label, T value, List<(T, String)> items, void Function(T) onChanged, {bool enabled = true}) { // enabled=false: נעול (FR-D-288)
     final cs = widget.cs; // צבעים
     return Row(children: [
       Expanded(child: Text(label, style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant))), // תווית
       DropdownButton<T>(
         value: value, isDense: true, // הערך
         items: [for (final it in items) DropdownMenuItem<T>(value: it.$1, child: Text(it.$2, style: const TextStyle(fontSize: 10)))], // אפשרויות
-        onChanged: (v) { if (v != null) onChanged(v); }, // שינוי
+        onChanged: enabled ? (v) { if (v != null) onChanged(v); } : null, // שינוי (null = מושבת)
       ),
     ]);
   }
@@ -139,6 +139,7 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
     final r = c.result; // התוצאה
     final pl = c.placement; // מפת החום
     final isTrack = c.trackMode == 'track'; // מצב מעקב
+    final lk = c.lockedFor('radar'); // FR-D-288: שדות הסוג נעולים (מכ"ם פעיל מהספרייה)
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Material(
@@ -161,18 +162,18 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
             _drop('מקור המסלול', c.source, const [('ballistic', 'מסלול בליסטי אחרון'), ('rocket', 'רקטה (מודל דחיפה)'), ('fr24', 'טיסה שנטענה'),
                 ('custom', 'מסלול מצויר'), ('loiter', 'שיוט במעגל'), ('csv', 'קובץ CSV')], (v) => u(() => c.source = v)),
             ..._sourceFields(c),
-            _section('⚙ סריקה ומעקב', [
+            _section('⚙ סריקה ומעקב${lk ? ' 🔒' : ''}', [ // FR-D-288: 🔒 = שדות הסוג נעולים (מכ"ם מהספרייה)
               _drop('מצב בדיקה', c.trackMode, const [('track', 'מעקב (סריקה + M מתוך N)'), ('detection', 'גילוי לכל נקודה')], (v) => u(() => c.trackMode = v)),
-              if (isTrack) _drop('סוג סריקה', c.scanMode, const [('rotating', 'אנטנה מסתובבת'), ('phased', 'מערך-מופע'), ('tracker', 'מכ"ם מעקב ייעודי')], (v) => u(() => c.scanMode = v)),
-              if (isTrack && c.scanMode == 'rotating') ...[_num('זמן סיבוב [שנ\']', c.rotPeriod, (v) => u(() => c.rotPeriod = v)),
+              if (isTrack) _drop('סוג סריקה', c.scanMode, const [('rotating', 'אנטנה מסתובבת'), ('phased', 'מערך-מופע'), ('tracker', 'מכ"ם מעקב ייעודי')], (v) => u(() => c.scanMode = v), enabled: !lk),
+              if (isTrack && c.scanMode == 'rotating') ...[_num('זמן סיבוב [שנ\']', c.rotPeriod, (v) => u(() => c.rotPeriod = v), enabled: !lk),
                   _num('כיוון אלומה בהתחלה [°]', c.phase, (v) => u(() => c.phase = v))],
-              if (isTrack && c.scanMode == 'phased') _num('זמן ביקור [שנ\']', c.revisit, (v) => u(() => c.revisit = v)),
-              if (isTrack && c.scanMode == 'tracker') ...[_num('קצב עדכון [Hz]', c.trackRate, (v) => u(() => c.trackRate = v)),
-                  _num('קצב סיבוב מרבי [°/שנ\']', c.maxAngRate, (v) => u(() => c.maxAngRate = v)),
-                  _num('השהיית הכוונה [שנ\']', c.cueDelay, (v) => u(() => c.cueDelay = v))],
-              if (isTrack) ...[_num('M — גילויים לפתיחה', c.trackM.toDouble(), (v) => u(() => c.trackM = v.round().clamp(1, 10))),
-                  _num('N — מתוך הזדמנויות', c.trackN.toDouble(), (v) => u(() => c.trackN = v.round().clamp(1, 10))),
-                  _num('זמן דעיכה [שנ\']', c.coast, (v) => u(() => c.coast = v))],
+              if (isTrack && c.scanMode == 'phased') _num('זמן ביקור [שנ\']', c.revisit, (v) => u(() => c.revisit = v), enabled: !lk),
+              if (isTrack && c.scanMode == 'tracker') ...[_num('קצב עדכון [Hz]', c.trackRate, (v) => u(() => c.trackRate = v), enabled: !lk),
+                  _num('קצב סיבוב מרבי [°/שנ\']', c.maxAngRate, (v) => u(() => c.maxAngRate = v), enabled: !lk),
+                  _num('השהיית הכוונה [שנ\']', c.cueDelay, (v) => u(() => c.cueDelay = v), enabled: !lk)],
+              if (isTrack) ...[_num('M — גילויים לפתיחה', c.trackM.toDouble(), (v) => u(() => c.trackM = v.round().clamp(1, 10)), enabled: !lk),
+                  _num('N — מתוך הזדמנויות', c.trackN.toDouble(), (v) => u(() => c.trackN = v.round().clamp(1, 10)), enabled: !lk),
+                  _num('זמן דעיכה [שנ\']', c.coast, (v) => u(() => c.coast = v), enabled: !lk)],
             ]),
             _section('⚙ RCS וגשם', [
               _drop('RCS', c.rcsMode, const [('fixed', 'קבוע (מכלי הדופלר)'), ('aspect', 'לפי זווית הסתכלות')], (v) => u(() => c.rcsMode = v)),
@@ -261,7 +262,8 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
 
 /// שדה מספרי שמתעדכן מבחוץ (טעינת פרופיל) כשהוא לא בפוקוס, ומדווח כל שינוי תקין.
 class _NumField extends StatefulWidget {
-  const _NumField({required this.label, required this.value, required this.onChanged, required this.cs, this.tip});
+  const _NumField({required this.label, required this.value, required this.onChanged, required this.cs, this.tip, this.enabled = true});
+  final bool enabled; // FR-D-288: false = שדה סוג נעול
   final String label; // תווית
   final double value; // הערך הנוכחי
   final void Function(double) onChanged; // דיווח
@@ -293,7 +295,7 @@ class _NumFieldState extends State<_NumField> {
         child: Row(children: [
           Expanded(child: Tooltip(message: widget.tip ?? '', child: Text(widget.label, style: TextStyle(fontSize: 10, color: widget.cs.onSurfaceVariant)))), // תווית
           SizedBox(width: 70, height: 28, child: TextField(
-            controller: _ctrl, focusNode: _focus, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11),
+            controller: _ctrl, focusNode: _focus, enabled: widget.enabled, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11), // enabled — נעילה
             keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), // מקלדת מספרים
             decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 4), border: OutlineInputBorder()),
             onChanged: (t) { final v = double.tryParse(t); if (v != null) widget.onChanged(v); }, // רק ערך תקין
@@ -302,12 +304,13 @@ class _NumFieldState extends State<_NumField> {
       );
 }
 
-/// בורר "פרופיל פעיל" (FR-D-286) — בראש פאנל בדיקת המעקב ובראש פאנל תצפית המכ"ם דופלר. שני המופעים קוראים
-/// מאותו בקר (RadarTrackController), ולכן מסונכרנים. בחירה טוענת את הפרופיל לשדות של כל תהליכי המכ"ם; כיוון הפנים
-/// לא משתנה (של האתר, לא של המכ"ם). שינוי שדה אחרי הטעינה מוצג כ"שונה ידנית".
+/// פס "מכ"ם פעיל" בכלי (FR-D-288) — מסונכרן עם הבורר הגלובלי דרך הבקר. detach = 'los'/'radial' מוסיף "צופה נפרד";
+/// notes מציג "מה פורסם ומה הונח" של סוג מהספרייה. החלפת מכ"ם כאן = החלפה בכל הכלים.
 class ActiveProfileBar extends StatefulWidget {
-  const ActiveProfileBar({super.key, required this.cs});
+  const ActiveProfileBar({super.key, required this.cs, this.detach, this.notes = true});
   final ColorScheme cs; // ערכת הצבעים
+  final String? detach; // הכלי שאפשר לנתק ('los' / 'radial'), או null
+  final bool notes; // להציג את אזור המקורות
 
   @override
   State<ActiveProfileBar> createState() => _ActiveProfileBarState();
@@ -321,7 +324,7 @@ class _ActiveProfileBarState extends State<ActiveProfileBar> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) { // אחרי הציור הראשון — לא בתוך build
-      if (mounted) context.read<RadarTrackController>().loadLibrary(); // הספרייה (פעם אחת) + הפרופילים שלי
+      if (mounted) context.read<RadarTrackController>().loadLibrary(); // הספרייה, הסוגים שלי והמכ"מים המוצבים (פעם אחת)
     });
   }
 
@@ -329,41 +332,67 @@ class _ActiveProfileBarState extends State<ActiveProfileBar> {
   Widget build(BuildContext context) {
     final cs = widget.cs; // צבעים
     final c = context.watch<RadarTrackController>(); // הבקר
-    context.watch<MapState>(); // גם שינוי שדה בכלי הדופלר מרענן את "שונה ידנית"
     const st = TextStyle(fontSize: 10); // גופן הרשימה
+    final det = widget.detach != null && (c.detached[widget.detach] ?? false); // הכלי מנותק?
     final items = <DropdownMenuItem<String>>[
-      const DropdownMenuItem(value: '', child: Text('— ידני (השדות כפי שהם) —', style: st)), // בלי פרופיל
-      if (c.library.isNotEmpty) // כותרת קבוצה — Flutter בלי optgroup, לכן שורה לא-לחיצה
-        DropdownMenuItem(value: '#lib', enabled: false, child: Text('ספרייה מובנית — נתונים פומביים', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant))),
-      for (int i = 0; i < c.library.length; i++) // כל פרופיל בספרייה
-        DropdownMenuItem(value: 'lib:$i', child: Text('📚 ${c.library[i]['name']}', style: st, overflow: TextOverflow.ellipsis)),
-      if (c.myProfileNames.isNotEmpty) // כותרת קבוצה
-        DropdownMenuItem(value: '#my', enabled: false, child: Text('הפרופילים שלי', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant))),
-      for (final n in c.myProfileNames) DropdownMenuItem(value: 'my:$n', child: Text('👤 $n', style: st, overflow: TextOverflow.ellipsis)), // שלי
+      const DropdownMenuItem(value: '', child: Text('— ללא מכ"ם (ידני) —', style: st)), // ידני
+      for (final s in c.sites)
+        DropdownMenuItem(value: '${s['name']}', child: Text('📡 ${s['name']} — ${c.siteTypeName(s)}', style: st, overflow: TextOverflow.ellipsis)), // כל מכ"ם
+      if (c.library.isNotEmpty || c.myProfileNames.isNotEmpty) // כותרת: כל הסוגים — בחירה יוצרת מכ"ם מוצב בלחיצה אחת
+        DropdownMenuItem(value: '#new', enabled: false, child: Text('➕ מכ"ם חדש מסוג:', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: cs.onSurfaceVariant))),
+      for (final p in c.library)
+        DropdownMenuItem(value: 'new:lib:${p['file']}', child: Text('➕ 📚 ${p['name']}', style: st, overflow: TextOverflow.ellipsis)), // סוג מהספרייה
+      for (final n in c.myProfileNames)
+        DropdownMenuItem(value: 'new:my:$n', child: Text('➕ 👤 $n', style: st, overflow: TextOverflow.ellipsis)), // סוג שלי
+      if (c.library.isEmpty) DropdownMenuItem(value: '#loading', enabled: false, child: Text('(ספריית הסוגים נטענת…)', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant))),
     ];
-    final value = items.any((it) => it.value == c.activeKey) ? c.activeKey : ''; // ערך שלא ברשימה — "ידני" (מונע קריסת DropdownButton)
-    final mod = c.activeModified; // שונה ידנית?
-    final String statusText; // שורת המצב
-    final Color statusColor; // צבעה — עם סימן, לא רק צבע
-    if (c.activeName == null) { statusText = 'ידני: התהליכים ירוצו לפי השדות כפי שהוזנו.'; statusColor = cs.onSurfaceVariant; }
-    else if (mod) { statusText = '✎ ${c.activeName} — שונה ידנית אחרי הטעינה'; statusColor = const Color(0xFF9A5B00); } // כתום-כהה
-    else { statusText = '✔ ${c.activeName} — פעיל בכל תהליכי המכ"ם'; statusColor = const Color(0xFF15803D); } // ירוק-כהה
+    final value = items.any((it) => it.value == c.activeSite) ? c.activeSite : ''; // ערך שלא ברשימה — "ידני" (מונע קריסת DropdownButton)
+    final t = c.activeType, s = c.site; // הסוג והמכ"ם הפעיל
+    final String statusText; // שורת המצב — עם סימן, לא רק צבע
+    final Color statusColor; // צבעה
+    if (det) {
+      statusText = 'צופה נפרד: הכלי הזה עובד עם השדות והמיקום שלו.'; statusColor = cs.onSurfaceVariant;
+    } else if (s == null) {
+      statusText = 'ידני: כל כלי עובד עם השדות שלו, כמו קודם.'; statusColor = cs.onSurfaceVariant;
+    } else {
+      final p = s['params'] as Map; // ההצבה
+      final where = p['lat'] != null ? '${(p['lat'] as num).toStringAsFixed(4)}, ${(p['lon'] as num).toStringAsFixed(4)}' : 'לא הוצב — "📍 מקם"'; // מיקום
+      final kind = t == null ? ' (סוג חסר!)' : (t['lib'] == true ? ' (ספרייה, נעול)' : ' (שלי)'); // סוג
+      statusText = '${t != null && t['lib'] == true ? '🔒' : '✎'} סוג: ${c.siteTypeName(s)}$kind · $where';
+      statusColor = t == null ? const Color(0xFFB91C1C) : const Color(0xFF15803D); // אדום-כהה / ירוק-כהה
+    }
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(border: Border.all(color: _green), borderRadius: BorderRadius.circular(5), color: _green.withAlpha(22)), // מסגרת בולטת
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text('📡 פרופיל פעיל', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: cs.onSurface)), // תווית
+          Text('📡 מכ"ם פעיל', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: cs.onSurface)), // תווית
           const SizedBox(width: 6),
-          Expanded(child: Semantics(label: 'פרופיל מכ"ם פעיל לכל התהליכים', child: DropdownButton<String>( // הבורר
+          Expanded(child: Semantics(label: 'מכ"ם פעיל לכל הכלים', child: DropdownButton<String>( // הבורר
             value: value, isExpanded: true, isDense: true, items: items,
-            onChanged: (v) { if (v != null && !v.startsWith('#')) c.setActive(v); }, // בחירה (כותרות לא נבחרות)
+            onChanged: (v) async { // בחירה = בכל הכלים
+              if (v == null || v.startsWith('#')) return; // כותרות
+              if (v.startsWith('new:')) { // סוג — יצירת מכ"ם מוצב ממנו
+                final m = await c.quickCreate(v.substring(4));
+                if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(m, textDirection: TextDirection.rtl))); // משוב
+                return;
+              }
+              c.activateSite(v); // מכ"ם מוצב / ידני
+            },
           ))),
         ]),
         Text(statusText, style: TextStyle(fontSize: 9, color: statusColor)), // מצב
-        if (c.activeNotes != null) ...[
-          InkWell( // פתיחה/סגירה של המקורות — שטח מגע מורחב
+        if (widget.detach != null)
+          InkWell( // "צופה נפרד" — שטח מגע מורחב
+            onTap: () => c.setDetached(widget.detach!, !det),
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(det ? Icons.check_box : Icons.check_box_outline_blank, size: 16, color: cs.primary), const SizedBox(width: 4),
+              Text('צופה נפרד (לא לפי המכ"ם הפעיל)', style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+            ])),
+          ),
+        if (widget.notes && !det && c.activeNotes != null) ...[
+          InkWell( // פתיחה/סגירה של המקורות
             onTap: () => setState(() => _showNotes = !_showNotes),
             child: Padding(padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Text('${_showNotes ? '▾' : '◂'} מה פורסם ומה הונח', style: TextStyle(fontSize: 9, color: cs.primary))),
@@ -371,10 +400,162 @@ class _ActiveProfileBarState extends State<ActiveProfileBar> {
           if (_showNotes)
             ConstrainedBox(constraints: const BoxConstraints(maxHeight: 170), child: SingleChildScrollView( // גלילה פנימית
               child: Directionality(textDirection: TextDirection.ltr, // המקורות באנגלית — משמאל לימין
-                  child: SelectableText(c.notesText(), style: TextStyle(fontSize: 8.5, color: cs.onSurfaceVariant))), // ניתן להעתקה (קישורים כטקסט)
+                  child: SelectableText(c.notesText(), style: TextStyle(fontSize: 8.5, color: cs.onSurfaceVariant))), // ניתן להעתקה
             )),
         ],
       ]),
     );
   }
+}
+
+/// הבורר הגלובלי (FR-D-288) — תמיד גלוי בראש המפה: המכ"ם הפעיל, וניהול הרשימה (חדש / עריכה / מיקום / שכפול / מחיקה /
+/// ייצוא / ייבוא). אותה רשימה ואותו פורמט JSON כמו בדסקטופ.
+class GlobalRadarBar extends StatefulWidget {
+  const GlobalRadarBar({super.key, required this.cs});
+  final ColorScheme cs; // ערכת הצבעים
+
+  @override
+  State<GlobalRadarBar> createState() => _GlobalRadarBarState();
+}
+
+class _GlobalRadarBarState extends State<GlobalRadarBar> {
+  bool _open = false; // כפתורי הניהול גלויים
+  String _msg = ''; // הודעה אחרונה
+
+  Future<void> _editDialog(RadarTrackController c, {String? oldName}) async {
+    // חלון: שם וסוג — מכ"ם חדש, או עריכת המכ"ם הפעיל
+    await c.loadLibrary(); // הספרייה זמינה
+    if (!mounted) return;
+    final nameCtrl = TextEditingController(text: oldName ?? 'מכ"ם ${c.sites.length + 1}'); // שם
+    final types = <(String, String)>[for (final p in c.library) ('lib:${p['file']}', '📚 ${p['name']}'), for (final n in c.myProfileNames) ('my:$n', '👤 $n')]; // סוגים
+    String type = oldName != null ? '${(c.site!['params'] as Map)['type_key']}' : (types.isNotEmpty ? types.first.$1 : ''); // סוג נבחר
+    if (!types.any((x) => x.$1 == type) && types.isNotEmpty) type = types.first.$1; // סוג שלא ברשימה
+    final res = await showDialog<String>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: Text(oldName == null ? 'מכ"ם מוצב חדש' : 'עריכת מכ"ם', style: const TextStyle(fontSize: 14)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: nameCtrl, maxLength: 100, decoration: const InputDecoration(labelText: 'שם')), // שם
+          DropdownButton<String>(value: types.isEmpty ? null : type, isExpanded: true, hint: const Text('אין סוגים'),
+              items: [for (final x in types) DropdownMenuItem(value: x.$1, child: Text(x.$2, style: const TextStyle(fontSize: 11), overflow: TextOverflow.ellipsis))],
+              onChanged: (v) => setD(() => type = v ?? type)), // סוג
+          Text('גובה אנטנה, סקטור וטווח מתמלאים מהסוג וניתנים לשינוי בכלים.', style: TextStyle(fontSize: 10, color: widget.cs.onSurfaceVariant)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ביטול')),
+          FilledButton(onPressed: () async { final e = await c.saveSite(nameCtrl.text, type, oldName: oldName); if (ctx.mounted) Navigator.pop(ctx, e ?? 'ok'); },
+              child: const Text('שמור')),
+        ],
+      ),
+    )));
+    if (res != null && mounted) setState(() => _msg = res == 'ok' ? (c.sitePick ? 'הקש על המפה למיקום המכ"ם' : '✔ נשמר') : res); // משוב
+  }
+
+  Future<void> _cloneDialog(RadarTrackController c) async {
+    // "שכפל לעריכה" — שם לעותק
+    final t = c.activeType; if (t == null) return; // אין סוג
+    final base = '${t['name']}'.replaceAll(' (נתונים פומביים)', ''); // שם בסיס
+    final ctrl = TextEditingController(text: '$base (עותק)'); // שם מוצע
+    final name = await showDialog<String>(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      title: const Text('שכפל לעריכה', style: TextStyle(fontSize: 14)),
+      content: TextField(controller: ctrl, maxLength: 100, decoration: const InputDecoration(labelText: 'שם לעותק הניתן לעריכה')),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ביטול')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('שכפל'))],
+    )));
+    if (name == null || name.trim().isEmpty) return; // בוטל
+    final e = await c.cloneActiveType(name); // השכפול
+    if (mounted) setState(() => _msg = e ?? '✔ הסוג שוכפל — השדות פתוחים לעריכה');
+  }
+
+  Future<void> _confirmDelete(RadarTrackController c) async {
+    // אישור מחיקת המכ"ם הפעיל
+    final s = c.site; if (s == null) return; // אין
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+      content: Text('למחוק את "${s['name']}"?'),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ביטול')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('מחק'))],
+    )));
+    if (ok == true) { await c.deleteActiveSite(); if (mounted) setState(() => _msg = 'נמחק'); }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs; // צבעים
+    final c = context.watch<RadarTrackController>(); // הבקר
+    final hasSite = c.site != null, locked = c.activeType?['lib'] == true; // מצב
+    Widget btn(IconData ic, String tip, VoidCallback? fn) => Semantics(label: tip, button: true, child: IconButton( // כפתור ≥44×44
+        tooltip: tip, onPressed: fn, icon: Icon(ic, size: 18), padding: const EdgeInsets.all(12), constraints: const BoxConstraints()));
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Material(
+        color: cs.surface.withAlpha(240), borderRadius: BorderRadius.circular(10), elevation: 4,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 300), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // רוחב גמיש — מתאים לטלפון צר
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(child: ActiveProfileBar(cs: cs, notes: false)), // אותו פס כמו בכלים
+              btn(_open ? Icons.expand_less : Icons.tune, _open ? 'הסתר ניהול מכ"מים' : 'ניהול מכ"מים מוצבים', () => setState(() => _open = !_open)), // הרחבה
+            ]),
+            if (c.sitePick) Text('הקש על המפה למיקום המכ"ם הפעיל', style: TextStyle(fontSize: 10, color: cs.primary)), // מצב מיקום
+            if (_open) Wrap(alignment: WrapAlignment.center, children: [
+              btn(Icons.add, 'מכ"ם מוצב חדש', () => _editDialog(c)), // חדש
+              btn(Icons.edit, 'עריכת שם או סוג', hasSite ? () => _editDialog(c, oldName: c.activeSite) : null), // עריכה
+              btn(Icons.place, 'מקם על המפה (הלחיצה הבאה)', hasSite ? () => c.update(() => c.sitePick = true) : null), // מיקום
+              btn(Icons.copy, 'שכפל לעריכה (עותק פתוח של הסוג)', hasSite && locked ? () => _cloneDialog(c) : null), // שכפול
+              btn(Icons.delete_outline, 'מחק את המכ"ם הפעיל', hasSite ? () => _confirmDelete(c) : null), // מחיקה
+              btn(Icons.file_download, 'ייצוא JSON (גם לדסקטופ)', () async { final m = await c.exportSites(); if (mounted) setState(() => _msg = m); }), // ייצוא
+              btn(Icons.file_upload, 'ייבוא JSON', () async { final m = await c.importSites(); if (mounted) setState(() => _msg = m); }), // ייבוא
+            ]),
+            if (_open && _msg.isNotEmpty) Text(_msg, style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant), textAlign: TextAlign.center), // הודעה
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// FR-D-290: שדה מספרי ציבורי (עוטף את _NumField) — לשימוש במסך המפה (טופס קו הראייה).
+class NumBox extends StatelessWidget {
+  const NumBox({super.key, required this.label, required this.value, required this.onChanged, required this.cs, this.tip});
+  final String label; // תווית
+  final double value; // הערך
+  final void Function(double) onChanged; // דיווח
+  final ColorScheme cs; // צבעים
+  final String? tip; // הסבר
+  @override
+  Widget build(BuildContext context) => _NumField(label: label, value: value, onChanged: onChanged, cs: cs, tip: tip);
+}
+
+/// FR-D-290: טופס קו הראייה הנקודתי — גובה בחינה (מ'/רגל/א"ר, AGL/MSL), מרווח רכס וגזרה, עם "📐 גזרה מהמכ"ם".
+/// עם מכ"ם פעיל ומחובר — מרווח הרכס והגזרה הם של ההצבה (מסונכרנים דרך הבקר).
+class LosParamsForm extends StatelessWidget {
+  const LosParamsForm({super.key, required this.cs});
+  final ColorScheme cs; // צבעים
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<MapState>(); // המצב
+    Widget drop(String value, List<(String, String)> items, void Function(String) on) => DropdownButton<String>( // בורר קטן
+        value: value, isDense: true, items: [for (final it in items) DropdownMenuItem(value: it.$1, child: Text(it.$2, style: const TextStyle(fontSize: 10)))],
+        onChanged: (v) { if (v != null) s.updateRadialLosParam(() => on(v)); });
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      NumBox(label: 'גובה בחינה', value: s.losTgtH, cs: cs, tip: 'גובה היעד — ביחידות ובייחוס שמתחת', onChanged: (v) => s.updateRadialLosParam(() => s.losTgtH = v)),
+      Wrap(spacing: 6, children: [
+        drop(s.losTgtUnit, const [('m', 'מטר'), ('ft', 'רגל'), ('kft', 'א"ר')], (v) => s.losTgtUnit = v), // יחידות
+        drop(s.losTgtRef, const [('agl', 'מעל הקרקע'), ('msl', 'מעל פני הים')], (v) => s.losTgtRef = v), // ייחוס
+      ]),
+      NumBox(label: 'מרווח רכס (°)', value: s.losMarginDeg, cs: cs, tip: 'שולי ביטחון מעל הרכס — משפיע על הטווח', onChanged: (v) => s.updateRadialLosParam(() => s.losMarginDeg = v)),
+      NumBox(label: 'גזרה — מ- (°)', value: s.losSecStart, cs: cs, onChanged: (v) => s.updateRadialLosParam(() => s.losSecStart = v)),
+      NumBox(label: 'גזרה — עד (°)', value: s.losSecEnd, cs: cs, tip: '0–360 = בלי הגבלת גזרה', onChanged: (v) => s.updateRadialLosParam(() => s.losSecEnd = v)),
+      TextButton(onPressed: () { final se = sectorFromRadar(s); s.updateRadialLosParam(() { s.losSecStart = se.$1; s.losSecEnd = se.$2; }); },
+          child: const Text('📐 גזרה מהמכ"ם', style: TextStyle(fontSize: 10))), // כיוון הפנים ± זווית הסריקה
+    ]);
+  }
+}
+
+/// FR-D-290: גזרה מהמכ"ם — כיוון הפנים ± זווית הסריקה (מערך מופע), או 0–360 (אנטנה גנרית). זהה לדסקטופ.
+(double, double) sectorFromRadar(MapState s) {
+  if (s.radarAntennaType != 'phased_array') return (0.0, 360.0); // גנרי — מעגל מלא
+  final b = s.radarBoresightDeg, ms = s.radarMaxScanDeg; // כיוון וזווית
+  return (((b - ms) % 360 + 360) % 360, ((b + ms) % 360 + 360) % 360); // הגזרה
 }

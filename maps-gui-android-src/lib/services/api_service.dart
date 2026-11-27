@@ -401,10 +401,13 @@ class ApiService {
       fetchLos({
     required double lat1, required double lon1, // קואורדינטות נקודת התצפית
     required double lat2, required double lon2, // קואורדינטות נקודת היעד
+    double obsH = 11.0, // גובה עין התצפית מעל הקרקע במטרים — FR-D-288: פרמטר (ברירת המחדל זהה לקבוע הקודם, האלגוריתם ללא שינוי)
+    double tgtH = 0.0, // FR-D-290: גובה הבחינה של היעד (מ') — 0 = כמו קודם
+    bool tgtMsl = false, // FR-D-290: true = tgtH מעל פני הים; false = מעל הקרקע
+    double marginDeg = 0.0, // FR-D-290: מרווח רכס (°) — 0 = כמו קודם
   }) async {
     const R     = 6371000.0; // רדיוס כדור הארץ במטרים
     const k     = 0.13;      // מקדם שבירה אטמוספרי סטנדרטי
-    const obsH  = 11.0;      // גובה עין התצפית מעל הקרקע במטרים
     const stepM = 5000.0;    // מרחק בין נקודות דגימה (5 ק"מ)
     const maxM  = 500000.0;  // מרחק מקסימלי נתמך (500 ק"מ)
 
@@ -435,6 +438,7 @@ class ApiService {
     if (elevs.length < n) throw Exception('נתוני גובה חסרים'); // פחות גבהים מנקודות
 
     // ── אלגוריתם קו ראייה עם תיקון עקמומיות ──
+    final marginSlope = tan(marginDeg.clamp(0.0, 10.0) * pi / 180); // FR-D-290: מרווח רכס כשיפוע (0 = כמו קודם)
     final hObs     = elevs[0] + obsH;          // גובה עין התצפית מעל פני הים
     var maxAngle   = double.negativeInfinity;   // זווית LOS מקסימלית שנראתה עד כה
     double? firstBlockM;                        // מרחק החסימה הראשונה במטרים
@@ -451,8 +455,16 @@ class ApiService {
         final drop  = d * d / (2 * R) * (1 - k); // ירידה בשל עקמומיות כדור הארץ + שבירה
         final corr  = elev - drop;               // גובה השטח המתוקן
         final angle = (corr - hObs) / d;         // זווית הנקודה הנוכחית
-        visible     = angle >= maxAngle;          // גלוי אם לא חסום ע"י שטח קדום
-        if (visible) maxAngle = angle;            // עדכן זווית מקסימלית
+        final off   = i == n - 1 ? (tgtMsl ? tgtH - elev : tgtH) : 0.0; // FR-D-290: היסט היעד מעל הקרקע (רק בנקודה האחרונה)
+        if (marginSlope == 0.0 && off == 0.0) { // ההתנהגות הקודמת — ללא שינוי
+          visible   = angle >= maxAngle;          // גלוי אם לא חסום ע"י שטח קדום
+          if (visible) maxAngle = angle;          // עדכן זווית מקסימלית
+        } else { // FR-D-290: יעד מוגבה / מרווח רכס — כמו _horizon_ratchet בשרת
+          final test = (corr + off - hObs) / d;   // זווית היעד הנבדק (כולל ההיסט)
+          visible   = test >= maxAngle + marginSlope; // חייב לעבור את האופק + המרווח
+          if (tgtMsl && i == n - 1 && off < 0) visible = false; // היעד מתחת לקרקע — לא גלוי
+          if (angle > maxAngle) maxAngle = angle;  // האופק — לפי הקרקע הגולמית
+        }
         losH = hObs + maxAngle * d;              // גובה קו הראייה בנקודה זו
       }
       if (!visible && firstBlockM == null) firstBlockM = d; // תעד חסימה ראשונה
@@ -574,6 +586,7 @@ class ApiService {
     required double verticalWidthDeg,
     void Function(int done, int total)? onProgress,
     RadialLosCancelToken? cancelToken,
+    bool tgtMsl = false, // FR-D-290: true = tgtH מעל פני הים (גובה קבוע); false = מעל הקרקע, כמו קודם
   }) async {
     // הצמדת פרמטרים לטווח מותר, לא דחייה — כמו /los_radial/start בצד Desktop
     rangeKm = _clampD(rangeKm, _radialRangeKmMin, _radialRangeKmMax);
@@ -659,19 +672,22 @@ class ApiService {
       }
       final dists = survivingIdx.map((i) => rayDists[i]).toList();
       final elevsOnly = survivingIdx.map((i) => rayElevs[i]!).toList();
-      final hOffsets = List<double>.filled(survivingIdx.length, tgtH); // tgtH מוחל על כל נקודה, לא רק האחרונה
+      final hOffsets = tgtMsl // FR-D-290: MSL — היסט בכל נקודה = גובה היעד פחות הקרקע שם; AGL — בדיוק כמו קודם
+          ? [for (final e in elevsOnly) tgtH - e]
+          : List<double>.filled(survivingIdx.length, tgtH); // tgtH מוחל על כל נקודה, לא רק האחרונה
       final ratchet = _horizonRatchet(dists, elevsOnly, hObs, hOffsets,
           marginSlope: marginSlope, minAngleSlope: minAngleSlope, maxAngleSlope: maxAngleSlope);
+      bool vis(int i) => ratchet[i].visible && !(tgtMsl && elevsOnly[i] > tgtH); // FR-D-290: הקרקע גבוהה מהיעד (MSL) — לא גלוי
       // קודקוד הקרן = הנקודה הגלויה **הרחוקה ביותר**, לא בהכרח רציפה מהקצה הקרוב (תיקון שנמצא בבדיקה חיה)
       double clearDistM = 0.0;
       LatLng clearPoint = observer;
       for (int i = 0; i < ratchet.length; i++) {
-        if (ratchet[i].visible) {
+        if (vis(i)) {
           clearDistM = ratchet[i].distM;
           clearPoint = rayPoints[survivingIdx[i]];
         }
       }
-      final blocked = !ratchet.last.visible; // "פנוי לגמרי" רק אם הנקודה הרחוקה ביותר בקרן עצמה גלויה
+      final blocked = !vis(ratchet.length - 1); // "פנוי לגמרי" רק אם הנקודה הרחוקה ביותר בקרן עצמה גלויה
       if (!blocked) clearCount++;
       rays.add(RadialLosRay(bearingDeg: bearings[rayIdx], clearDistKm: clearDistM / 1000,
           point: clearPoint, blocked: blocked, ok: samplesOk == samplesPerRay, samplesOk: samplesOk));
