@@ -149,7 +149,7 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
   - **מטמון גבהים קבוע** (`elev_cache.py`, SQLite ב-`%LOCALAPPDATA%\maps-gui\`) — FR-D-293.
   - **השוואת כל המכ"מים המוצבים** על מסלול (`/radar_track/compare`) ואזהרת מרחק לפני בדיקת מעקב — FR-D-296.
 - **בדיקות:** `tests/run_regression.py` (+`--full` ל-fuzz), `tests/e2e_all_tools.py` (אופציונלי, מבודד, מצב טוקן), `maps-gui-android-src/test/logic_test.dart` (`flutter test`, דורש עותק המדריך ב-`assets/`).
-- **Open-Meteo:** המכסה היומית נוצלה פעמיים ב-27/11 בזמן בדיקות — לבדוק עם שטח סינתטי (`_fetch_elevations` מוחלף) כשאפשר.
+- **גבהים:** מקור ראשון — `srtm_dem.py` (משבצות SRTM מ-AWS, מקומיות); Open-Meteo רק לחורים/ים/מחוץ לכיסוי (FR-D-298). Open-Meteo סופר **כל נקודה** כקריאה (נמדד 26/11) — לכן המכסה נגמרה. בבדיקות: `MAPS_GUI_DEM=off` + שטח סינתטי.
 
 ### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:

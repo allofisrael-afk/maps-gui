@@ -926,6 +926,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         currentBaseLayer.addTo(map);                // הוספה ראשונית למפה
         // ייחוס קבוע לנתוני Open-Meteo (גבהים/טמפרטורות/מטאו) — חובה לפי רישיון CC BY 4.0 של Open-Meteo (ביקורת רישוי)
         map.attributionControl.addAttribution('Elevation &amp; weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>');
+        map.attributionControl.addAttribution('SRTM data courtesy of the <a href="https://registry.opendata.aws/terrain-tiles/">U.S. Geological Survey</a>');  // גבהים מקומיים (srtm_dem.py) — ייחוס נדרש לפי tilezen/joerd attribution.md
 
         // פונקציה להחלפת שכבת הבסיס — נקראת מהפקד על המפה
         function setBaseLayer(name) {{

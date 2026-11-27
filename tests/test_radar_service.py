@@ -13,6 +13,7 @@ import time  # המתנה ל-job
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # שורש הפרויקט
 os.environ.setdefault("MAPS_GUI_ELEV_CACHE", os.path.join(__import__("tempfile").mkdtemp(prefix="elevcache_test_"), "c.sqlite"))  # T23: הבדיקה מזריקה גבהים מזויפים — מטמון זמני, לעולם לא המטמון האמיתי של המשתמש
+os.environ.setdefault("MAPS_GUI_DEM", "off")  # SRTM מקומי כבוי: הבדיקה מזריקה שטח סינתטי ולא מורידה משבצות אמיתיות
 
 import radar_service as rs  # המודול הנבדק
 import radar_track as rt  # המנוע

@@ -214,6 +214,13 @@ def get_elevation():
         return jsonify({"error": "חסרות נקודות"}), 400
 
     locations = locations[:100]  # Open-Meteo מגביל ל-100 נקודות בבקשה אחת
+    try:  # SRTM מקומי: אם כל הנקודות מכוסות — עונים בלי Open-Meteo (בלי מכסה)
+        local = srtm_dem.lookup([(float(p["latitude"]), float(p["longitude"])) for p in locations])  # מקומי
+    except (KeyError, TypeError, ValueError):  # נקודה לא תקינה — ממשיכים כמו קודם
+        local = [None]  # כאילו לא נמצא
+    if local and all(v is not None for v in local):  # הכול מקומי
+        return jsonify({"results": [{"latitude": p["latitude"], "longitude": p["longitude"], "elevation": v}  # אותו פורמט
+                                    for p, v in zip(locations, local)], "source": "srtm"})  # + מקור לשקיפות
 
     # בניית פרמטרי ה-URL — Open-Meteo מצפה לרשימות lat ו-lon מופרדות בפסיק
     lats = ",".join(str(p["latitude"])  for p in locations)  # "31.77,32.08,..." — כל קו הרוחב
@@ -464,7 +471,25 @@ def _horizon_ratchet(dists_m, elevs, h_obs, h_offsets, margin_slope=0.0, min_ang
 NET_ERROR_MSG = 'אין חיבור לשירות הגבהים (Open-Meteo) — בדוק את חיבור האינטרנט ונסה שוב'  # T16 (F-048): הודעה אחידה לכשל רשת (זהה באנדרואיד)
 
 
-def _fetch_elevations(locations):
+import srtm_dem  # noqa: E402  # גבהים מקומיים מ-SRTM (AWS) — מקור ראשון; Open-Meteo רק לחורים ומחוץ לכיסוי (החלטת המשתמש 27/11/2026)
+
+
+def _fetch_elevations(locations):  # גבהים: קודם SRTM מקומי, ואת החסרים מ-Open-Meteo — כך מכסת Open-Meteo לא עוצרת חישובים
+    """אותו ממשק כמו קודם: (רשימת גבהים מקבילה, שגיאה-או-None). נקודות ש-SRTM לא מכסה (ים, חורים, מחוץ לכיסוי, כשל הורדה)
+    נשלפות מ-Open-Meteo; כשל ב-Open-Meteo מוחזר כמו קודם."""
+    local = srtm_dem.lookup([(p['lat'], p['lon']) for p in locations])  # מקומי
+    missing = [i for i, v in enumerate(local) if v is None]  # מה חסר
+    if not missing:  # הכול מקומי — בלי רשת ובלי מכסה
+        return local, None  # התוצאה
+    got, err = _fetch_elevations_remote([locations[i] for i in missing])  # השלמה מ-Open-Meteo
+    if err:  # כשל — אותה התנהגות כמו קודם (הקורא מטפל במכסה/רשת)
+        return None, err  # השגיאה
+    for i, v in zip(missing, got or []):  # מיזוג
+        local[i] = v  # הערך
+    return local, None  # התוצאה
+
+
+def _fetch_elevations_remote(locations):  # השליפה מ-Open-Meteo (הפונקציה המקורית, בשם חדש)
     """שולף גבהים לרשימת נקודות שרירותית [{'lat','lon'},...] (עד 100, מגבלת Open-Meteo),
     עם retry+backoff על timeout/ניתוק (כמו /elevation) — helper משותף לשליפת גובה
     המשקיף הבודד ולכל batch בסריקה הרדיאלית. מחזיר (רשימת גבהים מקבילה, שגיאה-או-None);
@@ -495,6 +520,12 @@ def _fetch_elevations(locations):
             logging.warning(f"שליפת גבהים: תשובה לא תקינה מ-Open-Meteo: {e}")  # T16: הפרט ללוג
             return None, {'error': 'שירות הגבהים (Open-Meteo) החזיר תשובה לא תקינה — נסה שוב בעוד רגע'}  # T16: הודעה ברורה
     return None, {'error': NET_ERROR_MSG, 'network': True}  # T16: כמו כשל רשת
+
+
+class _LocalElevations(Exception):  # עזר ל-/los: "כל הגבהים מקומיים" — דילוג נקי על הבקשה ל-Open-Meteo בלי לשכפל את הקוד
+    def __init__(self, elevs):  # הגבהים
+        super().__init__("local")  # הודעה פנימית
+        self.elevs = elevs  # הרשימה
 
 
 @app.route("/los", methods=["GET"])
@@ -547,7 +578,10 @@ def line_of_sight():
 
     lats_str = ','.join(str(p['lat']) for p in pts)
     lons_str = ','.join(str(p['lon']) for p in pts)
+    srtm_elevs = srtm_dem.lookup([(p['lat'], p['lon']) for p in pts])  # SRTM מקומי — אם הכול מכוסה, בלי Open-Meteo
     try:
+        if all(v is not None for v in srtm_elevs):  # הכול מקומי
+            raise _LocalElevations(srtm_elevs)  # מדלגים על הבקשה (נתפס מיד למטה)
         r = requests.get(
             'https://api.open-meteo.com/v1/elevation',
             params={'latitude': lats_str, 'longitude': lons_str},
@@ -562,6 +596,8 @@ def line_of_sight():
             return jsonify({'error': f'מכסת נתוני הגובה של Open-Meteo נוצלה — נסה שוב {when}'}), 429  # 429 ולא 500 — זו לא תקלה בשרת
         r.raise_for_status()
         elevs = r.json().get('elevation', [])
+    except _LocalElevations as loc:  # כל הגבהים מ-SRTM
+        elevs = loc.elevs  # הרשימה
     except (requests.RequestException, ValueError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
         return jsonify({'error': str(e)}), 500
 
@@ -1617,6 +1653,12 @@ def _radar_track_fetch_cells(job_id, cells):
             elevations[i] = cached[c]  # מהמטמון
         else:  # צריך לשלוף
             todo.append(i)  # לרשימה
+    if todo:  # SRTM מקומי לפני החלוקה לבקשות — כך ההשהיות (12 שנ' ל-100 תאים) חלות רק על מה שבאמת נשלח ל-Open-Meteo
+        local = srtm_dem.lookup([cells[i] for i in todo])  # מקומי (מוריד משבצת חסרה פעם אחת)
+        for i, v in zip(list(todo), local):  # מילוי
+            if v is not None:  # יש ערך מקומי
+                elevations[i] = v  # לתוצאה
+        todo = [i for i, v in zip(todo, local) if v is None]  # נשארו רק החסרים
     total_batches = (len(todo) + _RADAR_TRACK_BATCH - 1) // _RADAR_TRACK_BATCH  # מספר הבקשות
     with _radar_jobs_lock:  # עדכון מצב ה-job
         _radar_jobs[job_id]['batches_total'] = total_batches  # לסרגל ההתקדמות
@@ -2280,8 +2322,11 @@ def _area_workers():  # A4: כמה תהליכים לחישוב הטבלה — מ
     return max(1, min(8, (os.cpu_count() or 2) - 2))  # A4: 1..8
 
 
-def _area_cached(cells):  # A4: אילו תאים כבר במטמון הגבהים הקבוע (להערכת זמן)
-    return set(_ELEV_STORE.get_many(cells).keys())  # A4: סט
+def _area_cached(cells):  # A4: אילו תאים זמינים בלי Open-Meteo (להערכת זמן): מטמון קבוע + משבצות SRTM שכבר במחשב
+    hit = set(_ELEV_STORE.get_many(cells).keys())  # A4: במטמון
+    rest = [c for c in cells if c not in hit]  # השאר
+    local = srtm_dem.lookup(rest, allow_download=False)  # SRTM שכבר הורד (בלי להוריד בשביל הערכה)
+    return hit | {c for c, v in zip(rest, local) if v is not None}  # הסט
 
 
 def _area_met_fetch(lat, lon, alt):  # A4: מטאו חי במרכז אזור שיגור — אותה שליפה כמו בכלי הבודד

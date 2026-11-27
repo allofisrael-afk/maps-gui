@@ -18,6 +18,20 @@ Status on 2026-11-27: 69 packages, all registered or exempt. No new dependency w
 area-to-area tool (`area_fire.py`) and the persistent elevation cache (`elev_cache.py`, Python stdlib `sqlite3`) use
 only the standard library and existing services (Open-Meteo, already attributed).
 
+## Local SRTM elevations (2026-11-27, owner decision)
+Owner chose local SRTM tiles as the primary elevation source, with Open-Meteo for voids and areas outside coverage, so
+the Open-Meteo daily quota no longer stops calculations. The owner confirmed the use is non-commercial (Open-Meteo free tier, D3).
+
+| Item | Source verified (2026-11-27) | Terms | Attribution | Use |
+|---|---|---|---|---|
+| SRTM tiles, "skadi" format (`srtm_dem.py`) | registry.opendata.aws/terrain-tiles ("AWS CLI Access (No AWS account required)"); tilezen/joerd docs/formats.md ("SRTMGL1 format tiles ... compressed using gzip"); joerd docs/attribution.md and data-sources.md (land source for our area: "SRTM globally"). Anonymous download verified with HTTP 200 for skadi/N31/N31E034.hgt.gz | SRTM "is a public domain dataset" (joerd quoting USGS); USGS requests credit on redistribution | "SRTM data courtesy of the U.S. Geological Survey" — shown in the Desktop map, the Android map attribution line and the Android About/licenses page | Tiles (~7 MB gz, ~26 MB unpacked, 1°×1°) are downloaded on demand into the user's local cache folder (outside the repo); not bundled in the APK |
+
+Rejected alternatives (same day): NASADEM (license CC0 per NASA data policy, but download requires a NASA Earthdata login,
+verified HTTP 401, and its ASTER/AW3D30 inputs were not checked for redistribution); Copernicus DEM (license PDF could not
+be read, registration required); Open-Meteo paid plan and self-hosted server (AGPLv3, needs owner approval). Note: skadi fills
+the sea with bathymetry, so `srtm_dem.py` accepts negative values only inside the Dead Sea / Jordan / Kinneret box and sends
+other negative values to Open-Meteo.
+
 ## Owner decisions (2026-11-14)
 
 | ID | Topic | Decision | Effect |

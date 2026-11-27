@@ -23,6 +23,7 @@ def main():  # הכול בתוך main — חובה עם ProcessPoolExecutor ב-W
                                                                  "start_bearing_deg": 0, "end_bearing_deg": 360, "ridge_margin_deg": 0}}]}, f)  # המכ"ם
     os.environ["MAPS_GUI_STATIONS_FILE"] = os.path.join(tmp, "s.json")  # T24: השרת קורא את הקובץ הזמני
     os.environ["MAPS_GUI_ELEV_CACHE"] = os.path.join(tmp, "elev.sqlite")  # T23: מטמון זמני
+    os.environ.setdefault("MAPS_GUI_DEM", "off")  # SRTM מקומי כבוי: הבדיקה מזריקה שטח סינתטי ולא מורידה משבצות אמיתיות
     os.environ.pop("MAPS_GUI_APP_TOKEN", None)  # T5: בלי אכיפת טוקן ב-test client
     import weather_server as ws  # השרת
 

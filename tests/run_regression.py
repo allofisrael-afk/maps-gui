@@ -34,6 +34,7 @@ REGRESSION_SUITES = [
     ("radar algorithmic + Golden Master - test_r5_radar_algorithmic.py", TESTS_DIR / "test_r5_radar_algorithmic.py"),  # T0: הועבר מ-.qa/run5/tests; תרחיש מייצג, metamorphic, Golden Master
     ("server security - test_r5_server_security.py", TESTS_DIR / "test_r5_server_security.py"),  # T0: הועבר מ-.qa/run5/tests; שורות REPRO בתוכו מדווחות ממצאים פתוחים בלי להכשיל
     ("elevation cache - test_elev_cache.py", TESTS_DIR / "test_elev_cache.py"),  # T23: מטמון גבהים קבוע (שורד הפעלה מחדש, קובץ פגום, זיכרון בלבד)
+    ("SRTM local elevations - test_srtm_dem.py", TESTS_DIR / "test_srtm_dem.py"),  # גבהים מקומיים: קריאה, חורים, ים מול בקעה, השלמה מ-Open-Meteo
     ("area-to-area engine - test_area_fire.py", TESTS_DIR / "test_area_fire.py", 400),  # A1–A3: מנוע מאזור לאזור (רשתות, טבלת ירי, סינונים, רכס, דיוק, מדרון, נראות) — ~3 דק', timeout משלו
     ("area-to-area server - test_area_fire_server.py", TESTS_DIR / "test_area_fire_server.py"),  # A4: נקודות הקצה (estimate/start/status/visibility/csv/cancel), במקביל
     ("area-to-area Android layer - test_area_fire_android.py", TESTS_DIR / "test_area_fire_android.py"),  # A6: radar_android דרך mpm_api.dispatch_json
@@ -58,7 +59,7 @@ def run_one(label, path, timeout=120):  # T0: timeout per suite; optional suites
     # F-030: timeout=120 - שונות-זמנים אמיתית נמדדה (47-87ש', חריגה אחת מ-120ש') בלי קוד תקוע;
     # בלי timeout, תקיעה אמיתית עתידית תיתקע את כל ריצת-הרגרסיה לנצח בלי אבחון.
     try:
-        env = dict(os.environ, MAPS_GUI_ELEV_CACHE=os.path.join(tempfile.mkdtemp(prefix="regr_elev_"), "c.sqlite"))  # T23: לכל חבילה מטמון גבהים זמני — בדיקות עם גבהים מזויפים לא נוגעות במטמון האמיתי
+        env = dict(os.environ, MAPS_GUI_ELEV_CACHE=os.path.join(tempfile.mkdtemp(prefix="regr_elev_"), "c.sqlite"), MAPS_GUI_DEM="off")  # SRTM כבוי בבדיקות — שטח סינתטי, בלי הורדות  # T23: לכל חבילה מטמון גבהים זמני — בדיקות עם גבהים מזויפים לא נוגעות במטמון האמיתי
         proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=timeout, env=env,  # T0: was a fixed 120; T23: env עם מטמון זמני
                                capture_output=True, text=True, encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired as e:

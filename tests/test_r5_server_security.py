@@ -17,6 +17,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # T0: moved from .qa/run5/tests/ to tests/ - project root is now one level up
 sys.path.insert(0, ROOT)
 os.environ.setdefault("MAPS_GUI_ELEV_CACHE", os.path.join(__import__("tempfile").mkdtemp(prefix="elevcache_test_"), "c.sqlite"))  # T23: הבדיקה מזריקה גבהים מזויפים — מטמון זמני, לעולם לא המטמון האמיתי של המשתמש
+os.environ.setdefault("MAPS_GUI_DEM", "off")  # SRTM מקומי כבוי: הבדיקה מזריקה שטח סינתטי ולא מורידה משבצות אמיתיות
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import weather_server as ws  # noqa: E402

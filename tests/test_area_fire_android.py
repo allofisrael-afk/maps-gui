@@ -12,6 +12,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # פלט עברית
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # שורש הפרויקט
 sys.path.insert(0, ROOT)  # ייבוא
 os.environ["MAPS_GUI_ELEV_CACHE"] = os.path.join(tempfile.mkdtemp(prefix="af_android_"), "c.sqlite")  # T23: מטמון זמני
+os.environ.setdefault("MAPS_GUI_DEM", "off")  # SRTM מקומי כבוי: הבדיקה מזריקה שטח סינתטי ולא מורידה משבצות אמיתיות
 import mpm_api  # noqa: E402  # נקודת הכניסה של האנדרואיד
 import radar_android as ra  # noqa: E402  # השכבה הנבדקת
 

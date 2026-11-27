@@ -146,6 +146,7 @@ licenses. These terms are the reason the Desktop application is not distributed 
 | Esri World Imagery | Desktop, Android | Esri Master License Agreement | Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community |
 | CARTO dark basemap | Android | CARTO basemap terms | (c) CARTO, (c) OpenStreetMap contributors |
 | Open-Meteo (elevation, weather) | Desktop, Android, ballistics | Free API for non-commercial use; data CC BY 4.0 | Weather data by Open-Meteo.com |
+| SRTM elevation tiles ("skadi", AWS Terrain Tiles) | Desktop server, Android Python layer (downloaded on demand to the user's cache, not bundled) | SRTM: U.S. public domain (USGS); dataset on the AWS Registry of Open Data, anonymous access | SRTM data courtesy of the U.S. Geological Survey |
 | OpenWeather (current weather) | Desktop | ODbL | Weather data (c) OpenWeather |
 | Nominatim (geocoding) | Desktop, Android | OSMF Nominatim Usage Policy; data ODbL | (c) OpenStreetMap contributors |
 | Google Geocoding API | Retired Web search control only | Google Maps Platform Terms | Google Maps (not displayed: no live UI uses it) |

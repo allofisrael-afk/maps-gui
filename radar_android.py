@@ -37,7 +37,13 @@ class _RateLimited(Exception):
     """Open-Meteo החזיר 429 — message = הנוסח שלו (דקתי/שעתי/יומי)."""
 
 
-def _http_elevations(cells):
+def _http_elevations(cells):  # גבהים: קודם SRTM מקומי (משבצות במכשיר), ואת החסרים מ-Open-Meteo — המכסה לא עוצרת חישובים
+    """אותו ממשק: רשימת גבהים מקבילה; 429 -> _RateLimited; רשת -> OSError (רק אם צריך את Open-Meteo בכלל)."""
+    import srtm_dem  # ייבוא מקומי — המודול ארוז ב-APK (build_apk.ps1)
+    return srtm_dem.merge([(c[0], c[1]) for c in cells], _http_elevations_remote)  # מקומי + השלמה
+
+
+def _http_elevations_remote(cells):
     """בקשה אחת ל-Open-Meteo (עד 100 תאים). מחזיר רשימת גבהים מקבילה; 429 -> _RateLimited; רשת -> OSError."""
     url = "https://api.open-meteo.com/v1/elevation?" + _urlparse.urlencode({
         "latitude": ",".join(str(c[0]) for c in cells), "longitude": ",".join(str(c[1]) for c in cells)})  # ה-URL
@@ -92,6 +98,13 @@ def _job_fetch(job_id):
                 vals[i] = cached[c]  # מהמטמון
             else:  # חסר
                 todo.append(i)  # לשליפה
+        if todo:  # SRTM מקומי לפני החלוקה לבקשות — ההשהיות חלות רק על מה שנשלח ל-Open-Meteo
+            import srtm_dem  # ייבוא מקומי
+            local = srtm_dem.lookup([cells[i] for i in todo])  # מקומי
+            for i, v in zip(list(todo), local):  # מילוי
+                if v is not None:  # יש ערך
+                    vals[i] = v  # לתוצאה
+            todo = [i for i, v in zip(todo, local) if v is None]  # נשארו החסרים
         total = (len(todo) + BATCH - 1) // BATCH  # מספר הבקשות
         sec_per_batch = BATCH * 60.0 / LOCS_PER_MIN + 1.5  # T23 (F-055): השהיית הקצב + זמן הבקשה
         _set(job_id, batches_total=total, batches_done=0, cached_cells=len(cells) - len(todo), eta_s=round(total * sec_per_batch))  # התקדמות + הערכת זמן
@@ -271,7 +284,12 @@ AREA_TTL_S = 6 * 3600  # A6: תוצאה נשמרת 6 שעות מהסיום, כמ
 def _area_estimate(params):
     """הערכה לפני הרצה — סינכרונית (בלי רשת): נקודות, זוגות, תאים חסרים וזמן. כמו POST /ballistics/area/estimate."""
     import area_fire  # ייבוא מקומי
-    return area_fire.estimate(params, cached_fn=lambda cells: set(_STORE.get_many(cells).keys()), workers=1)  # אנדרואיד: חישוב סדרתי
+    import srtm_dem  # גבהים מקומיים — נחשבים "זמינים" בהערכה אם המשבצת כבר במכשיר
+    def avail(cells):  # מטמון + SRTM שכבר הורד
+        hit = set(_STORE.get_many(cells).keys())  # במטמון
+        rest = [c for c in cells if c not in hit]  # השאר
+        return hit | {c for c, v in zip(rest, srtm_dem.lookup(rest, allow_download=False)) if v is not None}  # הסט
+    return area_fire.estimate(params, cached_fn=avail, workers=1)  # אנדרואיד: חישוב סדרתי
 
 
 def _area_start(params):

@@ -367,7 +367,22 @@ import urllib.parse as _urlparse  # noqa: E402
 import urllib.request as _urlrequest  # noqa: E402
 
 
-def default_elevation_fetcher(locations):
+def default_elevation_fetcher(locations):  # גבהים לבדיקת כיסוי שטח באנדרואיד: קודם SRTM מקומי, ואת החסרים מ-Open-Meteo
+    """אותו ממשק: (רשימת גבהים, שגיאה-או-None)."""
+    import srtm_dem  # ייבוא מקומי — המודול ארוז ב-APK
+    local = srtm_dem.lookup([(p["lat"], p["lon"]) for p in locations])  # מקומי
+    missing = [i for i, v in enumerate(local) if v is None]  # מה חסר
+    if not missing:  # הכול מקומי
+        return local, None  # בלי רשת
+    got, err = _default_elevation_fetcher_remote([locations[i] for i in missing])  # Open-Meteo
+    if err:  # כשל
+        return None, err  # כמו קודם
+    for i, v in zip(missing, got or []):  # מיזוג
+        local[i] = v  # הערך
+    return local, None  # התוצאה
+
+
+def _default_elevation_fetcher_remote(locations):
     """elevation_fetcher ברירת-מחדל ל-Android — זהה בתפיסה ל-weather_server.py::_fetch_elevations
     אך עם urllib במקום requests (Chaquopy, בלי תלות-pip חדשה). עד 100 נקודות (מגבלת Open-Meteo)."""
     lats = ",".join(str(p["lat"]) for p in locations)

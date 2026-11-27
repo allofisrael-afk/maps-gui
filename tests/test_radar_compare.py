@@ -13,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # שורש �
 sys.path.insert(0, ROOT)  # ייבוא
 TMP = tempfile.mkdtemp(prefix="radar_cmp_")  # תיקייה זמנית
 os.environ.setdefault("MAPS_GUI_ELEV_CACHE", os.path.join(TMP, "c.sqlite"))  # T23: מטמון זמני (גבהים מזויפים)
+os.environ.setdefault("MAPS_GUI_DEM", "off")  # SRTM מקומי כבוי: הבדיקה מזריקה שטח סינתטי ולא מורידה משבצות אמיתיות
 os.environ["MAPS_GUI_STATIONS_FILE"] = os.path.join(TMP, "s.json")  # T24: קובץ עמדות זמני
 os.environ.pop("MAPS_GUI_APP_TOKEN", None)  # T5: בלי אכיפת טוקן ב-test client
 import radar_service as rs  # noqa: E402  # השירות

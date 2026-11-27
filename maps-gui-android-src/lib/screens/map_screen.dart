@@ -622,7 +622,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ]),
               SimpleAttributionWidget( // ייחוס גלוי תמיד — מדיניות אריחי OSM אוסרת הסתרה מאחורי כפתור (היה RichAttributionWidget מקופל)
-                source: Text('${state.tileAttribution} · Data: Open-Meteo.com', style: const TextStyle(fontSize: 10)), // קרדיט שכבת הרקע + נתוני Open-Meteo (CC BY 4.0)
+                source: Text('${state.tileAttribution} · Data: Open-Meteo.com · SRTM courtesy of USGS', style: const TextStyle(fontSize: 10)), // קרדיט שכבת הרקע + Open-Meteo (CC BY 4.0) + גבהים מקומיים SRTM (USGS)
               ),
             ],
           ),
