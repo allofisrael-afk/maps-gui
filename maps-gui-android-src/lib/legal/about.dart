@@ -9,6 +9,10 @@ import '../version.dart';
 /// Owner copyright notice shown in the About dialog.
 const String kCopyrightNotice = 'Copyright (c) 2024-2026 Israel Alalouf. All rights reserved.';
 
+/// T1 (F-036): disclaimer for the built-in radar profiles named after real products.
+const String kProductNamesDisclaimer = 'ℹ️ שמות המוצרים בספריית המכ"מים שייכים לבעליהם; אין קשר ליצרנים ואין אישור מהם. ' // T1: סימני מסחר
+    'הערכים בפרופילים משוערים מנתונים פומביים, ואינם מפרט רשמי. הכלי מיועד להערכה וללימוד בלבד.'; // T1: ערכים משוערים
+
 /// Opens the About dialog; its "View licenses" button shows every third-party license.
 void showAppAbout(BuildContext context) {
   showAboutDialog( // דיאלוג אודות סטנדרטי של Flutter, כולל כפתור "הצג רישיונות"
@@ -16,6 +20,10 @@ void showAppAbout(BuildContext context) {
     applicationName: 'מפה אינטראקטיבית', // שם האפליקציה (תואם ל-android:label)
     applicationVersion: kAppVersion, // גרסה ממקור-האמת היחיד (version.dart)
     applicationLegalese: '$kCopyrightNotice\nisraelalaluf.com', // הודעת זכויות היוצרים + אתר יצירת קשר
+    children: const [ // T1 (F-036, Q-R5-2): הבהרה על שמות מוצרים וערכים משוערים במסך אודות
+      Padding(padding: EdgeInsets.only(top: 12), // T1: ריווח מעל ההבהרה
+        child: Text(kProductNamesDisclaimer, textDirection: TextDirection.rtl, style: TextStyle(fontSize: 12))), // T1: הנוסח המשותף
+    ],
   );
 }
 

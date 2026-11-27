@@ -6,7 +6,7 @@ convergence ו-Golden Master. בלי רשת: שטח סינתטי (רכס) מוז
 התרחיש הראשי (SCENARIO): מכ"ם בנגב, תותח 14 ק"מ צפונה יורה דרומה (MPM, אטמוספרה תקנית), רכס סינתטי 600 מ'
 מזרחית למכ"ם. רץ בכל שלושת סוגי הסריקה (rotating/phased/tracker), עם מערך מופע (סקטור), RCS לפי זווית, גשם,
 אזור מת קרוב, ובנוסף: פרופיל שטח (ray_profile), הצעת מיקום (run_placement), ורקטה (rocket_model).
-הרצה: .venv\\Scripts\\python.exe .qa/run5/tests/test_r5_radar_algorithmic.py [--update-golden]
+הרצה: .venv\\Scripts\\python.exe tests/test_r5_radar_algorithmic.py [--update-golden] [--update-perf]
 """
 import copy
 import json
@@ -16,7 +16,7 @@ import random
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # T0: moved from .qa/run5/tests/ to tests/ - project root is now one level up
 sys.path.insert(0, ROOT)
 if os.environ.get("QA_MUT_ROOT"):  # Mutation testing: עותק מוטנטי בארגז חול קודם לשורש האמיתי
     sys.path.insert(0, os.environ["QA_MUT_ROOT"])
@@ -29,7 +29,7 @@ import radar_track as rt  # noqa: E402
 import rocket_model  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GOLDEN = os.path.join(HERE, "..", "golden", "radar_scenario_golden.json")
+GOLDEN = os.path.join(HERE, "golden", "radar_scenario_golden.json")  # T0: golden moved with the test to tests/golden/
 R_LAT, R_LON = 31.25, 34.80
 ok_count, fail_count = 0, 0
 
@@ -234,7 +234,8 @@ if "--update-golden" in sys.argv or not os.path.exists(GOLDEN):
 with open(GOLDEN, encoding="utf-8") as f:
     gold = json.load(f)
 check("Golden Master: התרחיש תואם לייחוס בטולרנס", close(json.loads(json.dumps(gm)), gold))
-with open(os.path.join(HERE, "..", "perf_baseline.json"), "w", encoding="utf-8") as f:
-    json.dump(timings, f, indent=1)
+if "--update-perf" in sys.argv:  # T0: write the timing report only on request, so a routine regression run leaves the tracked file unchanged
+    with open(os.path.join(ROOT, ".qa", "run5", "perf_baseline.json"), "w", encoding="utf-8") as f:  # T0: perf report stays under .qa/run5
+        json.dump(timings, f, indent=1)  # T0: same timing dump as before, now behind the flag
 print(f"\n{ok_count}/{ok_count + fail_count} passed")
 sys.exit(1 if fail_count else 0)

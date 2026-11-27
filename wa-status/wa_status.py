@@ -147,6 +147,12 @@ _ENV_LINE_RE = re.compile(r"\b([A-Z][A-Z0-9_]{2,})=\S+")  # שורת .env בסג
 _LONG_TOKEN_RE = re.compile(r"\b[A-Za-z0-9_\-+/]{32,}={0,2}")  # מחרוזת ארוכה שנראית כמו טוקן/מפתח
 _WIN_PATH_RE = re.compile(r"[A-Za-z]:[\\/][^\s\"'<>|]+")  # נתיב Windows מלא (C:\...)
 _UNIX_PATH_RE = re.compile(r"(?<![\w.])/(?:[\w.\-]+/){2,}[\w.\-]+")  # נתיב Unix מלא עם 3+ רכיבים
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*")  # T3 (F-037): JWT (שלושה חלקי base64 מופרדים בנקודה)
+_AWS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")  # T3: מזהה מפתח AWS
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")  # T3: כתובת דוא"ל
+_PHONE_RE = re.compile(r"(?<![\d.])(?:\+\d[\d\- ]{8,14}\d|(?:972|0)\d{8,9}|0\d{1,2}-\d{3}-?\d{4})(?![\d.])")  # T3: טלפון: בינלאומי עם +, ישראלי רצוף (972/0), או 0X-XXX-XXXX — לא תאריכים ושעות
+_COORD_RE = re.compile(r"(?<![\d.])-?\d{1,3}\.\d{3,}\s*[,/ ]\s*-?\d{1,3}\.\d{3,}(?![\d.])")  # T3: זוג קואורדינטות מדויק (3+ ספרות אחרי הנקודה) — מיקומי מכ"מים/עמדות
+_SANITIZE_MAX_IN = 4000  # T3: תקרת אורך לקלט הסינון — מונע עבודה מיותרת על טקסט ענק (ההודעה עצמה נחתכת ב-MAX_LEN)
 
 
 def _basename_of(match):
@@ -156,11 +162,17 @@ def _basename_of(match):
 
 def sanitize(text):
     """סינון בסיסי: מסתיר ערכי סודות, שורות .env, טוקנים ארוכים, ומקצר נתיבים מלאים לשם בלבד."""
+    text = str(text)[:_SANITIZE_MAX_IN]  # T3 (F-037): תקרת אורך לפני הסינון
     text = _SECRET_WORD_RE.sub(lambda m: f"{m.group(1)}=***", text)  # token xyz -> token=***
     text = _SECRET_ASSIGN_RE.sub(lambda m: f"{m.group(1)}=***", text)  # key=xyz -> key=***
     text = _ENV_LINE_RE.sub(lambda m: f"{m.group(1)}=***", text)  # API_TOKEN=xyz -> API_TOKEN=***
     text = _WIN_PATH_RE.sub(_basename_of, text)  # C:\a\b\file.py -> file.py
     text = _UNIX_PATH_RE.sub(_basename_of, text)  # /home/u/x/file.py -> file.py
+    text = _JWT_RE.sub("***", text)  # T3: JWT -> *** (לפני הטוקן הארוך, שלא יתפוס רק חלק)
+    text = _AWS_KEY_RE.sub("***", text)  # T3: מפתח AWS -> ***
+    text = _EMAIL_RE.sub("***@***", text)  # T3: דוא"ל -> ***@***
+    text = _COORD_RE.sub("[מיקום]", text)  # T3: קואורדינטות -> [מיקום] (לפני הטלפון, ששניהם מספרים)
+    text = _PHONE_RE.sub("***", text)  # T3: מספר טלפון -> ***
     text = _LONG_TOKEN_RE.sub("***", text)  # מחרוזת-טוקן ארוכה -> ***
     return text  # הטקסט אחרי הסינון
 
@@ -495,6 +507,8 @@ def cmd_send_file(args):
         return 1  # כשל
     cfg = load_config()  # ההגדרות (מספר, enabled)
     caption = sanitize(args.msg or p.name)  # כיתוב מנוקה — כמו כל הודעה
+    if len(caption) > MAX_LEN:  # T3: אותה תקרה כמו הודעה רגילה
+        caption = caption[: MAX_LEN - 1] + "…"  # T3: חיתוך עם סימן השמטה
     ok, reason = deliver(caption, cfg, timeout=FILE_TIMEOUT_SEC, file_path=str(p))  # העלאה ושליחה, עם זמן ארוך לקובץ גדול
     logging.info("send-file: ok=%s reason=%s name=%s size=%.1fMB", ok, reason, p.name, size_mb)  # תיעוד בלוג
     print("נשלח." if ok else f"השליחה נכשלה: {reason}")  # תוצאה למשתמש

@@ -110,8 +110,8 @@
         "reflectivity": "land",
         "ridge_margin_deg": 2.6,
         "start_bearing_deg": 295,
-        "type_key": "lib:ELM-2311_sector_public_data.json",
-        "type_name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער)"
+        "type_key": "lib:ELM-2084_sector_public_data.json",
+        "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)"
       }
     },
     {

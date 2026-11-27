@@ -663,6 +663,17 @@ def create_map(target='desktop', api_base='', output_path=None):
         var _ballisticsSyncFields = function() {{}};      // מעדכן שדות lat/lon/alt מהמצב הפנימי
         var _ballisticsGetCommonParams = function() {{}}; // אוסף mv/met/fitting/units/coriolis/curvature
         var _ballisticsGetGunTarget = function() {{}};    // {{gun,target}} בפורמט ל-fetch
+        var _ballisticsAltUi = function() {{}};           // T21 (F-053): מעדכן שדות גובה + אזהרת "שליפת גובה נכשלה" לפי מצב הנקודות (מוגדר בבניית הפאנל)
+        function _ballisticsAltGuard(needTarget) {{       // T21 (F-053): מחזיר הודעה אם גובה התותח/המטרה לא ידוע, אחרת '' — חוסם חישוב מגובה 0 בשקט
+            function unknown(pt) {{ return !pt || pt.alt === null || pt.alt === undefined || !isFinite(pt.alt); }}  // T21: גובה חסר/לא מספרי
+            function msg(name, pt) {{                      // T21: הודעה לפי מצב השליפה
+                if (pt && pt.altState === 'pending') return 'גובה ' + name + ' עדיין נטען — נסה שוב בעוד רגע';  // T21: השליפה עוד רצה
+                return 'גובה ' + name + ' לא ידוע (שליפת הגובה נכשלה). הזן גובה ידנית בשדה, או לחץ "🔄 נסה שוב לשלוף גובה".';  // T21: נכשל/נמחק
+            }}
+            if (ballisticsGun && unknown(ballisticsGun)) return msg('התותח', ballisticsGun);  // T21: התותח בלי גובה ידוע
+            if (needTarget && ballisticsTarget && unknown(ballisticsTarget)) return msg('המטרה', ballisticsTarget);  // T21: המטרה בלי גובה (רק בחישובים שצריכים מטרה)
+            return '';  // T21: הכול ידוע — אפשר לחשב
+        }}
         var _ballisticsSelectTab = function() {{}};       // מחליף טאב פעיל
         var _ballisticsTabBodies = {{}};                  // key->DOM element של כל טאב
         var _ballisticsMkField = null, _ballisticsMkSelect = null, _ballisticsMkHeader = null;  // "מפעל" רכיבים, משותף לכל הטאבים
@@ -4544,6 +4555,9 @@ def create_map(target='desktop', api_base='', output_path=None):
             new RsCtl().addTo(map);  // מתחת לפקדים הקיימים בפינה
             L.DomEvent.disableClickPropagation(box); L.DomEvent.disableScrollPropagation(box);  // לא מגיע למפה
             var bar = _rtBuildActiveBar(box, {{notes: true}});  // אותו פס כמו בכלים
+            var disc = L.DomUtil.create('div', '', box);  // T1 (F-036, Q-R5-2): הבהרה בולטת ליד בורר המכ"מים
+            disc.textContent = 'ℹ️ שמות המוצרים שייכים לבעליהם; אין קשר ליצרנים ואין אישור מהם. הערכים משוערים מנתונים פומביים, ואינם מפרט רשמי.';  // T1: נוסח ההבהרה
+            disc.style.cssText = 'font-size:9px;color:#6b4f00;background:#fff8e1;border:1px solid #ffe08a;border-radius:3px;padding:1px 4px;line-height:1.3;';  // T1: רקע צהוב עדין — בולט אבל לא מפריע
             var btns = L.DomUtil.create('div', '', box); btns.style.cssText = 'display:flex;gap:3px;flex-wrap:wrap;';  // כפתורים
             function mk(txt, tip, fn) {{ var x = L.DomUtil.create('button', '', btns); x.textContent = txt; x.title = tip; x.setAttribute('aria-label', tip);
                 x.style.cssText = 'font-size:10px;min-height:24px;padding:1px 6px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';
@@ -4792,6 +4806,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (!radarObs) {{ alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\\"ם דופלר" (🎯)'); return; }}  // אין מכ"ם
             var gt = _ballisticsGetGunTarget();  // המשגר (התותח שהוצב)
             if (!gt || !gt.gun) {{ alert('הצב קודם משגר — "✏️ תותח" בכלי הבליסטי'); return; }}  // אין משגר
+            var altMsg = _ballisticsAltGuard(false);  // T21 (F-053): גובה המשגר חייב להיות ידוע
+            if (altMsg) {{ alert(altMsg); return; }}  // T21: אין חישוב רקטה מגובה 0 בשקט
             function num(el, d) {{ var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? d : v; }}  // ערך או ברירת מחדל
             var rocket = {{mass_kg: num(_rtSrc.rkMass, 40), prop_kg: num(_rtSrc.rkProp, 12), burn_s: num(_rtSrc.rkBurn, 2),
                           thrust_n: num(_rtSrc.rkThrust, 12000), diam_m: num(_rtSrc.rkDiam, 0.15), cd: num(_rtSrc.rkCd, 0.4)}};  // הפרמטרים
@@ -5665,18 +5681,25 @@ def create_map(target='desktop', api_base='', output_path=None):
             // ממקור הגובה הקיים, וניתן לעריכה ידנית" לפי בקשת שלב 3
             var pt = which === 'gun' ? ballisticsGun : ballisticsTarget;
             if (!pt) return;
+            pt.altState = 'pending';  // T21 (F-053): השליפה רצה — חישוב ייחסם עד שיהיה גובה
+            var reqLat = pt.lat, reqLng = pt.lng;  // T21: המיקום שעבורו נשלחה הבקשה — תשובה ישנה (אחרי גרירה) לא תדרוס
+            function current() {{ return pt === (which === 'gun' ? ballisticsGun : ballisticsTarget) && pt.lat === reqLat && pt.lng === reqLng; }}  // T21: הנקודה לא הוחלפה/הוזזה מאז
+            function fail() {{ if (current() && pt.altState === 'pending') {{ pt.altState = 'failed'; _ballisticsAltUi(); }} }}  // T21: סימון כשל גלוי במקום שקט
+            _ballisticsAltUi();  // T21: מציג "טוען גובה…" בשדה
             fetch('http://localhost:5002/elevation', {{
                 method: 'POST', headers: {{'Content-Type': 'application/json'}},
                 body: JSON.stringify({{locations: [{{latitude: pt.lat, longitude: pt.lng}}]}})
             }})
-            .then(function(r) {{ return r.json(); }})
+            .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})  // T21: 500/502 הוא כשל, לא "אין נתון"
             .then(function(d) {{
                 var e = d && d.results && d.results[0] ? d.results[0].elevation : null;
-                if (e === null || e === undefined) return;
-                if (which === 'gun') {{ ballisticsGun.alt = e; }} else {{ ballisticsTarget.alt = e; }}
-                _ballisticsSyncFields();
+                if (!current()) return;  // T21: הנקודה זזה בינתיים — בקשה חדשה כבר אחראית עליה
+                if (e === null || e === undefined || !isFinite(e)) {{ fail(); return; }}  // T21: תשובה בלי גובה = כשל גלוי
+                if (pt.altState === 'manual') return;  // T21: המשתמש הקליד גובה בזמן ההמתנה — הערך שלו נשאר
+                pt.alt = e; pt.altState = 'ok';  // T21: גובה אמיתי מהשרת
+                _ballisticsSyncFields(); _ballisticsAltUi();  // T21: עדכון השדה והסרת האזהרה
             }})
-            .catch(function() {{ /* כשל-רשת בשליפת-גובה — לא קריטי, המשתמש יכול למלא ידנית */ }});
+            .catch(fail);  // T21 (F-053): כשל רשת/שרת — אזהרה + ניסיון חוזר, לא גובה 0 בשקט
         }}
 
         function _placeBallisticsPoint(latlng) {{
@@ -5888,6 +5911,8 @@ def create_map(target='desktop', api_base='', output_path=None):
 
             function _runTraj() {{
                 if (!ballisticsGun) {{ alert('הצב תותח על המפה קודם'); return; }}
+                var altMsg = _ballisticsAltGuard(false);  // T21 (F-053): מסלול ישיר — צריך רק את גובה התותח
+                if (altMsg) {{ alert(altMsg); return; }}  // T21: לפני ballisticsLoading, כדי לא להיתקע במצב "טוען"
                 if (ballisticsLoading) return;
                 ballisticsLoading = true; info.textContent = 'מחשב...';
                 var common = _ballisticsGetCommonParams();
@@ -5928,6 +5953,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             L.DomEvent.on(crestBtn, 'click', function(e) {{
                 L.DomEvent.stopPropagation(e);
                 if (!ballisticsGun || !ballisticsTarget) {{ alert('הצב תותח ומטרה קודם'); return; }}
+                var altMsg = _ballisticsAltGuard(true);  // T21 (F-053): הגבהה מינימלית מעל רכס — צריך גובה תותח ומטרה
+                if (altMsg) {{ alert(altMsg); return; }}  // T21: חסימה עם הסבר
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
                 info.textContent = 'מחשב הגבהה-מינימלית...';
@@ -6239,6 +6266,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             L.DomEvent.on(runBtn, 'click', function(e) {{
                 L.DomEvent.stopPropagation(e);
                 if (!ballisticsGun || !ballisticsTarget) {{ alert('הצב תותח ומטרה קודם'); return; }}
+                var altMsg = _ballisticsAltGuard(true);  // T21 (F-053): פתרון ירי — צריך גובה תותח ומטרה
+                if (altMsg) {{ alert(altMsg); return; }}  // T21: לפני ballisticsLoading
                 if (ballisticsLoading) return;
                 ballisticsLoading = true; info.textContent = 'מחשב...';
                 var common = _ballisticsGetCommonParams();
@@ -6300,6 +6329,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             L.DomEvent.on(runBtn, 'click', function(e) {{
                 L.DomEvent.stopPropagation(e);
                 if (!ballisticsGun) {{ alert('הצב תותח קודם'); return; }}
+                var altMsg = _ballisticsAltGuard(false);  // T21 (F-053): טבלת ירי — צריך גובה תותח
+                if (altMsg) {{ alert(altMsg); return; }}  // T21: חסימה עם הסבר
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
                 fetch('http://localhost:5002/ballistics/table', {{
@@ -6377,6 +6408,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 L.DomEvent.stopPropagation(e);
                 if (!ballisticsGun) {{ alert('הצב תותח קודם'); return; }}
                 if (!pts.length) {{ alert('הוסף לפחות נקודה אחת'); return; }}
+                var altMsg = _ballisticsAltGuard(false);  // T21 (F-053): כיול — צריך גובה תותח
+                if (altMsg) {{ alert(altMsg); return; }}  // T21: חסימה עם הסבר
                 var common = _ballisticsGetCommonParams();
                 var gt = _ballisticsGetGunTarget();
                 fetch('http://localhost:5002/ballistics/calibrate', {{
@@ -6516,22 +6549,56 @@ def create_map(target='desktop', api_base='', output_path=None):
                 var tLat = _mkField('קו רוחב מטרה [°]', 31.3600, 0.0001, -90, 90, '', null, null);
                 var tLon = _mkField('קו אורך מטרה [°]', 34.8900, 0.0001, -180, 180, '', null, null);
                 var tAlt = _mkField('גובה מטרה מעל פני הים [מ\\']', 310, 1, null, null, 'נמשך אוטומטית, ניתן לעריכה ידנית', null, null);
+                // T21 (F-053): שורת אזהרה + ניסיון חוזר, מוצגת רק כששליפת גובה נכשלה
+                var altWarn = L.DomUtil.create('div', '', panelBody);  // T21: מכל האזהרה
+                altWarn.style.cssText = 'display:none;font-size:9px;color:#b00020;background:#fdecea;border:1px solid #f5c2c0;border-radius:3px;padding:2px 4px;';  // T21: אדום בולט, נסתר כברירת מחדל
+                altWarn.setAttribute('role', 'alert');  // T21: קוראי מסך מכריזים על האזהרה
+                var altWarnTxt = L.DomUtil.create('span', '', altWarn);  // T21: טקסט האזהרה
+                var altRetry = L.DomUtil.create('button', '', altWarn);  // T21: כפתור ניסיון חוזר
+                altRetry.textContent = '🔄 נסה שוב לשלוף גובה';  // T21: תווית הכפתור
+                altRetry.style.cssText = 'margin-inline-start:4px;font-size:10px;min-height:24px;cursor:pointer;';  // T21: יעד לחיצה ≥24px (F-040)
+                L.DomEvent.on(altRetry, 'click', function(e) {{  // T21: שולף מחדש רק את הנקודות שנכשלו
+                    L.DomEvent.stopPropagation(e);  // T21: הלחיצה לא מגיעה למפה
+                    if (ballisticsGun && ballisticsGun.altState === 'failed') _ballisticsFetchAlt('gun');  // T21: תותח
+                    if (ballisticsTarget && ballisticsTarget.altState === 'failed') _ballisticsFetchAlt('target');  // T21: מטרה
+                }});
+                _ballisticsAltUi = function() {{  // T21: מסנכרן שדות גובה ואזהרה עם מצב הנקודות
+                    var failed = [];  // T21: שמות הנקודות שהשליפה שלהן נכשלה
+                    [[ballisticsGun, gAlt, 'התותח'], [ballisticsTarget, tAlt, 'המטרה']].forEach(function(x) {{  // T21: אותו טיפול לשתי הנקודות
+                        var pt = x[0], fld = x[1];  // T21: הנקודה והשדה שלה
+                        if (!pt) return;  // T21: נקודה שעוד לא הוצבה
+                        if (pt.alt === null || pt.alt === undefined) fld.value = '';  // T21: לא מציגים גובה ישן/ברירת מחדל לנקודה שגובהה לא ידוע
+                        fld.placeholder = pt.altState === 'pending' ? 'טוען…' : (pt.alt === null || pt.alt === undefined ? 'הזן ידנית' : '');  // T21: רמז במקום ערך מטעה
+                        if (pt.altState === 'failed' && (pt.alt === null || pt.alt === undefined)) failed.push(x[2]);  // T21: לאזהרה
+                    }});
+                    altWarn.style.display = failed.length ? 'block' : 'none';  // T21: האזהרה רק כשיש כשל
+                    altWarnTxt.textContent = '⚠️ שליפת גובה ' + failed.join(' ו') + ' נכשלה — אין חישוב עד שיהיה גובה. הזן ידנית או נסה שוב.';  // T21: הסבר ומה לעשות
+                }};
+                function _manualAlt(pt, fld) {{  // T21: המשתמש ערך את שדה הגובה בעצמו
+                    if (!pt) return;  // T21: אין נקודה — אין מה לעדכן
+                    var v = parseFloat(fld.value);  // T21: הערך שהוקלד
+                    pt.alt = isFinite(v) ? v : null;  // T21: שדה ריק/לא מספרי = גובה לא ידוע (לא 0)
+                    pt.altState = isFinite(v) ? 'manual' : 'failed';  // T21: ידני גובר על תשובת שרת מאוחרת
+                    _ballisticsAltUi();  // T21: עדכון האזהרה
+                }}
                 function _applyManualGun() {{
                     var la = parseFloat(gLat.value), lo = parseFloat(gLon.value);
                     if (isNaN(la) || isNaN(lo)) return;
+                    var a = parseFloat(gAlt.value);  // T21: הגובה שבשדה לפני ההצבה (ההצבה מנקה את השדה)
                     ballisticsEditing = 'gun'; _placeBallisticsPoint(L.latLng(la, lo));
-                    if (!isNaN(parseFloat(gAlt.value))) ballisticsGun.alt = parseFloat(gAlt.value);
+                    if (isFinite(a)) {{ ballisticsGun.alt = a; _ballisticsSyncFields(); _ballisticsAltUi(); }}  // T21: ערך זמני שמוצג בשדה; השליפה האוטומטית עדיין מעדנת אותו
                 }}
                 function _applyManualTarget() {{
                     var la = parseFloat(tLat.value), lo = parseFloat(tLon.value);
                     if (isNaN(la) || isNaN(lo)) return;
+                    var a = parseFloat(tAlt.value);  // T21: הגובה שבשדה לפני ההצבה
                     ballisticsEditing = 'target'; _placeBallisticsPoint(L.latLng(la, lo));
-                    if (!isNaN(parseFloat(tAlt.value))) ballisticsTarget.alt = parseFloat(tAlt.value);
+                    if (isFinite(a)) {{ ballisticsTarget.alt = a; _ballisticsSyncFields(); _ballisticsAltUi(); }}  // T21: כמו בתותח
                 }}
                 L.DomEvent.on(gLat, 'change', _applyManualGun); L.DomEvent.on(gLon, 'change', _applyManualGun);
-                L.DomEvent.on(gAlt, 'change', function() {{ if (ballisticsGun) ballisticsGun.alt = parseFloat(gAlt.value); }});
+                L.DomEvent.on(gAlt, 'change', function() {{ _manualAlt(ballisticsGun, gAlt); }});  // T21: עריכה ידנית מסומנת 'manual'; שדה ריק = לא ידוע
                 L.DomEvent.on(tLat, 'change', _applyManualTarget); L.DomEvent.on(tLon, 'change', _applyManualTarget);
-                L.DomEvent.on(tAlt, 'change', function() {{ if (ballisticsTarget) ballisticsTarget.alt = parseFloat(tAlt.value); }});
+                L.DomEvent.on(tAlt, 'change', function() {{ _manualAlt(ballisticsTarget, tAlt); }});  // T21: כמו בתותח
                 _ballisticsSyncFields = function() {{
                     // מעדכן את כל שדות הקלט (lat/lon/alt של תותח+מטרה) מהמצב הפנימי — נקרא אחרי כל הצבה/גרירה/GPS
                     if (ballisticsGun) {{
@@ -6607,8 +6674,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 _ballisticsGetCommonParams = _ballisticsCommonParams;
                 _ballisticsGetGunTarget = function() {{
                     if (!ballisticsGun) return null;
-                    var gun = {{lat: ballisticsGun.lat, lon: ballisticsGun.lng, alt_m: ballisticsGun.alt || 0}};
-                    var tgt = ballisticsTarget ? {{lat: ballisticsTarget.lat, lon: ballisticsTarget.lng, alt_m: ballisticsTarget.alt || 0}} : null;
+                    var gun = {{lat: ballisticsGun.lat, lon: ballisticsGun.lng, alt_m: ballisticsGun.alt}};  // T21 (F-053): בלי "|| 0" — גובה לא ידוע לא הופך לגובה פני הים
+                    var tgt = ballisticsTarget ? {{lat: ballisticsTarget.lat, lon: ballisticsTarget.lng, alt_m: ballisticsTarget.alt}} : null;  // T21: כנ"ל למטרה
                     return {{gun: gun, target: tgt}};
                 }};
 

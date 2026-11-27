@@ -10,11 +10,13 @@
 """
 
 import logging
+import os  # T4 (F-031): מקורות CORS נוספים ממשתנה סביבה (לפיתוח בלבד)
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, jsonify, request  # T5: before_request שבודק את טוקן ההפעלה
 from flask_cors import CORS
 
+from app_token import HEADER as _TOKEN_HEADER, check_request as _check_app_token  # T5 (F-031): טוקן לכל הפעלה
 from metrics import register_metrics
 
 _log_configured = False  # מונע קריאה כפולה ל-basicConfig אם create_app נקרא יותר מפעם אחת בתהליך אחד
@@ -32,6 +34,19 @@ def create_app(import_name):
         logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(asctime)s - %(message)s')
         _log_configured = True
     app = Flask(import_name)
-    CORS(app)
+    CORS(app, origins=_cors_origins(), allow_headers=["Content-Type", _TOKEN_HEADER])  # T4 (F-031): רק מקור הממשק (map.html נטען כ-file://), לא כל אתר
+    app.before_request(_require_app_token)  # T5 (F-031): כל בקשה חייבת את טוקן ההפעלה כש-main.py הגדיר אותו
     register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד
     return app
+
+
+def _cors_origins():  # T4 (F-031): רשימת המקורות שמותר להם לקרוא לשרת מדפדפן
+    extra = [o.strip() for o in os.environ.get("MAPS_GUI_CORS_ORIGINS", "").split(",") if o.strip()]  # T4: הרחבה מפורשת לפיתוח, למשל http://localhost:8000
+    return ["file://", "null"] + extra  # T4: דף מקומי — QtWebEngine שולח "Origin: file://" (נמדד ב-e2e), דפדפנים אחרים "null"; אתרים זרים לא מקבלים Access-Control-Allow-Origin
+
+
+def _require_app_token():  # T5 (F-031): before_request — דוחה בקשה בלי טוקן תקין
+    err = _check_app_token(request)  # T5: None = מותר
+    if err:  # T5: אין טוקן או טוקן שגוי
+        return jsonify({"error": err}), 403  # T5: Flask מחזיר את זה במקום להריץ את הנתיב
+    return None  # T5: ממשיכים לנתיב

@@ -11,7 +11,7 @@ import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from PyQt5.QtCore import QTimer, QUrl  # noqa: E402
 from PyQt5.QtGui import QImage  # noqa: E402
-from PyQt5.QtWebEngineWidgets import QWebEnginePage, QWebEngineView  # noqa: E402
+from PyQt5.QtWebEngineWidgets import QWebEnginePage, QWebEngineProfile, QWebEngineView  # noqa: E402  # T24: QWebEngineProfile for an isolated in-memory profile
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,7 +31,9 @@ class Page(QWebEnginePage):
 
 app = QApplication(sys.argv)
 view = QWebEngineView()
-page = Page(view)
+profile = QWebEngineProfile(view)  # T24 (F-056): a profile without a storage name is off-the-record - localStorage lives in memory only, never the app's rs_active
+assert profile.isOffTheRecord()  # T24: refuse to run if Qt ever gave us a persistent profile
+page = Page(profile, view)  # T24: the page uses the isolated profile instead of the shared default one
 view.setPage(page)
 view.move(-3000, -3000)
 view.show()

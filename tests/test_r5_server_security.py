@@ -5,7 +5,7 @@
 שני סוגי בדיקות:
   [OK]/[FAIL]  — התנהגות צפויה שאמורה לעבור.
   [REPRO]      — בדיקת שחזור לממצא: "REPRO-CONFIRMED" = הממצא קיים כרגע (צפוי עד תיקון).
-הרצה: .venv\\Scripts\\python.exe .qa/run5/tests/test_r5_server_security.py
+הרצה: .venv\\Scripts\\python.exe tests/test_r5_server_security.py
 """
 import json
 import math
@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # שורש הפרויקט
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # T0: moved from .qa/run5/tests/ to tests/ - project root is now one level up
 sys.path.insert(0, ROOT)
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -150,6 +150,6 @@ if r.status_code == 200:
     client.post("/radar_doppler/cancel?job_id=" + r.get_json()["job_id"])
 
 print(f"\nOK={results['ok']} FAIL={results['fail']} REPRO-CONFIRMED={sum(1 for _, c in results['repro'] if c)}/{len(results['repro'])}")
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server_security_results.json"), "w", encoding="utf-8") as f:
+with open(os.path.join(ROOT, ".qa", "run5", "server_security_results.json"), "w", encoding="utf-8") as f:  # T0: report stays under .qa/run5
     json.dump(results, f, ensure_ascii=False, indent=1)
 sys.exit(1 if results["fail"] else 0)

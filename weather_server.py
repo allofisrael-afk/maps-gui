@@ -3,6 +3,7 @@
 import json  # קריאה/כתיבה של קובץ "עמדות שמורות" (saved_stations.json)
 import logging  # רישום אירועים לקובץ לוג משותף (ה-basicConfig עצמו הוגדר ב-server_common.create_app)
 import math  # חישובי טריגונומטריה למרחקים/LOS/עקמומיות כדור הארץ
+import shutil  # T6 (F-033): גיבוי .bak של קובץ העמדות לפני כל החלפה אטומית
 import time  # השהיות בין ניסיונות חוזרים ובין batches
 from flask import jsonify, request  # פענוח בקשות — Flask() עצמו נוצר ב-server_common.create_app
 import requests  # קריאות ל-OpenWeather/Open-Meteo/Google
@@ -1811,7 +1812,8 @@ def start_radar_track():
 # משותף ל-LOS/רדיוס-ראייה/מכ"ם-דופלר — לא מחזיק ידע על צורת ה-params של כל כלי, רק שומר/מחזיר
 # אותם כמו שהם (JS אחראי על התוכן). קובץ JSON שטוח פשוט (כמו weather_data.csv במקום אחר בפרויקט) —
 # לא מסד נתונים, כי כמות הנתונים קטנה וזה שימוש מקומי-בלבד של משתמש יחיד.
-_STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_stations.json')  # תמיד לצד weather_server.py, לא תלוי-תיקיית-עבודה
+_STATIONS_FILE = (os.environ.get('MAPS_GUI_STATIONS_FILE')  # T24 (F-056): a test server can point at its own temporary stations file
+                  or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_stations.json'))  # default: next to weather_server.py, independent of the working directory
 _STATIONS_LOCK = threading.Lock()  # מגן על קריאה/כתיבה בו-זמנית לקובץ מכמה בקשות
 _STATIONS_MAX_PER_TOOL = 20  # תקרת עמדות שמורות לכל כלי — מונע צמיחה בלתי מוגבלת של הקובץ
 _STATIONS_VALID_TOOLS = (
@@ -1833,21 +1835,41 @@ _STATIONS_VALID_TOOLS = (
 
 def _load_stations():
     """קורא את קובץ העמדות השמורות — מחזיר dict ריק אם הקובץ לא קיים עדיין או פגום."""
-    if not os.path.exists(_STATIONS_FILE):
-        return {}
-    try:
-        with open(_STATIONS_FILE, encoding='utf-8') as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
-        logging.error(f"שגיאה בקריאת {_STATIONS_FILE}: {e}")
-        return {}  # קובץ פגום — מתייחסים כאילו אין עמדות שמורות, לא קורסים
+    for path in (_STATIONS_FILE, _STATIONS_FILE + '.bak'):  # T6 (F-033): הקובץ הראשי, ואם הוא פגום — הגיבוי של השמירה הקודמת
+        if not os.path.exists(path):  # T6: אין קובץ כזה — ממשיכים לבא בתור
+            continue  # T6: הבא
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+            if path != _STATIONS_FILE:  # T6: נטען מהגיבוי — שיהיה גלוי ביומן
+                logging.warning(f"{_STATIONS_FILE} פגום או חסר — נטענו העמדות מהגיבוי {path}")  # T6: אבחון
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
+            logging.error(f"שגיאה בקריאת {path}: {e}")  # T6: ממשיכים לגיבוי במקום להחזיר ריק מיד
+    return {}  # אין קובץ תקין (גם לא גיבוי) — מתייחסים כאילו אין עמדות שמורות, לא קורסים
 
 
 def _save_stations(data):
-    """כותב את כל מבנה העמדות השמורות בחזרה לקובץ — קריאה מלאה+כתיבה מלאה (לא append), פשוט מספיק לכמות הנתונים הקטנה."""
-    with open(_STATIONS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """כותב את כל מבנה העמדות השמורות בחזרה לקובץ — קריאה מלאה+כתיבה מלאה (לא append), פשוט מספיק לכמות הנתונים הקטנה.
+    T6 (F-033): כתיבה אטומית — קובץ זמני באותה תיקייה, fsync, ואז os.replace. קריסה באמצע משאירה את הקובץ הקודם שלם.
+    לפני ההחלפה הקובץ הקודם (אם הוא JSON תקין) נשמר כ-.bak, ו-_load_stations נופל אליו אם הראשי פגום."""
+    tmp_path = f"{_STATIONS_FILE}.tmp-{os.getpid()}-{threading.get_ident()}"  # T6: שם זמני ייחודי לתהליך/thread, באותה תיקייה (os.replace אטומי רק באותו כונן)
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:  # T6: כותבים לקובץ הזמני, לא לקובץ האמיתי
+            json.dump(data, f, ensure_ascii=False, indent=2)  # T6: אותו פורמט כמו קודם
+            f.flush()  # T6: מרוקן את הבאפר של פייתון
+            os.fsync(f.fileno())  # T6: מבטיח שהתוכן על הדיסק לפני ההחלפה
+        if os.path.exists(_STATIONS_FILE):  # T6: יש גרסה קודמת לגבות
+            try:
+                with open(_STATIONS_FILE, encoding='utf-8') as f:  # T6: מגבים רק קובץ תקין, כדי לא לדרוס גיבוי טוב בקובץ פגום
+                    json.load(f)  # T6: בדיקת תקינות
+                shutil.copyfile(_STATIONS_FILE, _STATIONS_FILE + '.bak')  # T6: גיבוי השמירה הקודמת
+            except (OSError, json.JSONDecodeError) as e:  # T6: קובץ קודם פגום — לא מגבים אותו
+                logging.warning(f"לא נוצר גיבוי ל-{_STATIONS_FILE}: {e}")  # T6: אבחון
+        os.replace(tmp_path, _STATIONS_FILE)  # T6: החלפה אטומית — או הישן או החדש, אף פעם לא חצי
+    finally:
+        if os.path.exists(tmp_path):  # T6: נשאר זמני (הכתיבה נכשלה) — מנקים
+            os.remove(tmp_path)  # T6: לא משאירים זבל בתיקייה
 
 
 @app.route("/stations/list", methods=["GET"])

@@ -497,6 +497,13 @@ class _GlobalRadarBarState extends State<GlobalRadarBar> {
               btn(_open ? Icons.expand_less : Icons.tune, _open ? 'הסתר ניהול מכ"מים' : 'ניהול מכ"מים מוצבים', () => setState(() => _open = !_open)), // הרחבה
             ]),
             if (c.sitePick) Text('הקש על המפה למיקום המכ"ם הפעיל', style: TextStyle(fontSize: 10, color: cs.primary)), // מצב מיקום
+            if (_open || hasSite) // T1 (F-036, Q-R5-2): הבהרה בולטת כשמוצג שם מוצר או כשהניהול פתוח
+              Container( // T1: מסגרת צהובה עדינה, כמו בדסקטופ
+                margin: const EdgeInsets.only(top: 2), padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1), // T1: ריווח קטן
+                decoration: BoxDecoration(color: const Color(0xFFFFF8E1), border: Border.all(color: const Color(0xFFFFE08A)), borderRadius: BorderRadius.circular(3)), // T1: רקע וגבול
+                child: const Text('ℹ️ שמות המוצרים שייכים לבעליהם; אין קשר ליצרנים ואין אישור מהם. הערכים משוערים מנתונים פומביים, ואינם מפרט רשמי.', // T1: אותו נוסח כמו בדסקטופ
+                    style: TextStyle(fontSize: 9, color: Color(0xFF6B4F00), height: 1.3)), // T1: טקסט קטן וקריא
+              ),
             if (_open) Wrap(alignment: WrapAlignment.center, children: [
               btn(Icons.add, 'מכ"ם מוצב חדש', () => _editDialog(c)), // חדש
               btn(Icons.edit, 'עריכת שם או סוג', hasSite ? () => _editDialog(c, oldName: c.activeSite) : null), // עריכה

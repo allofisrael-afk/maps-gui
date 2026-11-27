@@ -4,11 +4,11 @@
  "repro": [
   [
    "R5-SEC-CORS",
-   true
+   false
   ],
   [
    "R5-SEC-CORS",
-   true
+   false
   ],
   [
    "R5-DATA-SIZE",
@@ -20,7 +20,7 @@
   ],
   [
    "R5-DATA-ATOMIC",
-   true
+   false
   ],
   [
    "R5-VAL-NAN",

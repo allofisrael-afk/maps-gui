@@ -6,7 +6,7 @@
 בדיקות-שחזור (repro tests) לממצאים קונקרטיים שנמצאו (F-011/F-012/F-013/F-014). כולן self-contained,
 0 קריאות-רשת-חיצוניות אמיתיות (F-011 משתמש ב-Flask test_client שהוא WSGI in-process, לא socket).
 
-הרצה: python tests/run_regression.py  (מהשורש, עם .venv הראשי של הפרויקט - לא .qa/.venv,
+הרצה: python tests/run_regression.py [--full]  (מהשורש, עם .venv הראשי של הפרויקט - לא .qa/.venv,
 כי אלה בדיקות-הפרויקט עצמו, לא כלי-ניתוח)
 """
 import subprocess
@@ -28,6 +28,13 @@ REGRESSION_SUITES = [
     ("radar_service.py - test_radar_service.py", PROJECT_ROOT / "tests" / "test_radar_service.py"),  # צינורות משותפים + השרת דרכם (FR-D-281)
     ("radar_android.py - test_radar_android.py", PROJECT_ROOT / "tests" / "test_radar_android.py"),  # מתאם האנדרואיד דרך mpm_api.dispatch_json (FR-D-282)
     ("LOS target height ref - test_los_target_ref.py", PROJECT_ROOT / "tests" / "test_los_target_ref.py"),  # גובה בחינה AGL/MSL (FR-D-290)
+    ("radar algorithmic + Golden Master - test_r5_radar_algorithmic.py", TESTS_DIR / "test_r5_radar_algorithmic.py"),  # T0: הועבר מ-.qa/run5/tests; תרחיש מייצג, metamorphic, Golden Master
+    ("server security - test_r5_server_security.py", TESTS_DIR / "test_r5_server_security.py"),  # T0: הועבר מ-.qa/run5/tests; שורות REPRO בתוכו מדווחות ממצאים פתוחים בלי להכשיל
+]
+
+# T0: חבילות ארוכות שרצות רק עם --full (fuzz של 261 צירופים בתהליכים נפרדים; כמה דקות)
+OPTIONAL_SUITES = [
+    ("NaN/Inf fuzz - fuzz_r5_nan_params.py (F-032, T7)", TESTS_DIR / "fuzz_r5_nan_params.py"),  # T0: יוצא 1 כל עוד יש צירוף שלא נדחה נקי
 ]
 
 # צפויות להיכשל כרגע (משחזרות ממצא פתוח) - עוברות רק אחרי תיקון מאושר
@@ -39,16 +46,16 @@ BUG_REPRO_TESTS = [
 ]
 
 
-def run_one(label, path):
+def run_one(label, path, timeout=120):  # T0: timeout per suite; optional suites (fuzz) pass a longer one
     # F-030: timeout=120 - שונות-זמנים אמיתית נמדדה (47-87ש', חריגה אחת מ-120ש') בלי קוד תקוע;
     # בלי timeout, תקיעה אמיתית עתידית תיתקע את כל ריצת-הרגרסיה לנצח בלי אבחון.
     try:
-        proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=120,
+        proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=timeout,  # T0: was a fixed 120
                                capture_output=True, text=True, encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or "") if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
         err = (e.stderr or "") if isinstance(e.stderr, str) else (e.stderr or b"").decode("utf-8", "replace")
-        return label, False, None, out, err + "\n[TIMEOUT] חרג מ-120 שניות - נבדק כ-FAIL"
+        return label, False, None, out, err + f"\n[TIMEOUT] חרג מ-{timeout} שניות - נבדק כ-FAIL"  # T0: message reflects the actual limit
     return label, proc.returncode == 0, proc.returncode, proc.stdout, proc.stderr
 
 
@@ -72,6 +79,13 @@ def main():
     open_findings = [r for r in repro_results if not r[1]]
     closed_findings = [r for r in repro_results if r[1]]
     print(f"ממצאים-פתוחים: {len(open_findings)}/{len(repro_results)} עדיין משוחזרים, {len(closed_findings)} נסגרו")
+
+    if "--full" in sys.argv:  # T0: long suites only on request
+        print("\n=== חבילות ארוכות (--full) ===")  # T0: separate section in the report
+        for label, ok, code, out, err in (run_one(l, p, timeout=900) for l, p in OPTIONAL_SUITES):  # T0: fuzz takes minutes, 15-minute cap
+            print(f"{'[OK]' if ok else '[OPEN - ממצא פתוח]'} {label} (exit={code})")  # T0: like a repro - expected to fail until its fix lands
+            if not ok:  # T0: show the tail so the open cases are visible
+                print(out[-1500:])  # T0: last lines of the fuzz listing
 
     # קוד-היציאה של הסקריפט הזה תלוי רק ברגרסיה האמיתית - כשלון בבדיקת-שחזור הוא *צפוי* ולא "השבר רגרסיה"
     sys.exit(1 if reg_failed else 0)

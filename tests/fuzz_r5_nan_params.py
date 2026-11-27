@@ -2,13 +2,13 @@
 # See LICENSE in the project root.
 """ריצת QA 5 — fuzzing ממוקד: לכל פרמטר מספרי של בדיקת המעקב, NaN / +Inf / -Inf, בכל אחד משלושת סוגי הסריקה.
 כל צירוף רץ בתהליך נפרד עם timeout של 8 שנ' — "HANG" = לולאה אינסופית (CWE-835). בלי רשת (שליפה מזויפת).
-הרצה: .venv\\Scripts\\python.exe .qa/run5/tests/fuzz_r5_nan_params.py"""
+הרצה: .venv\\Scripts\\python.exe tests/fuzz_r5_nan_params.py"""
 import json
 import multiprocessing as mp
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # T0: moved from .qa/run5/tests/ to tests/ - project root is now one level up
 sys.path.insert(0, ROOT)
 
 KEYS = ["range_km", "min_range_km", "h_antenna", "ridge_margin_deg", "vertical_center_deg", "vertical_width_deg", "power_kw",
@@ -50,5 +50,6 @@ if __name__ == "__main__":
                     out[f"{mode}/{key}={vname}"] = res
                     print(f"{mode:9} {key:20} {vname:5} -> {res}", flush=True)
     print(f"\nnon-ok: {len(out)} / {len(MODES) * len(KEYS) * len(VALUES)}")
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fuzz_nan_results.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(ROOT, ".qa", "run5", "fuzz_nan_results.json"), "w", encoding="utf-8") as f:  # T0: report stays under .qa/run5
         json.dump(out, f, ensure_ascii=False, indent=1)
+    sys.exit(1 if out else 0)  # T0: non-zero exit while any NaN/Inf case is not cleanly rejected, so run_regression --full can track F-032 (T7)

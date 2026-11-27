@@ -16,11 +16,14 @@ from test_requests import run_health_checks, summarize  # בדיקת תקינו�
 from security_checks import run_security_checks, summarize_findings  # סריקת אבטחה/חשיפה לדשבורד
 from notam_categories import NOTAM_CATEGORIES  # 7 קטגוריות סיווג NOTAM — מקור אמת יחיד, גם ל-MAP.py וגם לתפריט כאן
 from ports import GEO_PORT, WEATHER_PORT, FLIGHT_PORT  # פורטים קבועים של שלושת שרתי ה-Flask המקומיים
+import app_token  # T5 (F-031): טוקן לכל הפעלה — השרתים דוחים בקשות בלי הטוקן
+APP_TOKEN = app_token.ensure_token()  # T5: נוצר לפני הפעלת השרתים, כך שתהליכי השרתים יורשים אותו ממשתנה הסביבה
+app_token.install_requests_header()  # T5: קריאות requests של האפליקציה עצמה (דשבורד, מזג אוויר, בדיקות תקינות) נושאות את הטוקן
 from PyQt5.QtCore import (  # רכיבי ליבה: טיימר, thread ברקע לדשבורד, אנימציה, כיוון, גיאומטריה לשעוני הסקירה
     Qt, QUrl, QDateTime, QSize, QTimer, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
 )
 from PyQt5.QtGui import QIcon, QColor, QPainter, QPen, QFont  # אייקונים/צבעים לממשק + ציור שעוני הסקירה בדשבורד
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage  # תצוגת דפדפן פנימי להצגת המפה
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineScript  # תצוגת דפדפן פנימי להצגת המפה; QWebEngineScript מזריק את טוקן ההפעלה (T5)
 from PyQt5.QtWidgets import (  # רכיבי ממשק גרפי
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QGridLayout,
     QTextEdit, QFileDialog, QSplitter, QSizePolicy, QDoubleSpinBox,
@@ -792,6 +795,13 @@ class MapApp(QMainWindow):
         # הורדות מתוך הדף (ייצוא CSV של טבלת ירי / בדיקת מעקב מכ"ם): ב-QtWebEngine הורדה שאף אחד לא מאשר
         # (accept) מבוטלת בשקט — כך שעד עכשיו כפתורי הייצוא בדסקטופ לא שמרו כלום. המטפל שואל איפה לשמור.
         self.map_view.page().profile().downloadRequested.connect(self._on_download_requested)  # חיבור המטפל
+        token_script = QWebEngineScript()  # T5 (F-031): הטוקן מוזרק בזמן ריצה, לא נכתב ל-map.html על הדיסק
+        token_script.setName("maps_gui_app_token")  # T5: שם לזיהוי
+        token_script.setSourceCode(app_token.fetch_wrapper_js(APP_TOKEN))  # T5: עוטף את fetch כך שכל בקשה לשרת מקומי נושאת X-App-Token
+        token_script.setInjectionPoint(QWebEngineScript.DocumentCreation)  # T5: לפני כל סקריפט של הדף
+        token_script.setWorldId(QWebEngineScript.MainWorld)  # T5: באותו עולם JS של המפה, כדי שה-fetch של הדף יעבור דרכו
+        token_script.setRunsOnSubFrames(False)  # T5: רק המסמך הראשי
+        self.map_view.page().scripts().insert(token_script)  # T5: חל גם על כל טעינה מחדש של המפה
         self.map_view.setUrl(QUrl.fromLocalFile(os.path.abspath("map.html")))  # טעינת המפה בנתיב מוחלט — נדרש ב-QWebEngineView
         self.map_file = os.path.abspath("map.html")  # נתיב מוחלט לקובץ המפה לשימוש בטעינה מחדש
         self.geo_server_process = None      # תהליך GeoServer — None כשהשרת כבוי

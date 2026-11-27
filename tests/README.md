@@ -7,6 +7,12 @@
 ## רגרסיה (חייבת לעבור)
 `tests/self_test.py` (מנוע mpm/), `tests/test_ballistics_api.py` (שכבת ה-API). שתיהן self-contained, 0 קריאות-רשת-חיצוניות.
 
+## חבילות שהועברו מריצת QA 5 (T0, 27/11/2026)
+- `test_r5_radar_algorithmic.py` — תרחיש מייצג לכלי מעקב המכ"ם, בדיקות metamorphic ואנליטיות, ו-Golden Master מול `golden/radar_scenario_golden.json`. חלק מהרגרסיה. עדכון ייחוס רק באישור: `--update-golden`. דוח זמנים: `--update-perf`.
+- `test_r5_server_security.py` — CORS, ולידציה, NaN, שמירה אטומית, גבולות ותקרת jobs, מול קובץ עמדות זמני. חלק מהרגרסיה. שורות `[REPRO-CONFIRMED]` מדווחות ממצאים פתוחים בלי להכשיל.
+- `fuzz_r5_nan_params.py` — NaN/±Inf בכל פרמטר × 3 סוגי סריקה (261 צירופים, כמה דקות). רץ רק ב-`run_regression.py --full`, ויוצא 1 כל עוד F-032 פתוח.
+- הדוחות שהן כותבות נשמרים ב-`.qa/run5/`.
+
 ## בדיקות-שחזור לממצאים (עברו — שלב א' של Stage 6 תיקן את כל ארבעתן)
 - `test_f011_radar_cancel_return.py` — F-011, `/radar_doppler/cancel` (Web) מחזיר 500. משתמש ב-Flask `test_client()` (WSGI in-process, לא socket/רשת-אמיתית).
 - `test_f012_no_stray_webmap.py` — F-012, `web/map.html` שריד-build tracked בגיט.
