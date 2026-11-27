@@ -23,6 +23,8 @@ import '../widgets/controls_panel.dart';
 import '../widgets/ballistics_panel.dart'; // כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237), דרך Chaquopy
 import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
 import '../widgets/radar_track_layers.dart'; // שכבות המפה והגרפים של הכלי
+import '../widgets/area_fire_panel.dart'; // A6: שכבות "מאזור לאזור"
+import '../state/area_fire_controller.dart'; // A6: הבקר (ציור בהקשות)
 import '../widgets/radar_track_panel.dart'; // הפאנל של הכלי
 import 'user_guide_screen.dart'; // מדריך ההפעלה המוטמע — נפתח בהפעלה הראשונה
 
@@ -606,6 +608,8 @@ class _MapScreenState extends State<MapScreen> {
               // ── כלי בדיקת מעקב המכ"ם (שלב ג'): מפת חום, מסלול בליסטי/רקטה, מסלול צבוע ומניפת LOS ──
               ...buildRadarTrackLayers(context.watch<RadarTrackController>(), _rtTrackHit, _rtPlaceHit,
                   (p) => context.read<RadarTrackController>().placeRadarAt(p)),
+              // ── A6: ירי מאזור לאזור — אזורים, ציור פעיל, מפות חום, מסלולים ירוק/אדום ──
+              ...buildAreaFireLayers(context.watch<AreaFireController>()),
               // ── סמן תצפית זמני: מוצג לאחר לחיצה ראשונה בטרם בחירת יעד ──
               if (state.losCurObs != null)
                 CircleLayer(circles: [
@@ -1881,6 +1885,8 @@ class _MapScreenState extends State<MapScreen> {
     if (_rtTrackHit.value != null || _rtPlaceHit.value != null) return;
     // בחירה מהמפה שממתינה בכלי (הצבת מכ"ם / מרכז שיוט) גוברת על כל מצב אחר — כמו _rtMapPickActive בדסקטופ
     if (context.read<RadarTrackController>().handleMapTap(point)) return;
+    // A6: ציור אזור שיגור/מטרה ב"מאזור לאזור" — הקשה מוסיפה נקודה ולא נוגעת בכלים אחרים
+    if (context.read<AreaFireController>().handleMapTap(point)) return;
     // מצב בחירת נקודות חום ידנית גובר על הכל — לחיצה מוסיפה נקודה בלבד (מקביל ל-heatmapPickerActive בדסקטופ)
     if (state.manualHeatMode) {
       state.addManualHeatPoint(point);

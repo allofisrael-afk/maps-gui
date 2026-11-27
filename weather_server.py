@@ -345,7 +345,7 @@ def get_temp_grid():
                 else:
                     logging.error(f"שגיאה בשליפת רשת טמפרטורות לאחר 3 ניסיונות: {e}")
                     return jsonify({"error": str(e)}), 500
-            except (requests.exceptions.HTTPError, ValueError, IndexError, TypeError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
+            except (ValueError, IndexError, TypeError) as e:  # F-017: צומצם מ-Exception רחב; T14 (F-045, B025): HTTPError כבר נתפס למעלה (עם ניסיון חוזר) — הוסר מכאן כי לא היה מגיע לכאן אף פעם
                 logging.error(f"שגיאה בשליפת רשת טמפרטורות: {e}")
                 return jsonify({"error": str(e)}), 500
 
@@ -461,6 +461,9 @@ def _horizon_ratchet(dists_m, elevs, h_obs, h_offsets, margin_slope=0.0, min_ang
     return out
 
 
+NET_ERROR_MSG = 'אין חיבור לשירות הגבהים (Open-Meteo) — בדוק את חיבור האינטרנט ונסה שוב'  # T16 (F-048): הודעה אחידה לכשל רשת (זהה באנדרואיד)
+
+
 def _fetch_elevations(locations):
     """שולף גבהים לרשימת נקודות שרירותית [{'lat','lon'},...] (עד 100, מגבלת Open-Meteo),
     עם retry+backoff על timeout/ניתוק (כמו /elevation) — helper משותף לשליפת גובה
@@ -486,10 +489,12 @@ def _fetch_elevations(locations):
             if attempt < 2:
                 time.sleep(0.5 * (attempt + 1))  # 0.5/1 שנ' — כמו /elevation
             else:
-                return None, {'error': str(e)}
+                logging.warning(f"שליפת גבהים: אין חיבור אחרי 3 ניסיונות: {e}")  # T16 (F-048): הפרט הטכני ללוג בלבד
+                return None, {'error': NET_ERROR_MSG, 'network': True}  # T16: הודעה אחידה בעברית שאומרת שהבעיה ברשת
         except (requests.exceptions.HTTPError, ValueError, KeyError, IndexError) as e:  # F-017: צומצם מ-Exception רחב לסוגי-השגיאה האמיתיים האפשריים כאן
-            return None, {'error': str(e)}
-    return None, {'error': 'נכשל אחרי 3 ניסיונות'}
+            logging.warning(f"שליפת גבהים: תשובה לא תקינה מ-Open-Meteo: {e}")  # T16: הפרט ללוג
+            return None, {'error': 'שירות הגבהים (Open-Meteo) החזיר תשובה לא תקינה — נסה שוב בעוד רגע'}  # T16: הודעה ברורה
+    return None, {'error': NET_ERROR_MSG, 'network': True}  # T16: כמו כשל רשת
 
 
 @app.route("/los", methods=["GET"])
@@ -514,6 +519,10 @@ def line_of_sight():
         tgt_h = float(request.args.get('tgt_h', 0.0))  # גובה היעד מעל הקרקע (מ') — ברירת מחדל קרקע
     except (TypeError, ValueError):
         tgt_h = 0.0
+    if not math.isfinite(obs_h):  # T7 (F-052): NaN/Inf היו יוצאים כ-NaN/Infinity ב-JSON לא תקני
+        obs_h = 11.0  # T7: ברירת המחדל
+    if not math.isfinite(tgt_h):  # T7 (F-052): כנ"ל ליעד
+        tgt_h = 0.0  # T7: ברירת המחדל
     tgt_ref = 'msl' if request.args.get('tgt_ref') == 'msl' else 'agl'  # FR-D-290: ייחוס גובה היעד — agl (ברירת מחדל, כמו קודם) / msl (גובה קבוע מעל פני הים)
     try:  # FR-D-290: מרווח רכס (מעלות) — כמו ברדיוס הראייה; 0 = בדיוק ההתנהגות הקודמת
         ridge_margin_deg = float(request.args.get('ridge_margin_deg', 0.0))
@@ -609,19 +618,10 @@ _radial_jobs_lock = threading.Lock()  # מגן על _radial_jobs מגישה בו
 from radar_physics import (  # נוסחאות המכ"ם וקבועיהן — הועברו לקובץ משותף ל-Desktop ול-Android (FR-D-280)
     _RADIAL_RANGE_KM_MIN, _RADIAL_RANGE_KM_MAX, _RADIAL_RIDGE_MARGIN_MIN, _RADIAL_RIDGE_MARGIN_MAX,
     _RADIAL_VERTICAL_CENTER_MIN, _RADIAL_VERTICAL_CENTER_MAX, _RADIAL_VERTICAL_WIDTH_MIN, _RADIAL_VERTICAL_WIDTH_MAX,
-    _RADAR_RANGE_KM_DEFAULT, _RADAR_H_ANTENNA_DEFAULT_M, _RADAR_VBEAM_CENTER_DEFAULT_DEG, _RADAR_VBEAM_WIDTH_DEFAULT_DEG,
-    _RADAR_MIN_RANGE_KM_DEFAULT, _RADAR_POWER_KW_DEFAULT, _RADAR_POWER_KW_MIN, _RADAR_POWER_KW_MAX,
-    _RADAR_GAIN_DBI_DEFAULT, _RADAR_GAIN_DBI_MIN, _RADAR_GAIN_DBI_MAX, _RADAR_FREQ_MHZ_DEFAULT,
-    _RADAR_FREQ_MHZ_MIN, _RADAR_FREQ_MHZ_MAX, _RADAR_SENSITIVITY_DBM_DEFAULT, _RADAR_SENSITIVITY_DBM_MIN,
-    _RADAR_SENSITIVITY_DBM_MAX, _RADAR_SYSTEM_LOSSES_DB, _RADAR_RCS_M2_DEFAULT, _RADAR_RCS_M2_MIN,
-    _RADAR_RCS_M2_MAX, _RADAR_PRF_HZ_DEFAULT, _RADAR_PRF_HZ_MIN, _RADAR_PRF_HZ_MAX,
-    _RADAR_MDV_KT_DEFAULT, _RADAR_MDV_KT_MIN, _RADAR_MDV_KT_MAX, _RADAR_TARGET_SPEED_KT_DEFAULT,
-    _RADAR_TARGET_SPEED_KT_MIN, _RADAR_TARGET_SPEED_KT_MAX, _RADAR_TARGET_HEADING_DEG_DEFAULT, _KT_TO_MS,
-    _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT, _RADAR_ANTENNA_TYPES, _RADAR_ANTENNA_TYPE_DEFAULT,
-    _RADAR_BORESIGHT_DEG_DEFAULT, _RADAR_MAX_SCAN_DEG_DEFAULT, _RADAR_MAX_SCAN_DEG_MIN, _RADAR_MAX_SCAN_DEG_MAX,
+    _KT_TO_MS, _RADAR_REFLECTIVITY, _RADAR_REFLECTIVITY_DEFAULT,
     _radar_max_range_m, _lobing_factor, _doppler_detectable, _max_unambiguous_range_m,
-    _angular_diff_deg, _scan_loss_factor, _parse_radar_common_params,
-)
+    _scan_loss_factor, _parse_radar_common_params,
+)  # T14 (F-045): רק השמות שבשימוש בקובץ הזה (ruff F401) — שאר הקבועים נקראים דרך _parse_radar_common_params
 _RADIAL_ANGLE_STEP_MIN, _RADIAL_ANGLE_STEP_MAX = 3.0, 45.0  # צעד זווית מותר, מעלות
 _RADIAL_BASE_BUDGET = 720  # תקציב נקודות ל"רזולוציה גבוהה בטווח קצר" (כמו התקרה שהייתה קבועה במקור)
 _RADIAL_TARGET_SPACING_KM = 2.0  # מרווח יעד בין דגימות לאורך קרן, גובר בטווח ארוך
@@ -837,6 +837,8 @@ def start_radial_los():
         tgt_h = 0.0
     if not math.isfinite(tgt_h):  # FR-D-290: NaN/אינסוף — ברירת המחדל (גובה בחינה עד עשרות אלפי רגל מותר)
         tgt_h = 0.0
+    if not math.isfinite(obs_h):  # T7 (F-052): גם גובה המשקיף
+        obs_h = 11.0  # T7: ברירת המחדל
     tgt_ref = 'msl' if request.args.get('tgt_ref') == 'msl' else 'agl'  # FR-D-290: ייחוס גובה היעד — agl (ברירת מחדל, כמו קודם) / msl
 
     try:  # מרכז שדה-הראייה האנכי, מעלות — ברירת מחדל 0 (אופקי). נחשף כשדה בפאנל מ-18/08/2026
@@ -851,6 +853,9 @@ def start_radial_los():
         vertical_width_deg = _RADIAL_VERTICAL_WIDTH_DEFAULT_DEG
     vertical_width_deg = min(max(vertical_width_deg, _RADIAL_VERTICAL_WIDTH_MIN), _RADIAL_VERTICAL_WIDTH_MAX)
 
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
     job_id = str(uuid.uuid4())  # מזהה ייחודי ל-job הזה
     with _radial_jobs_lock:
         _cleanup_old_radial_jobs()  # ניקוי jobs ישנים לפני הוספת חדש — מונע דליפת זיכרון בתהליך ארוך-חי
@@ -858,13 +863,10 @@ def start_radial_los():
             'status': 'running', 'batches_done': 0, 'batches_total': None,
             'result': None, 'error': None, 'cancelled': False, 'created': time.time(),
         }
-    thread = threading.Thread(  # מריץ את כל החישוב ב-thread נפרד — הבקשה הזו חוזרת מיד, לא מחכה
-        target=_radial_worker,
-        args=(job_id, lat, lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg, obs_h, tgt_h,
-              ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg, tgt_ref),  # tgt_ref — FR-D-290
-        daemon=True,  # daemon — לא מונע יציאה מהתהליך אם השרת נסגר תוך כדי ריצה
-    )
-    thread.start()
+    _start_job(_radial_worker,  # T9 (F-043): דרך התור — לא thread כבד לכל בקשה
+               (lat, lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg, obs_h, tgt_h,
+                ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg, tgt_ref),  # tgt_ref — FR-D-290
+               _radial_jobs, _radial_jobs_lock, job_id)  # T9: המאגר וה-lock שלו
     return jsonify({'job_id': job_id})
 
 
@@ -900,6 +902,46 @@ def cancel_radial_los():
 
 
 _RADAR_JOB_TTL_SEC = 600  # ניקוי jobs ישנים אחרי 10 דק', כמו _RADIAL_JOB_TTL_SEC
+
+# ── T9 (F-043): תקרת jobs — עד 4 רצים במקביל (השאר בתור), ועד 16 פעילים בסך הכול; מעבר לזה 429 ──
+_JOB_CONCURRENCY = 4  # T9: כמה חישובים רצים בפועל במקביל (כל השאר ממתינים בתור, בלי thread כבד לכל אחד)
+_JOB_MAX_ACTIVE = 16  # T9: תקרת jobs פעילים (רצים + בתור) בכל הכלים יחד
+_JOB_SLOTS = threading.BoundedSemaphore(_JOB_CONCURRENCY)  # T9: "תור" — job ממתין כאן עד שמתפנה מקום
+_QUEUED_NOTE = 'ממתין בתור — חישובים אחרים רצים…'  # T9: הודעת מצב בזמן ההמתנה
+
+
+def _jobs_active():  # T9: כמה jobs פעילים (רצים או בתור) בשני המאגרים
+    with _radar_jobs_lock:  # T9: מכ"ם / מעקב / מאזור לאזור
+        a = sum(1 for j in _radar_jobs.values() if j['status'] == 'running')  # T9: ספירה
+    with _radial_jobs_lock:  # T9: רדיוס ראייה
+        b = sum(1 for j in _radial_jobs.values() if j['status'] == 'running')  # T9: ספירה
+    return a + b  # T9: הסכום
+
+
+def _jobs_full_response():  # T9: תשובת 429 כשהתקרה מלאה, אחרת None
+    if _jobs_active() >= _JOB_MAX_ACTIVE:  # T9: מלא
+        return jsonify({'error': f'יש כבר {_JOB_MAX_ACTIVE} חישובים פעילים — המתן לסיום או בטל חישוב'}), 429  # T9: הודעה ברורה
+    return None  # T9: יש מקום
+
+
+def _start_job(target, args, jobs, lock, job_id):  # T9: מריץ worker דרך התור (עד _JOB_CONCURRENCY במקביל), מכבד ביטול בזמן ההמתנה
+    def run():  # T9: ה-thread הקל שממתין למקום
+        with lock:  # T9: הודעת "בתור"
+            j = jobs.get(job_id)  # T9: ה-job
+            if j is not None and j['status'] == 'running' and not j.get('note'):  # T9: רק אם אין הודעה אחרת
+                j['note'] = _QUEUED_NOTE  # T9: מוצג בממשק עד שמתחיל
+        with _JOB_SLOTS:  # T9: ממתין למקום פנוי
+            with lock:  # T9: בדיקה לפני התחלה
+                j = jobs.get(job_id)  # T9: ה-job
+                if j is None:  # T9: נוקה בינתיים
+                    return  # T9: יציאה
+                if j.get('cancelled'):  # T9: בוטל בזמן ההמתנה — לא מתחילים בכלל
+                    j['status'], j['finished'] = 'cancelled', time.time()  # T9: סיום
+                    return  # T9: יציאה
+                if j.get('note') == _QUEUED_NOTE:  # T9: יוצאים מהתור
+                    j['note'] = None  # T9: ניקוי ההודעה
+            target(job_id, *args)  # T9: העבודה עצמה
+    threading.Thread(target=run, daemon=True).start()  # T9: thread קל שרובו ממתין
 
 # ── סוג אנטנה: גנרי (רווח קבוע לכל אזימוט) מול מערך-מופעים (phased array) — נבחר ע"י המשתמש בפאנל ──
 # מכ"ם מערך-מופעים אמיתי מנווט את הקרן אלקטרונית מסביב לכיוון-פנים קבוע (boresight) — הרווח האפקטיבי
@@ -940,7 +982,8 @@ def _cleanup_old_radar_jobs():
     now = time.time()  # זמן נוכחי, להשוואה מול 'created' של כל job
     stale = [
         jid for jid, job in _radar_jobs.items()
-        if job['status'] in ('done', 'error', 'cancelled') and now - job['created'] > _RADAR_JOB_TTL_SEC
+        if job['status'] in ('done', 'error', 'cancelled')
+        and now - job.get('finished', job['created']) > job.get('ttl_sec', _RADAR_JOB_TTL_SEC)  # A4: תוצאת "מאזור לאזור" נשמרת שעות (ttl_sec), מרגע הסיום ולא מרגע ההתחלה
     ]
     for jid in stale:
         del _radar_jobs[jid]  # מחיקה בפועל מהמילון המשותף
@@ -1160,6 +1203,9 @@ def start_radar_doppler():
     lobing_enabled, reflectivity_key = p['lobing_enabled'], p['reflectivity_key']
     antenna_type, boresight_deg, max_scan_deg = p['antenna_type'], p['boresight_deg'], p['max_scan_deg']
 
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
     job_id = str(uuid.uuid4())  # מזהה ייחודי ל-job הזה
     with _radar_jobs_lock:
         _cleanup_old_radar_jobs()  # ניקוי jobs ישנים לפני הוספת חדש — מונע דליפת זיכרון
@@ -1167,17 +1213,14 @@ def start_radar_doppler():
             'status': 'running', 'batches_done': 0, 'batches_total': None,
             'result': None, 'error': None, 'cancelled': False, 'created': time.time(),
         }
-    thread = threading.Thread(  # מריץ את כל החישוב ב-thread נפרד — הבקשה הזו חוזרת מיד, לא מחכה
-        target=_radar_worker,
-        args=(job_id, lat, lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg,
-              h_antenna, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg,
-              power_kw, gain_dbi, freq_mhz, rcs_m2, sensitivity_dbm,
-              prf_hz, mdv_kt, target_speed_kt, target_heading_deg,
-              lobing_enabled, reflectivity_key,
-              antenna_type, boresight_deg, max_scan_deg),
-        daemon=True,  # daemon — לא מונע יציאה מהתהליך אם השרת נסגר תוך כדי ריצה
-    )
-    thread.start()
+    _start_job(_radar_worker,  # T9 (F-043): דרך התור
+               (lat, lon, range_km, angle_step_deg, start_bearing_deg, end_bearing_deg,
+                h_antenna, ridge_margin_deg, min_range_km, vertical_center_deg, vertical_width_deg,
+                power_kw, gain_dbi, freq_mhz, rcs_m2, sensitivity_dbm,
+                prf_hz, mdv_kt, target_speed_kt, target_heading_deg,
+                lobing_enabled, reflectivity_key,
+                antenna_type, boresight_deg, max_scan_deg),
+               _radar_jobs, _radar_jobs_lock, job_id)  # T9: המאגר וה-lock
     return jsonify({'job_id': job_id})
 
 
@@ -1193,6 +1236,7 @@ def radar_doppler_status():
             'status': job['status'], 'batches_done': job['batches_done'],
             'batches_total': job['batches_total'], 'result': job['result'], 'error': job['error'],
             'note': job.get('note'),  # הודעת מצב אופציונלית (למשל "ממתין למכסת Open-Meteo") — רק בדיקת מעקב מכ"ם מציבה אותה; None אצל השאר
+            'eta_s': job.get('eta_s'),  # T23 (F-055): הערכת זמן שנותר לשליפת הגבהים — None כשאין
         })
 
 
@@ -1518,6 +1562,9 @@ def start_radar_route_eval():
 
     p = _parse_radar_common_params(body)  # כל 19 הפרמטרים המשותפים — target_speed_kt/heading לא ייקראו כאן בכלל
 
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
     job_id = str(uuid.uuid4())
     with _radar_jobs_lock:
         _cleanup_old_radar_jobs()  # ניקוי jobs ישנים — אותו dict/lock משותף עם _radar_worker
@@ -1525,12 +1572,7 @@ def start_radar_route_eval():
             'status': 'running', 'batches_done': 0, 'batches_total': None,
             'result': None, 'error': None, 'cancelled': False, 'created': time.time(),
         }
-    thread = threading.Thread(
-        target=_radar_route_eval_worker,
-        args=(job_id, lat, lon, p, trail),
-        daemon=True,
-    )
-    thread.start()
+    _start_job(_radar_route_eval_worker, (lat, lon, p, trail), _radar_jobs, _radar_jobs_lock, job_id)  # T9 (F-043): דרך התור
     return jsonify({'job_id': job_id})
 
 
@@ -1538,7 +1580,7 @@ def start_radar_route_eval():
 # הליבה ב-radar_track.py (stdlib בלבד); כאן רק: גובה המכ"ם, שליפת גבהים ב-batches עם התקדמות/ביטול,
 # והזרקת פונקציות הפיזיקה הקיימות של כלי הדופלר (אותן נוסחאות בדיוק). משתמש ב-_radar_jobs הקיים,
 # ולכן גם ב-/radar_doppler/status ו-/radar_doppler/cancel הקיימים — כמו הערכת מסלול הטיסה.
-import radar_track as _rt  # ייבוא מקומי לחלק הזה — המודול עצמאי ולא תלוי ב-Flask
+# T14 (F-045): הוסר "import radar_track as _rt" שלא היה בשימוש (ruff F401) — הכלי עובר דרך radar_service
 
 _RADAR_TRACK_MAX_POINTS = 6000  # תקרת נקודות-מסלול בבקשה אחת — מסלול MPM של ~100 שנ' בצעד 0.1 שנ' הוא ~1000
 # ── שליפת גבהים: Open-Meteo סופר כל *נקודה* כקריאה (600/דקה, 5000/שעה) — נמדד בבדיקה חיה (26 בקשות של 30
@@ -1546,9 +1588,9 @@ _RADAR_TRACK_MAX_POINTS = 6000  # תקרת נקודות-מסלול בבקשה א
 _RADAR_TRACK_BATCH = 100  # נקודות לבקשה — המקסימום ש-Open-Meteo מקבל
 _RADAR_TRACK_LOCS_PER_MIN = 500  # קצב יעד (נקודות לדקה) — מרווח ביטחון מתחת ל-600
 _RADAR_TRACK_RATE_RETRIES = 2  # כמה פעמים להמתין דקה ולנסות שוב כשמתקבלת חסימה דקתית
-_ELEV_CACHE = {}  # תא-רשת (lat,lon) -> גובה — נשמר לאורך חיי השרת; גרירת המכ"ם/הרצה חוזרת לא שולפות שוב
-_ELEV_CACHE_LOCK = threading.Lock()  # מגן על המטמון מכמה jobs במקביל
-_ELEV_CACHE_MAX = 200000  # תקרת רשומות (~10MB) — מעבר לזה המטמון מתאפס, לא גדל בלי סוף
+_RADAR_TRACK_SEC_PER_BATCH = _RADAR_TRACK_BATCH * 60.0 / _RADAR_TRACK_LOCS_PER_MIN + 1.5  # T23: ~13.5 שנ' לבקשה (השהיית הקצב + זמן הבקשה עצמה)
+import elev_cache  # noqa: E402  # T23 (F-055): מטמון גבהים קבוע (SQLite), משותף לאנדרואיד
+_ELEV_STORE = elev_cache.ElevCache()  # T23: זיכרון + קובץ מקומי; שורד הפעלה מחדש של השרת (קודם: מילון שנמחק בכל הפעלה)
 
 
 def _radar_track_sleep(job_id, seconds):
@@ -1569,16 +1611,17 @@ def _radar_track_fetch_cells(job_id, cells):
     מחזיר רשימת גבהים מקבילה ל-cells (None לתא שנכשל), או None אם בוטל/נחסם (הסטטוס כבר נקבע)."""
     elevations = [None] * len(cells)  # ברירת-מחדל: לא נשלף
     todo = []  # אינדקסים של תאים שאינם במטמון
-    with _ELEV_CACHE_LOCK:  # קריאת המטמון
-        for i, c in enumerate(cells):  # כל תא
-            if c in _ELEV_CACHE:  # כבר נשלף בעבר
-                elevations[i] = _ELEV_CACHE[c]  # מהמטמון
-            else:  # צריך לשלוף
-                todo.append(i)  # לרשימה
+    cached = _ELEV_STORE.get_many(cells)  # T23: מהמטמון הקבוע (זיכרון ואז קובץ)
+    for i, c in enumerate(cells):  # כל תא
+        if c in cached:  # T23: כבר נשלף בעבר (גם בהפעלה קודמת)
+            elevations[i] = cached[c]  # מהמטמון
+        else:  # צריך לשלוף
+            todo.append(i)  # לרשימה
     total_batches = (len(todo) + _RADAR_TRACK_BATCH - 1) // _RADAR_TRACK_BATCH  # מספר הבקשות
     with _radar_jobs_lock:  # עדכון מצב ה-job
         _radar_jobs[job_id]['batches_total'] = total_batches  # לסרגל ההתקדמות
         _radar_jobs[job_id]['cached_cells'] = len(cells) - len(todo)  # כמה הגיעו מהמטמון — לשקיפות
+        _radar_jobs[job_id]['eta_s'] = round(total_batches * _RADAR_TRACK_SEC_PER_BATCH)  # T23 (F-055): הערכת זמן שנותר לשליפה — מוצגת בממשק
     for b in range(total_batches):  # בקשה אחר בקשה
         idxs = todo[b * _RADAR_TRACK_BATCH:(b + 1) * _RADAR_TRACK_BATCH]  # התאים של הבקשה
         batch = [{'lat': cells[i][0], 'lon': cells[i][1]} for i in idxs]  # בפורמט של _fetch_elevations
@@ -1606,15 +1649,12 @@ def _radar_track_fetch_cells(job_id, cells):
                 return None  # עוצרים
             break  # הצליח (או כשל רגיל) — ממשיכים
         if batch_elevs is not None:  # התקבלו גבהים (אולי חלקית)
-            with _ELEV_CACHE_LOCK:  # עדכון המטמון
-                if len(_ELEV_CACHE) > _ELEV_CACHE_MAX:  # תקרה
-                    _ELEV_CACHE.clear()  # איפוס פשוט — עדיף על גדילה בלי סוף
-                for i, elev in zip(idxs, batch_elevs):  # כל תא בבקשה
-                    elevations[i] = elev  # לתוצאה
-                    if elev is not None:  # רק ערכים תקינים נשמרים
-                        _ELEV_CACHE[cells[i]] = elev  # למטמון
+            for i, elev in zip(idxs, batch_elevs):  # כל תא בבקשה
+                elevations[i] = elev  # לתוצאה
+            _ELEV_STORE.put_many({cells[i]: elev for i, elev in zip(idxs, batch_elevs)})  # T23: לשמירה קבועה (None לא נשמר)
         with _radar_jobs_lock:  # התקדמות
             _radar_jobs[job_id]['batches_done'] = b + 1  # עוד בקשה הושלמה
+            _radar_jobs[job_id]['eta_s'] = round((total_batches - b - 1) * _RADAR_TRACK_SEC_PER_BATCH)  # T23: עדכון הערכת הזמן
         if b < total_batches - 1:  # בין בקשות — שומרים על הקצב מתחת למגבלה
             if not _radar_track_sleep(job_id, len(batch) * 60.0 / _RADAR_TRACK_LOCS_PER_MIN):  # 12 שנ' ל-100 נקודות
                 return None  # בוטל
@@ -1666,21 +1706,19 @@ def _elevations_cached_small(cells):
     מחזיר (רשימת גבהים מקבילה, שגיאה-או-None)."""
     elevs = [None] * len(cells)  # התוצאה
     todo = []  # מה שלא במטמון
-    with _ELEV_CACHE_LOCK:  # קריאת המטמון
-        for i, c in enumerate(cells):  # כל תא
-            if c in _ELEV_CACHE:  # קיים
-                elevs[i] = _ELEV_CACHE[c]  # מהמטמון
-            else:  # חסר
-                todo.append(i)  # לשליפה
+    cached = _ELEV_STORE.get_many(cells)  # T23: מהמטמון הקבוע
+    for i, c in enumerate(cells):  # כל תא
+        if c in cached:  # קיים
+            elevs[i] = cached[c]  # מהמטמון
+        else:  # חסר
+            todo.append(i)  # לשליפה
     if todo:  # יש מה לשלוף — בקשה אחת (עד 100)
         got, err = _fetch_elevations([{'lat': cells[i][0], 'lon': cells[i][1]} for i in todo])  # השליפה
         if err:  # כשל (כולל מכסה)
             return None, err  # מחזירים את השגיאה
-        with _ELEV_CACHE_LOCK:  # עדכון המטמון
-            for i, e in zip(todo, got or []):  # כל תא שנשלף
-                elevs[i] = e  # לתוצאה
-                if e is not None:  # רק ערך תקין
-                    _ELEV_CACHE[cells[i]] = e  # למטמון
+        for i, e in zip(todo, got or []):  # כל תא שנשלף
+            elevs[i] = e  # לתוצאה
+        _ELEV_STORE.put_many({cells[i]: e for i, e in zip(todo, got or [])})  # T23: לשמירה קבועה
     return elevs, None  # הצלחה
 
 
@@ -1769,13 +1807,15 @@ def start_radar_placement():
         return jsonify({"error": f"יותר מדי מיקומים ({n}). הגדל את המרווח או הקטן את הרדיוס (עד {_rp.MAX_CANDIDATES})."}), 400  # הסבר
     metric = 'coverage' if body.get('metric') == 'coverage' else 'warning'  # הציון
     p, track_cfg, alt_ref = _rs.parse_all(body)  # פרמטרי המכ"ם, RCS וגשם, סריקה ומעקב, וייחוס הגובה — מהשירות המשותף
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
     job_id = str(uuid.uuid4())  # מזהה
     with _radar_jobs_lock:  # רישום
         _cleanup_old_radar_jobs()  # ניקוי
         _radar_jobs[job_id] = {'status': 'running', 'batches_done': 0, 'batches_total': None, 'result': None,
                                'error': None, 'cancelled': False, 'created': time.time(), 'note': None}  # מצב התחלתי
-    threading.Thread(target=_radar_placement_worker,
-                     args=(job_id, lat, lon, radius_m, step_m, metric, p, trajectory, track_cfg, alt_ref), daemon=True).start()  # ברקע
+    _start_job(_radar_placement_worker, (lat, lon, radius_m, step_m, metric, p, trajectory, track_cfg, alt_ref), _radar_jobs, _radar_jobs_lock, job_id)  # T9 (F-043): ברקע, דרך התור
     return jsonify({'job_id': job_id, 'candidates': n})  # מזהה + כמה מועמדים
 
 
@@ -1787,14 +1827,18 @@ def start_radar_track():
     try:  # מיקום המכ"ם חובה
         lat = float(body.get('lat'))  # קו רוחב
         lon = float(body.get('lon'))  # קו אורך
-    except (TypeError, ValueError):  # חסר/לא מספרי
-        return jsonify({"error": "מיקום המכ\"ם חסר"}), 400  # שגיאת קלט
+        _rs.check_latlon(lat, lon)  # T13 (F-044): מיקום המכ"ם בטווח — שגיאה מיד, לפני job ולפני שליפה
+    except (TypeError, ValueError) as e:  # חסר/לא מספרי/מחוץ לטווח
+        return jsonify({"error": str(e) if 'מיקום' in str(e) else "מיקום המכ\"ם חסר"}), 400  # שגיאת קלט (T13: עם ההסבר)
     trajectory = body.get('trajectory')  # המסלול
     if not isinstance(trajectory, list) or len(trajectory) < 2:  # חייב רשימה של 2 נקודות לפחות
         return jsonify({"error": "מסלול חסר או קצר מדי"}), 400  # שגיאת קלט
     if len(trajectory) > _RADAR_TRACK_MAX_POINTS:  # הגנה מבקשה ענקית
         return jsonify({"error": f"מסלול ארוך מדי (מעל {_RADAR_TRACK_MAX_POINTS} נקודות)"}), 400  # שגיאת קלט
     p, track_cfg, alt_ref = _rs.parse_all(body)  # פרמטרי המכ"ם (אותה צמידה כמו בכלי הדופלר), RCS וגשם, סריקה ומעקב — מהשירות המשותף
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
     job_id = str(uuid.uuid4())  # מזהה ה-job
     with _radar_jobs_lock:  # רישום
         _cleanup_old_radar_jobs()  # ניקוי jobs ישנים
@@ -1804,8 +1848,57 @@ def start_radar_track():
         with _radar_jobs_lock:  # ה-job כבר נרשם — מוחקים אותו
             _radar_jobs.pop(job_id, None)  # לא ירוץ
         return jsonify({"error": f"גובה 'מעל הקרקע' נתמך עד {_RADAR_TRACK_MAX_AGL_POINTS} נקודות"}), 400  # שגיאת קלט
-    threading.Thread(target=_radar_track_worker, args=(job_id, lat, lon, p, trajectory, track_cfg, alt_ref), daemon=True).start()  # ברקע
+    _start_job(_radar_track_worker, (lat, lon, p, trajectory, track_cfg, alt_ref), _radar_jobs, _radar_jobs_lock, job_id)  # T9 (F-043): ברקע, דרך התור
     return jsonify({'job_id': job_id})  # מזהה לממשק
+
+
+def _radar_compare_worker(job_id, trajectory, alt_ref):  # T30: השוואת כל המכ"מים המוצבים על אותו מסלול — רץ דרך התור
+    try:
+        with _STATIONS_LOCK:  # המכ"מים והפרופילים מקובץ העמדות (מקור האמת)
+            data = _load_stations()  # הקובץ
+        sites = data.get('radar_sites', [])  # המכ"מים המוצבים
+        mine = {s.get('name'): s.get('params') for s in data.get('radar_profile', [])}  # "הפרופילים שלי"
+        def progress(i, n, name):  # התקדמות
+            with _radar_jobs_lock:  # עדכון
+                if job_id in _radar_jobs:  # עדיין קיים
+                    _radar_jobs[job_id]['note'] = f'משווה מכ"ם {i + 1}/{n}: {name}'  # הודעה
+        def cancelled():  # ביטול
+            with _radar_jobs_lock:  # קריאה
+                return _radar_jobs.get(job_id, {}).get('cancelled', True)  # נמחק = בוטל
+        out = _rs.compare_sites(sites, _rs.load_profile_library(), mine, trajectory, alt_ref, _job_fetch(job_id), progress, cancelled)  # ההשוואה
+        with _radar_jobs_lock:  # שמירה
+            _radar_jobs[job_id].update({'status': 'done', 'result': out, 'note': None})  # הסתיים
+    except _rs.Aborted:  # בוטל/מכסה — הסטטוס כבר נקבע (או מסמנים ביטול)
+        with _radar_jobs_lock:  # בדיקה
+            j = _radar_jobs.get(job_id)  # ה-job
+            if j and j['status'] == 'running':  # לא סומן
+                j['status'] = 'cancelled'  # ביטול
+    except Exception as e:  # noqa: BLE001  # רשת ביטחון, כמו שאר ה-workers
+        logging.error(f"שגיאה בהשוואת מכ\"מים (job {job_id}): {e}")  # לוג
+        _job_fail(job_id, str(e))  # לממשק
+
+
+@app.route("/radar_track/compare", methods=["POST"])
+def radar_track_compare():  # T30 (החלטה 5): המסלול מול כל המכ"מים המוצבים — טבלה: מי רואה את הפגז ומתי (Desktop תחילה)
+    body = request.get_json(silent=True) or {}  # הגוף
+    trajectory = body.get('trajectory')  # המסלול
+    if not isinstance(trajectory, list) or len(trajectory) < 2 or len(trajectory) > _RADAR_TRACK_MAX_POINTS:  # בדיקת גודל
+        return jsonify({"error": "מסלול חסר, קצר או ארוך מדי"}), 400  # שגיאת קלט
+    alt_ref = 'agl' if body.get('alt_ref') == 'agl' else 'msl'  # ייחוס הגובה
+    with _STATIONS_LOCK:  # כמה מכ"מים יש
+        n = len(_load_stations().get('radar_sites', []))  # הספירה
+    if n == 0:  # אין מה להשוות
+        return jsonify({"error": "אין מכ\"מים מוצבים — הוסף מכ\"ם בבורר המכ\"מים בראש המפה"}), 400  # הסבר
+    full = _jobs_full_response()  # T9: תקרת jobs
+    if full:  # מלא
+        return full  # 429
+    job_id = str(uuid.uuid4())  # מזהה
+    with _radar_jobs_lock:  # רישום
+        _cleanup_old_radar_jobs()  # ניקוי
+        _radar_jobs[job_id] = {'status': 'running', 'batches_done': 0, 'batches_total': None, 'result': None,  # מצב התחלתי
+                               'error': None, 'cancelled': False, 'created': time.time(), 'note': None}  # כמו שאר ה-jobs
+    _start_job(_radar_compare_worker, (trajectory, alt_ref), _radar_jobs, _radar_jobs_lock, job_id)  # דרך התור
+    return jsonify({'job_id': job_id, 'radars': n})  # מזהה + כמה מכ"מים
 
 
 # ── "עמדות שמורות" — מיקום+פרמטרים ניתנים לשמירה תחת שם, לכל אחד משלושת כלי התצפית בנפרד ──
@@ -1816,6 +1909,8 @@ _STATIONS_FILE = (os.environ.get('MAPS_GUI_STATIONS_FILE')  # T24 (F-056): a tes
                   or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saved_stations.json'))  # default: next to weather_server.py, independent of the working directory
 _STATIONS_LOCK = threading.Lock()  # מגן על קריאה/כתיבה בו-זמנית לקובץ מכמה בקשות
 _STATIONS_MAX_PER_TOOL = 20  # תקרת עמדות שמורות לכל כלי — מונע צמיחה בלתי מוגבלת של הקובץ
+_STATIONS_MAX_NAME = 100  # T8 (F-042): אורך שם מרבי — כמו התקרה בממשק (slice(0, 100))
+_STATIONS_MAX_PARAMS_BYTES = 256 * 1024  # T8 (F-042): גודל params מרבי לעמדה (מסלול מותאם ארוך או סט אזורים — הרבה מתחת)
 _STATIONS_VALID_TOOLS = (
     'los', 'radial_los', 'radar_doppler',
     # שני המפתחות הבאים הם "הגדרות שמורות" (בלי מיקום) לרדיוס-ראייה/מכ"ם-דופלר — נשלחים מה-JS
@@ -1830,6 +1925,8 @@ _STATIONS_VALID_TOOLS = (
     'radar_profile',
     # FR-D-288: מכ"מים מוצבים — {type_key, type_name, lat, lon, boresight_deg, h_antenna, סקטור, טווח, ...}
     'radar_sites',
+    # A5: ירי מאזור לאזור — סט אזורים בשם: {'areas': [{name, kind: launch/target, polygon: [[lat,lon],...]}]}
+    'ballistics_areas',
 )  # מפתחות תקינים — שם JS מזהה כל כלי
 
 
@@ -1896,6 +1993,10 @@ def save_station():
         return jsonify({'error': 'חסר שם לעמדה'}), 400
     if not isinstance(params, dict):
         return jsonify({'error': 'חסרים פרמטרים'}), 400
+    if len(name) > _STATIONS_MAX_NAME:  # T8 (F-042): שם ארוך מדי — שגיאה ברורה, לא שמירה של 50,000 תווים
+        return jsonify({'error': f'השם ארוך מדי (עד {_STATIONS_MAX_NAME} תווים)'}), 400
+    if len(json.dumps(params, ensure_ascii=False)) > _STATIONS_MAX_PARAMS_BYTES:  # T8 (F-042): עמדה אחת לא מנפחת את הקובץ
+        return jsonify({'error': f'הנתונים גדולים מדי לעמדה אחת (עד {_STATIONS_MAX_PARAMS_BYTES // 1024}KB)'}), 413
     with _STATIONS_LOCK:
         data = _load_stations()
         tool_list = data.setdefault(tool, [])
@@ -2163,6 +2264,216 @@ def ballistics_min_qe_for_crest():
         return jsonify(out)
     except (KeyError, ValueError, TypeError) as e:
         return jsonify({"ok": False, "error": f"קלט לא תקין: {e}"}), 400
+
+
+# ═══════════════════════ ירי מאזור לאזור (A4, docs/PLAN_BALLISTICS_AREA_FIRE.md) ═══════════════════════
+import csv  # noqa: E402  # A4: ייצוא CSV של המסלולים
+import io  # noqa: E402  # A4: כתיבת CSV לזיכרון
+from concurrent.futures import ProcessPoolExecutor  # noqa: E402  # A4: חישוב צמתי טבלת הירי במקביל על כמה ליבות
+
+import area_fire  # noqa: E402  # A4: המנוע המשותף ל-Desktop ולאנדרואיד
+
+_AREA_JOB_TTL_SEC = 6 * 3600  # A4: תוצאה נשמרת 6 שעות מרגע הסיום (המשתמש מעיין בה, מסנן, צובע מחדש)
+
+
+def _area_workers():  # A4: כמה תהליכים לחישוב הטבלה — משאירים שתי ליבות למערכת ולממשק
+    return max(1, min(8, (os.cpu_count() or 2) - 2))  # A4: 1..8
+
+
+def _area_cached(cells):  # A4: אילו תאים כבר במטמון הגבהים הקבוע (להערכת זמן)
+    return set(_ELEV_STORE.get_many(cells).keys())  # A4: סט
+
+
+def _area_met_fetch(lat, lon, alt):  # A4: מטאו חי במרכז אזור שיגור — אותה שליפה כמו בכלי הבודד
+    return _resolve_ballistics_met({"source": "live"}, {"lat": lat, "lon": lon, "alt_m": alt})  # A4: (met, err)
+
+
+def _area_new_job(kind):  # A4: רשומת job חדשה במבנה של שאר ה-jobs (status/cancel/ניקוי), עם שמירה ארוכה
+    job_id = str(uuid.uuid4())  # A4: מזהה
+    with _radar_jobs_lock:  # A4: נעילה
+        _cleanup_old_radar_jobs()  # A4: ניקוי ישנים
+        _radar_jobs[job_id] = {'status': 'running', 'batches_done': 0, 'batches_total': None, 'result': None, 'error': None,  # A4: שדות סטנדרטיים
+                               'cancelled': False, 'created': time.time(), 'kind': kind, 'ttl_sec': _AREA_JOB_TTL_SEC,  # A4: סוג + שמירה ארוכה
+                               'note': None, 'stage': None, 'eta_s': None}  # A4: מצב
+    return job_id  # A4: המזהה
+
+
+def _area_progress(job_id):  # A4: מאזין התקדמות של המנוע → שדות ה-job, כולל הערכת זמן לשלב הטבלה
+    t = {'start': None}  # A4: תחילת שלב הטבלה
+    def progress(d):  # A4: נקרא מהמנוע
+        with _radar_jobs_lock:  # A4: נעילה
+            job = _radar_jobs.get(job_id)  # A4: ה-job
+            if job is None:  # A4: נוקה
+                return  # A4: יציאה
+            job['note'], job['stage'] = d.get('note'), d.get('stage')  # A4: הודעה ושלב
+            if d.get('stage') == 'table' and d.get('nodes'):  # A4: שלב הטבלה — הערכה לפי קצב בפועל
+                if t['start'] is None:  # A4: הצומת הראשון
+                    t['start'], t['n0'] = time.time(), d.get('node', 0)  # A4: נקודת התחלה
+                done = d.get('node', 0) - t['n0']  # A4: צמתים שחושבו מאז
+                if done > 0:  # A4: יש קצב
+                    job['eta_s'] = round((time.time() - t['start']) / done * (d['nodes'] - d['node']))  # A4: זמן שנותר
+            elif d.get('stage') not in ('terrain', 'elevations'):  # A4: בשלבי השליפה ההערכה מגיעה מ-_radar_track_fetch_cells
+                job['eta_s'] = None  # A4: אין הערכה
+    return progress  # A4: הפונקציה
+
+
+def _area_cancelled(job_id):  # A4: האם המשתמש ביטל
+    def cancelled():  # A4: נקרא מהמנוע
+        with _radar_jobs_lock:  # A4: נעילה
+            job = _radar_jobs.get(job_id)  # A4: ה-job
+            return job is None or job['cancelled']  # A4: נמחק = בוטל
+    return cancelled  # A4: הפונקציה
+
+
+def _area_finish(job_id, status, result=None, error=None):  # A4: סיום job (לא דורס שגיאה שכבר נקבעה, למשל מכסה)
+    with _radar_jobs_lock:  # A4: נעילה
+        job = _radar_jobs.get(job_id)  # A4: ה-job
+        if job is None:  # A4: נוקה
+            return  # A4: יציאה
+        if job['status'] == 'running':  # A4: עוד לא נקבע סטטוס סופי
+            job['status'], job['result'], job['error'] = status, result, error  # A4: הסטטוס
+        job['finished'], job['eta_s'], job['note'] = time.time(), None, None  # A4: זמן סיום (לניקוי), ניקוי הערכה
+
+
+def _area_worker(job_id, req):  # A4: רץ ב-thread — החישוב המלא דרך המנוע
+    ex = None  # A4: מאגר התהליכים
+    try:
+        if _area_workers() > 1:  # A4: יש ליבות פנויות
+            try:
+                ex = ProcessPoolExecutor(max_workers=_area_workers())  # A4: מאגר לצמתי הטבלה
+            except (OSError, ValueError) as e:  # A4: לא ניתן ליצור — ממשיכים סדרתי
+                logging.warning(f"area_fire: מאגר תהליכים לא זמין, חישוב סדרתי: {e}")  # A4: אבחון
+        result = area_fire.run(req, _job_fetch(job_id), met_fetch=_area_met_fetch, progress=_area_progress(job_id),  # A4: המנוע
+                               cancelled=_area_cancelled(job_id), map_fn=ex.map if ex else None)  # A4: ביטול ומקביליות
+        _area_finish(job_id, 'done', result=result)  # A4: הצלחה
+    except (area_fire.Aborted, _rs.Aborted):  # A4: בוטל, או מכסה (הסטטוס כבר נקבע ב-_radar_track_fetch_cells)
+        _area_finish(job_id, 'cancelled')  # A4: לא דורס שגיאת מכסה
+    except ValueError as e:  # A4: שגיאה צפויה עם הסבר (גובה חסר, מטאו, קלט)
+        _area_finish(job_id, 'error', error=str(e))  # A4: לממשק
+    except Exception as e:  # noqa: BLE001  # A4: רשת ביטחון — כמו שאר ה-workers
+        logging.error(f"שגיאה בחישוב מאזור לאזור (job {job_id}): {e}")  # A4: לוג
+        _area_finish(job_id, 'error', error=str(e))  # A4: לממשק
+    finally:
+        if ex is not None:  # A4: סגירת המאגר
+            ex.shutdown(wait=False, cancel_futures=True)  # A4: לא משאירים תהליכים
+
+
+def _area_vis_worker(job_id, rows, radars):  # A4: צביעת ירוק/אדום — רץ ב-thread
+    try:
+        out = area_fire.visibility(rows, radars, _job_fetch(job_id), progress=_area_progress(job_id), cancelled=_area_cancelled(job_id))  # A4: המנוע
+        _area_finish(job_id, 'done', result=out)  # A4: הצלחה
+    except (area_fire.Aborted, _rs.Aborted):  # A4: בוטל/מכסה
+        _area_finish(job_id, 'cancelled')  # A4: סיום
+    except Exception as e:  # noqa: BLE001  # A4: רשת ביטחון
+        logging.error(f"שגיאה בצביעת נראות (job {job_id}): {e}")  # A4: לוג
+        _area_finish(job_id, 'error', error=str(e))  # A4: לממשק
+
+
+def _area_get(job_id, kind):  # A4: job שהסתיים בהצלחה מסוג מסוים, או None
+    with _radar_jobs_lock:  # A4: נעילה
+        job = _radar_jobs.get(job_id or '')  # A4: ה-job
+        if job is None or job.get('kind') != kind or job['status'] != 'done':  # A4: לא קיים/לא מתאים/לא הסתיים
+            return None  # A4: אין
+        return job['result']  # A4: התוצאה
+
+
+@app.route("/ballistics/area/estimate", methods=["POST"])
+def ballistics_area_estimate():  # A4: ספירות והערכת זמן לפני הרצה (בלי רשת, בלי בליסטיקה)
+    try:
+        return jsonify(area_fire.estimate(request.get_json(silent=True) or {}, cached_fn=_area_cached, workers=_area_workers()))  # A4: ההערכה
+    except ValueError as e:  # A4: קלט שגוי
+        return jsonify({'error': str(e)}), 400  # A4: הודעה
+
+
+@app.route("/ballistics/area/start", methods=["POST"])
+def ballistics_area_start():  # A4: מתחיל חישוב מאזור לאזור כ-job ברקע
+    req = request.get_json(silent=True) or {}  # A4: הבקשה
+    try:
+        area_fire.parse_request(req)  # A4: אימות מוקדם — שגיאה ברורה מיד, לפני job
+    except ValueError as e:  # A4: קלט שגוי
+        return jsonify({'error': str(e)}), 400  # A4: הודעה
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
+    job_id = _area_new_job('area')  # A4: job חדש
+    _start_job(_area_worker, (req,), _radar_jobs, _radar_jobs_lock, job_id)  # A4: ברקע; T9: דרך התור
+    return jsonify({'job_id': job_id})  # A4: המזהה
+
+
+@app.route("/ballistics/area/visibility", methods=["POST"])
+def ballistics_area_visibility():  # A4: צביעת ירוק/אדום מול כל המכ"מים המוצבים (החלטה 14), כ-job — "עדכן צביעה" (החלטה 16)
+    body = request.get_json(silent=True) or {}  # A4: {job_id}
+    res = _area_get(body.get('job_id'), 'area')  # A4: תוצאת החישוב
+    if res is None:  # A4: אין תוצאה
+        return jsonify({'error': 'אין תוצאת חישוב מאזור לאזור (אולי נוקתה) — הרץ שוב'}), 404  # A4: הודעה
+    with _STATIONS_LOCK:  # A4: המכ"מים המוצבים — מקור האמת הוא קובץ העמדות
+        sites = _load_stations().get('radar_sites', [])  # A4: הרשימה
+    radars = area_fire.radar_list(sites)  # A4: המרה
+    full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
+    if full:  # T9: מלא
+        return full  # T9: 429
+    job_id = _area_new_job('area_vis')  # A4: job חדש
+    _start_job(_area_vis_worker, (res['rows'], radars), _radar_jobs, _radar_jobs_lock, job_id)  # A4: ברקע; T9: דרך התור
+    return jsonify({'job_id': job_id, 'radars': [r['name'] for r in radars]})  # A4: המזהה + אילו מכ"מים
+
+
+@app.route("/ballistics/area/status", methods=["GET"])
+def ballistics_area_status():  # A4: מצב job (חישוב או צביעה); התוצאה המלאה רק כשהסתיים
+    job_id = request.args.get('job_id')  # A4: המזהה
+    with _radar_jobs_lock:  # A4: נעילה
+        job = _radar_jobs.get(job_id or '')  # A4: ה-job
+        if job is None or job.get('kind') not in ('area', 'area_vis'):  # A4: לא קיים
+            return jsonify({'error': 'job לא נמצא (אולי נוקה)'}), 404  # A4: הודעה
+        return jsonify({'status': job['status'], 'stage': job.get('stage'), 'note': job.get('note'), 'eta_s': job.get('eta_s'),  # A4: מצב
+                        'batches_done': job['batches_done'], 'batches_total': job['batches_total'], 'error': job['error'],  # A4: שליפה, שגיאה
+                        'result': job['result'] if job['status'] == 'done' else None})  # A4: התוצאה רק בסיום
+
+
+@app.route("/ballistics/area/cancel", methods=["POST"])
+def ballistics_area_cancel():  # A4: ביטול job
+    job_id = request.args.get('job_id') or (request.get_json(silent=True) or {}).get('job_id')  # A4: המזהה
+    with _radar_jobs_lock:  # A4: נעילה
+        job = _radar_jobs.get(job_id or '')  # A4: ה-job
+        if job is None:  # A4: לא קיים
+            return jsonify({'error': 'job לא נמצא'}), 404  # A4: הודעה
+        job['cancelled'] = True  # A4: המנוע יעצור בבדיקה הבאה
+    return jsonify({'ok': True})  # A4: אישור
+
+
+def _csv_safe(v):  # A4: הגנה מהזרקת נוסחאות בגיליון (CWE-1236) — טקסט שמתחיל ב-= + - @ מקבל גרש
+    s = '' if v is None else str(v)  # A4: מחרוזת
+    return "'" + s if s[:1] in ('=', '+', '-', '@', '\t', '\r') and not s.replace('.', '', 1).lstrip('-').isdigit() else s  # A4: מספרים שליליים נשארים
+
+
+@app.route("/ballistics/area/csv", methods=["GET"])
+def ballistics_area_csv():  # A4: ייצוא כל המסלולים האפשריים ל-CSV (כולל נראות אם חושבה)
+    res = _area_get(request.args.get('job_id'), 'area')  # A4: תוצאת החישוב
+    if res is None:  # A4: אין
+        return jsonify({'error': 'אין תוצאה לייצוא'}), 404  # A4: הודעה
+    vis = _area_get(request.args.get('vis_job'), 'area_vis')  # A4: צביעה (אופציונלי)
+    out = io.StringIO()  # A4: באפר
+    w = csv.writer(out)  # A4: כותב CSV
+    w.writerow(['launch_area', 'launch_lat', 'launch_lon', 'launch_alt_m', 'target_area', 'target_lat', 'target_lon', 'target_alt_m',  # A4: כותרות
+                'branch', 'range_m', 'qe_mils', 'qe_deg', 'fire_az_mils', 'fire_az_deg', 'tof_s', 'apex_msl_m', 'min_terrain_margin_m',
+                'seen_fraction', 'seen_by'])  # A4: נראות
+    names_l, names_t = res['areas']['launch'], res['areas']['target']  # A4: שמות האזורים
+    radar_names = [r['name'] for r in (vis or {}).get('radars', [])]  # A4: שמות המכ"מים לפי הביט
+    for i, r in enumerate(res['rows']):  # A4: כל מסלול
+        frac, by = '', ''  # A4: נראות
+        if vis:  # A4: חושבה צביעה
+            m = vis['masks'][i]  # A4: המסיכה
+            frac = round(sum(1 for x in m if x) / len(m), 3)  # A4: חלק הנקודות הנצפות
+            bits = 0  # A4: איחוד
+            for x in m:  # A4: כל נקודה
+                bits |= x  # A4: OR
+            by = ';'.join(n for b, n in enumerate(radar_names) if bits & (1 << b))  # A4: מי ראה
+        w.writerow([_csv_safe(names_l[r['la']]), *r['launch'], _csv_safe(names_t[r['ta']]), *r['target'],  # A4: קצוות
+                    'נמוך' if r['group'] == 'low' else 'גבוה', r['range_m'], r['qe']['mils'], r['qe']['deg'],  # A4: פתרון
+                    r['fire_azimuth']['mils'], r['fire_azimuth']['deg'], r['tof_s'], r['apex_msl_m'], r['min_terrain_margin_m'],  # A4: מדדים
+                    frac, _csv_safe(by)])  # A4: נראות
+    data = '﻿' + out.getvalue()  # A4: BOM כדי ש-Excel יציג עברית נכון
+    return app.response_class(data, mimetype='text/csv; charset=utf-8',  # A4: התשובה
+                              headers={'Content-Disposition': 'attachment; filename="area_fire.csv"'})  # A4: הורדה
 
 
 if __name__ == "__main__":

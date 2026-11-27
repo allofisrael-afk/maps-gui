@@ -13,6 +13,25 @@
 - `fuzz_r5_nan_params.py` — NaN/±Inf בכל פרמטר × 3 סוגי סריקה (261 צירופים, כמה דקות). רץ רק ב-`run_regression.py --full`, ויוצא 1 כל עוד F-032 פתוח.
 - הדוחות שהן כותבות נשמרים ב-`.qa/run5/`.
 
+## חבילות חדשות (27/11/2026)
+- `test_elev_cache.py` (T23): המטמון הקבוע של הגבהים — שורד הפעלה מחדש, קובץ פגום, זיכרון בלבד, נתיב מחוץ לריפו.
+- `test_area_fire.py` (A1–A3): מנוע "מאזור לאזור". הבדיקות: רשתות, קלט שגוי, ביטול, גובה חסר, ספירות, דיוק מול מסלול אמיתי, סינונים, רכס סינתטי, שיגור במדרון, ונראות מכ"ם. כ-3 דקות, ולכן timeout משלו (400 שנ').
+- `test_area_fire_server.py` (A4): נקודות הקצה בשרת דרך Flask test client, כולל חישוב במקביל, CSV מוגן וביטול.
+- `test_area_fire_android.py` (A6): שכבת ה-Python של האנדרואיד, דרך `mpm_api.dispatch_json`.
+- `test_radar_physics_oracle.py` (T10): ערכי ייחוס מוחלטים למשוואת המכ"ם, לריבוד, לדופלר, לגזרה ולקליטת הפרמטרים (כולל NaN/Inf). רצה גם ב-mutation testing (`.qa/run5/mut/run_tests.bat`).
+- `e2e_all_tools.py` (T0/T24, אופציונלית, לא ברגרסיה): כל הכלים מול שרת בדיקה מבודד, במצב טוקן. נעצרת אם פורט 5002 תפוס. פונה ל-Open-Meteo.
+
+## בידוד (T24, T23)
+- `run_regression.py` נותן לכל חבילה מטמון גבהים זמני (`MAPS_GUI_ELEV_CACHE`).
+- כל בדיקה שמזריקה גבהים מזויפים מגדירה גם בעצמה מטמון זמני לפני הייבוא. כך בדיקה לעולם לא כותבת גבהים מזויפים למטמון האמיתי.
+- **למה:** ב-27/11 נמצא שבדיקה כזו כתבה 1,421 ערכים מזויפים למטמון האמיתי. הם נמחקו, עם גיבוי.
+- קובץ העמדות: בדיקות השרת משתמשות בקובץ זמני (`MAPS_GUI_STATIONS_FILE` או `ws._STATIONS_FILE`).
+
+## בדיקות Dart (T25)
+- `maps-gui-android-src/test/logic_test.dart` בודק את מפענח המדריך, את מגבלות קו הראייה ואת בקר "מאזור לאזור".
+- הרצה מתוך `maps-gui-android-src`: `flutter test test/logic_test.dart`.
+- לפני ההרצה צריך להעתיק את `מדריך-הפעלה-Android.md` ל-`maps-gui-android-src/assets/user_guide.md`. העותק לא במעקב (`.gitignore`), כמו ש-`build_apk.ps1` עושה בבנייה.
+
 ## בדיקות-שחזור לממצאים (עברו — שלב א' של Stage 6 תיקן את כל ארבעתן)
 - `test_f011_radar_cancel_return.py` — F-011, `/radar_doppler/cancel` (Web) מחזיר 500. משתמש ב-Flask `test_client()` (WSGI in-process, לא socket/רשת-אמיתית).
 - `test_f012_no_stray_webmap.py` — F-012, `web/map.html` שריד-build tracked בגיט.

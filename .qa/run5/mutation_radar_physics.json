@@ -2,63 +2,9 @@
  "summary": {
   "mutants_total": 82,
   "executed": 82,
-  "killed_or_timeout": 41,
+  "killed_or_timeout": 79,
   "survived": [
    {
-    "line": 53,
-    "fn": "_radar_max_range_m",
-    "mut": "Div->Mult",
-    "status": "survived"
-   },
-   {
-    "line": 55,
-    "fn": "_radar_max_range_m",
-    "mut": "Pow->Mult",
-    "status": "survived"
-   },
-   {
-    "line": 57,
-    "fn": "_radar_max_range_m",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 58,
-    "fn": "_radar_max_range_m",
-    "mut": "Or->And",
-    "status": "survived"
-   },
-   {
-    "line": 51,
-    "fn": "_radar_max_range_m",
-    "mut": "1000.0->1001.0",
-    "status": "survived"
-   },
-   {
-    "line": 52,
-    "fn": "_radar_max_range_m",
-    "mut": "10->11",
-    "status": "survived"
-   },
-   {
-    "line": 53,
-    "fn": "_radar_max_range_m",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 55,
-    "fn": "_radar_max_range_m",
-    "mut": "10->11",
-    "status": "survived"
-   },
-   {
-    "line": 57,
-    "fn": "_radar_max_range_m",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
     "line": 58,
     "fn": "_radar_max_range_m",
     "mut": "LtE->Lt",
@@ -71,188 +17,14 @@
     "status": "survived"
    },
    {
-    "line": 59,
-    "fn": "_radar_max_range_m",
-    "mut": "0.0->1.0",
-    "status": "survived"
-   },
-   {
-    "line": 53,
-    "fn": "_radar_max_range_m",
-    "mut": "1000000.0->1000001.0",
-    "status": "survived"
-   },
-   {
-    "line": 55,
-    "fn": "_radar_max_range_m",
-    "mut": "10.0->11.0",
-    "status": "survived"
-   },
-   {
-    "line": 56,
-    "fn": "_radar_max_range_m",
-    "mut": "Pow->Mult",
-    "status": "survived"
-   },
-   {
-    "line": 57,
-    "fn": "_radar_max_range_m",
-    "mut": "Pow->Mult",
-    "status": "survived"
-   },
-   {
-    "line": 58,
-    "fn": "_radar_max_range_m",
-    "mut": "0->1",
-    "status": "survived"
-   },
-   {
-    "line": 57,
-    "fn": "_radar_max_range_m",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 56,
-    "fn": "_radar_max_range_m",
-    "mut": "2->3",
-    "status": "survived"
-   },
-   {
-    "line": 69,
-    "fn": "_lobing_factor",
-    "mut": "Div->Mult",
-    "status": "survived"
-   },
-   {
-    "line": 70,
-    "fn": "_lobing_factor",
-    "mut": "Add->Sub",
-    "status": "survived"
-   },
-   {
-    "line": 71,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 69,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 70,
-    "fn": "_lobing_factor",
-    "mut": "1->2",
-    "status": "survived"
-   },
-   {
-    "line": 70,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 69,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 72,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 69,
-    "fn": "_lobing_factor",
-    "mut": "Mult->Div",
-    "status": "survived"
-   },
-   {
-    "line": 69,
-    "fn": "_lobing_factor",
-    "mut": "4->5",
-    "status": "survived"
-   },
-   {
-    "line": 80,
-    "fn": "_doppler_detectable",
-    "mut": "Lt->LtE",
-    "status": "survived"
-   },
-   {
-    "line": 83,
-    "fn": "_doppler_detectable",
-    "mut": "LtE->Lt",
-    "status": "survived"
-   },
-   {
-    "line": 83,
-    "fn": "_doppler_detectable",
-    "mut": "0->1",
-    "status": "survived"
-   },
-   {
-    "line": 94,
-    "fn": "_max_unambiguous_range_m",
-    "mut": "299792458.0->299792459.0",
-    "status": "survived"
-   },
-   {
-    "line": 99,
-    "fn": "_angular_diff_deg",
-    "mut": "360->361",
-    "status": "survived"
-   },
-   {
-    "line": 99,
-    "fn": "_angular_diff_deg",
-    "mut": "Sub->Add",
-    "status": "survived"
-   },
-   {
-    "line": 100,
-    "fn": "_angular_diff_deg",
-    "mut": "360->361",
-    "status": "survived"
-   },
-   {
-    "line": 109,
-    "fn": "_scan_loss_factor",
-    "mut": "Gt->GtE",
-    "status": "survived"
-   },
-   {
-    "line": 110,
-    "fn": "_scan_loss_factor",
-    "mut": "0.0->1.0",
-    "status": "survived"
-   },
-   {
-    "line": 143,
-    "fn": "_parse_radar_common_params",
-    "mut": "360->361",
-    "status": "survived"
-   },
-   {
-    "line": 153,
-    "fn": "_parse_radar_common_params",
-    "mut": "360->361",
-    "status": "survived"
-   },
-   {
-    "line": 126,
+    "line": 127,
     "fn": "_parse_radar_common_params",
     "mut": "0.0->1.0",
     "status": "survived"
    }
   ],
-  "score": 50.0,
-  "elapsed_s": 224
+  "score": 96.3,
+  "elapsed_s": 155
  },
  "all": [
   {
@@ -271,7 +43,7 @@
    "line": 53,
    "fn": "_radar_max_range_m",
    "mut": "Div->Mult",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 54,
@@ -283,7 +55,7 @@
    "line": 55,
    "fn": "_radar_max_range_m",
    "mut": "Pow->Mult",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 56,
@@ -295,13 +67,13 @@
    "line": 57,
    "fn": "_radar_max_range_m",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 58,
    "fn": "_radar_max_range_m",
    "mut": "Or->And",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 60,
@@ -313,13 +85,13 @@
    "line": 51,
    "fn": "_radar_max_range_m",
    "mut": "1000.0->1001.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 52,
    "fn": "_radar_max_range_m",
    "mut": "10->11",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 52,
@@ -337,7 +109,7 @@
    "line": 53,
    "fn": "_radar_max_range_m",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 54,
@@ -355,7 +127,7 @@
    "line": 55,
    "fn": "_radar_max_range_m",
    "mut": "10->11",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 55,
@@ -373,7 +145,7 @@
    "line": 57,
    "fn": "_radar_max_range_m",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 58,
@@ -391,7 +163,7 @@
    "line": 59,
    "fn": "_radar_max_range_m",
    "mut": "0.0->1.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 60,
@@ -415,7 +187,7 @@
    "line": 53,
    "fn": "_radar_max_range_m",
    "mut": "1000000.0->1000001.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 54,
@@ -433,7 +205,7 @@
    "line": 55,
    "fn": "_radar_max_range_m",
    "mut": "10.0->11.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 56,
@@ -445,19 +217,19 @@
    "line": 56,
    "fn": "_radar_max_range_m",
    "mut": "Pow->Mult",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 57,
    "fn": "_radar_max_range_m",
    "mut": "Pow->Mult",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 58,
    "fn": "_radar_max_range_m",
    "mut": "0->1",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 58,
@@ -487,7 +259,7 @@
    "line": 57,
    "fn": "_radar_max_range_m",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 57,
@@ -499,7 +271,7 @@
    "line": 56,
    "fn": "_radar_max_range_m",
    "mut": "2->3",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 57,
@@ -511,37 +283,37 @@
    "line": 69,
    "fn": "_lobing_factor",
    "mut": "Div->Mult",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 70,
    "fn": "_lobing_factor",
    "mut": "Add->Sub",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 71,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 69,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 70,
    "fn": "_lobing_factor",
    "mut": "1->2",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 70,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 72,
@@ -553,7 +325,7 @@
    "line": 69,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 72,
@@ -565,25 +337,25 @@
    "line": 72,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 69,
    "fn": "_lobing_factor",
    "mut": "Mult->Div",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 69,
    "fn": "_lobing_factor",
    "mut": "4->5",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 80,
    "fn": "_doppler_detectable",
    "mut": "Lt->LtE",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 82,
@@ -595,7 +367,7 @@
    "line": 83,
    "fn": "_doppler_detectable",
    "mut": "LtE->Lt",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 86,
@@ -619,7 +391,7 @@
    "line": 83,
    "fn": "_doppler_detectable",
    "mut": "0->1",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 85,
@@ -667,7 +439,7 @@
    "line": 94,
    "fn": "_max_unambiguous_range_m",
    "mut": "299792458.0->299792459.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 94,
@@ -685,7 +457,7 @@
    "line": 99,
    "fn": "_angular_diff_deg",
    "mut": "360->361",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 100,
@@ -697,52 +469,52 @@
    "line": 99,
    "fn": "_angular_diff_deg",
    "mut": "Sub->Add",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 100,
    "fn": "_angular_diff_deg",
    "mut": "360->361",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 109,
    "fn": "_scan_loss_factor",
    "mut": "Gt->GtE",
-   "status": "survived"
+   "status": "killed"
   },
   {
    "line": 110,
    "fn": "_scan_loss_factor",
    "mut": "0.0->1.0",
-   "status": "survived"
+   "status": "killed"
   },
   {
-   "line": 145,
+   "line": 146,
    "fn": "_parse_radar_common_params",
    "mut": "Eq->NotEq",
    "status": "killed"
   },
   {
-   "line": 143,
+   "line": 144,
    "fn": "_parse_radar_common_params",
    "mut": "360->361",
-   "status": "survived"
+   "status": "killed"
   },
   {
-   "line": 153,
+   "line": 154,
    "fn": "_parse_radar_common_params",
    "mut": "360->361",
-   "status": "survived"
+   "status": "killed"
   },
   {
-   "line": 126,
+   "line": 127,
    "fn": "_parse_radar_common_params",
    "mut": "0.0->1.0",
    "status": "survived"
   },
   {
-   "line": 127,
+   "line": 128,
    "fn": "_parse_radar_common_params",
    "mut": "0.0->1.0",
    "status": "killed"

@@ -34,6 +34,8 @@ def simulate(launch, elev_deg, az_deg, rocket, atmo, impact_alt=None, geo_direct
     מעל פני הים (ברירת מחדל: גובה המשגר). geo_direct(lat, lon, az, dist) -> (lat, lon) — מוזרק (Vincenty של ה-MPM).
     מחזיר {'ok', 'message', 'path':[{t,lat,lon,alt_msl,v,mach}], 'burnout', 'apex', 'impact'}.
     """
+    if geo_direct is None:  # T15 (F-046): ברירת מחדל אמיתית במקום TypeError כשלא הועבר
+        from mpm.geodesy import direct as geo_direct  # Vincenty של ה-MPM — אותה פונקציה שכל הקוראים מעבירים
     m0 = float(rocket["mass_kg"])  # מסה התחלתית
     prop = float(rocket["prop_kg"])  # מסת הדלק
     burn = float(rocket["burn_s"])  # זמן בעירה

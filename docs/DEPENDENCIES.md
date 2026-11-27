@@ -8,6 +8,16 @@ Licenses below were verified from primary sources: package metadata and LICENSE 
 cache), the Flutter NOTICES bundle, Maven POMs, and vendor pages. Items marked UNVERIFIED could not be confirmed.
 Full notices: THIRD_PARTY_NOTICES.md.
 
+## Pre-build license gate (2026-11-27, T28 / F-060)
+`build_apk.ps1` now refuses to build when a package in `maps-gui-android-src/pubspec.lock` is not named in this file or in
+THIRD_PARTY_NOTICES.md. Exempt, because they never ship in the APK or are licensed with the Flutter SDK itself:
+`flutter`, `sky_engine`, `flutter_web_plugins` (Flutter SDK, BSD-3-Clause) and the dev/test tooling `flutter_test`,
+`flutter_lints`, `lints`, `boolean_selector`, `fake_async`, `leak_tracker`, `leak_tracker_flutter_testing`,
+`leak_tracker_testing`, `matcher`, `stack_trace`, `stream_channel`, `test_api`, `vm_service`.
+Status on 2026-11-27: 69 packages, all registered or exempt. No new dependency was added on 2026-11-27: the
+area-to-area tool (`area_fire.py`) and the persistent elevation cache (`elev_cache.py`, Python stdlib `sqlite3`) use
+only the standard library and existing services (Open-Meteo, already attributed).
+
 ## Owner decisions (2026-11-14)
 
 | ID | Topic | Decision | Effect |

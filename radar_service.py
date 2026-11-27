@@ -62,9 +62,10 @@ def _clamp_getter(body):
     """מחזיר פונקציה שקוראת מספר מהגוף וצומדת לטווח; ערך לא מספרי -> ברירת המחדל (אותו דפוס כמו _parse_radar_common_params)."""
     def _f(name, default, lo, hi):  # מספר צמוד לטווח
         try:  # ערך לא מספרי -> ברירת מחדל
-            return min(max(float(body.get(name, default)), lo), hi)  # צמידה
+            v = float(body.get(name, default))  # המרה
         except (TypeError, ValueError):  # לא מספר
             return default  # ברירת מחדל
+        return min(max(v, lo), hi) if math.isfinite(v) else default  # T7 (F-032): NaN/Inf → ברירת מחדל (NaN עובר את min/max בשקט)
     return _f  # הפונקציה
 
 
@@ -173,12 +174,18 @@ def prepare_trajectory(trajectory, alt_ref, fetch_cells):
 
 # ═══════════════════════════ הצינורות ═══════════════════════════
 
+def check_latlon(lat, lon, what='המכ"ם'):  # T13 (F-044): מיקום תקין (סופי ובטווח), אחרת ValueError עם הסבר
+    if not (math.isfinite(lat) and math.isfinite(lon) and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):  # מחוץ לטווח
+        raise ValueError(f'מיקום {what} לא תקין (קו רוחב בין ‎-90 ל-90, קו אורך בין ‎-180 ל-180)')  # הסבר
+
+
 def run_check(radar_lat, radar_lon, p, trajectory, track_cfg, alt_ref, fetch_cells):
     """בדיקה מלאה (שלבים א1-א5): גובה המכ"ם -> מסלול -> דגימות שטח -> הערכה -> מעקב. מחזיר את התוצאה לממשק.
     terrain.cached נשאר None — הקורא ממלא אותו (רק הוא יודע מה הגיע מהמטמון)."""
+    check_latlon(radar_lat, radar_lon)  # T13 (F-044): מיקום המכ"ם בטווח לפני כל שליפה
     ground = fetch_cells([(round(radar_lat, 6), round(radar_lon, 6))])[0]  # גובה הקרקע בנקודת המכ"ם המדויקת
     if ground is None:  # לא הצליח
-        raise ValueError('לא ניתן לשלוף את גובה המכ"ם')  # שגיאה ברורה
+        raise ValueError('לא ניתן לשלוף את גובה המכ"ם — ייתכן שאין חיבור לאינטרנט או לשירות הגבהים (Open-Meteo)')  # T16 (F-048): ההודעה אומרת שהבעיה כנראה ברשת
     radar = {'lat': radar_lat, 'lon': radar_lon, 'h_msl': ground + p['h_antenna']}  # המכ"ם: קרקע + אנטנה
     traj = prepare_trajectory(trajectory, alt_ref, fetch_cells)  # המסלול
     plan = rt.plan_terrain_samples(radar, traj, p['range_km'] * 1000.0)  # תכנון דגימות השטח
@@ -214,6 +221,8 @@ def run_check(radar_lat, radar_lon, p, trajectory, track_cfg, alt_ref, fetch_cel
 def ray_profile(radar_lat, radar_lon, p, point, fetch_cells):
     """פרופיל שטח בין המכ"ם לנקודה (שלב א3): עד 99 דגימות + המכ"ם, האם הקו פנוי, והיכן נחסם לראשונה."""
     plat, plon, palt = float(point['lat']), float(point['lon']), float(point['alt'])  # הנקודה
+    check_latlon(radar_lat, radar_lon)  # T13 (F-044): המכ"ם בטווח
+    check_latlon(plat, plon, 'הנקודה')  # T13: הנקודה בטווח
     d_total = rt.haversine_m(radar_lat, radar_lon, plat, plon)  # מרחק קרקעי
     brg = rt.bearing_deg(radar_lat, radar_lon, plat, plon)  # כיוון
     n = max(2, min(99, int(d_total / 100.0)))  # מספר הדגימות
@@ -242,6 +251,7 @@ def run_placement(center_lat, center_lon, radius_m, step_m, metric, p, trajector
                   note=lambda text: None, cancelled=lambda: False):
     """הצעת מיקום (שלב ב'): מועמדים -> מסלול -> רשת גבהים אחת לאזור -> בדיקה מלאה לכל מועמד ממנה.
     note(text) — הודעת התקדמות; cancelled() — האם לעצור (נזרק Aborted). dem.cached נשאר None — הקורא ממלא."""
+    check_latlon(center_lat, center_lon, 'מרכז החיפוש')  # T13 (F-044): המרכז בטווח
     cands = rpl.candidate_grid(center_lat, center_lon, radius_m, step_m)  # המועמדים
     traj = prepare_trajectory(trajectory, alt_ref, fetch_cells)  # המסלול
     dem = rpl.DemGrid(*rpl.region_bbox(cands, traj, p['range_km'] * 1000.0))  # רשת הגבהים לאזור
@@ -262,3 +272,58 @@ def run_placement(center_lat, center_lon, radius_m, step_m, metric, p, trajector
             'metric': metric, 'track_mode': track_cfg[0], 'candidates': out, 'best': rpl.best_candidates(out, 5),
             'dem': {'nodes': len(vals), 'res_m': round(dem.res_m), 'cached': None,
                     'missing': sum(1 for v in vals if v is None)}}  # התוצאה
+
+
+# ═══════════════════════════ T30: השוואת כמה מכ"מים מוצבים על אותו מסלול ═══════════════════════════
+
+def site_params(site, library, my_profiles):
+    """T30: הפרמטרים המלאים של מכ"ם מוצב — פרמטרי הסוג (ספרייה מובנית 'lib:file' או פרופיל שלי 'my:name') ועליהם פרמטרי
+    ההצבה של האתר (מיקום, גובה אנטנה, גזרה, טווח...). אותו מיזוג כמו _rsActivate בממשק."""
+    sp = dict(site.get('params') or {})  # פרמטרי ההצבה
+    key = str(sp.get('type_key') or '')  # הסוג
+    base = {}  # פרמטרי הסוג
+    if key.startswith('lib:'):  # ספרייה מובנית
+        for prof in library or []:  # חיפוש לפי שם הקובץ
+            if prof.get('file') == key[4:]:  # נמצא
+                base = dict(prof.get('params') or {})  # הפרמטרים
+                break  # יציאה
+    elif key.startswith('my:'):  # פרופיל שלי
+        base = dict((my_profiles or {}).get(key[3:]) or {})  # הפרמטרים
+    merged = dict(base)  # הסוג
+    merged.update({k: v for k, v in sp.items() if k not in ('type_key', 'type_name')})  # ועליו ההצבה
+    return merged  # המלא
+
+
+def compare_sites(sites, library, my_profiles, trajectory, alt_ref, fetch_cells, progress=lambda i, n, name: None, cancelled=lambda: False):
+    """T30: בדיקת מעקב אחת לכל מכ"ם מוצב על אותו מסלול, וטבלת השוואה: מי רואה את הפגז, מתי לראשונה, כמה מהזמן, והאם נכנס למעקב.
+    מכ"ם בלי מיקום תקין מדולג עם סיבה; כשל באחד לא עוצר את השאר."""
+    rows = []  # השורות
+    n = len(sites or [])  # כמה מכ"מים
+    for i, site in enumerate(sites or []):  # כל מכ"ם
+        if cancelled():  # ביטול
+            raise Aborted()  # עצירה
+        name = str(site.get('name') or f'מכ"ם {i + 1}')[:80]  # השם
+        progress(i, n, name)  # התקדמות
+        merged = site_params(site, library, my_profiles)  # הפרמטרים המלאים
+        row = {'name': name, 'type': str((site.get('params') or {}).get('type_name') or '')}  # השורה
+        try:
+            lat, lon = float(merged.get('lat')), float(merged.get('lon'))  # המיקום
+            check_latlon(lat, lon)  # בטווח
+            p, track_cfg, _ = parse_all(merged)  # פרמטרי המכ"ם, הסריקה והמעקב
+            res = run_check(lat, lon, p, trajectory, track_cfg, alt_ref, fetch_cells)  # הבדיקה המלאה
+            s, tr = res['summary'], res.get('track') or {}  # סיכום ומעקב
+            fd = s.get('first_detection') or {}  # גילוי ראשון
+            d_min = min((q.get('dist_km', 1e9) for q in res.get('points', []) if isinstance(q, dict)), default=None)  # המרחק הקרוב ביותר
+            row.update({'ok': True, 'detected': bool(s.get('detected_any')), 'coverage_pct': s.get('coverage_pct'),  # גילוי
+                        'first_detection_t': fd.get('t'), 'first_detection_km': fd.get('dist_km'),  # מתי ובאיזה מרחק
+                        'tracked': bool(tr.get('track_initiated')), 'first_track_t': tr.get('first_track_t'),  # מעקב
+                        'warning_time_s': tr.get('warning_time_s'), 'range_km': p.get('range_km'), 'min_dist_km': d_min})  # זמן התרעה, טווח, מרחק
+        except Aborted:  # ביטול/מכסה — עוצרים את כל ההשוואה
+            raise  # הלאה
+        except (ValueError, KeyError, TypeError) as e:  # בעיה במכ"ם הזה — ממשיכים לבאים
+            row.update({'ok': False, 'error': str(e)})  # הסיבה
+        rows.append(row)  # נוסף
+    seen = [r for r in rows if r.get('ok') and r.get('detected')]  # מי רואה
+    best = min(seen, key=lambda r: r.get('first_detection_t') if r.get('first_detection_t') is not None else 1e9) if seen else None  # הראשון שרואה
+    return {'rows': rows, 'summary': {'radars': n, 'seeing': len(seen), 'first': best['name'] if best else None,  # סיכום
+                                      'first_t': best.get('first_detection_t') if best else None}}  # מתי

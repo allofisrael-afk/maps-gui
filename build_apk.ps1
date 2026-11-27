@@ -202,6 +202,20 @@ New-Item -ItemType Directory -Force "$PROJECT_DIR\assets" | Out-Null  # assets f
 Copy-Item -LiteralPath $guideFiles[0].FullName "$PROJECT_DIR\assets\user_guide.md" -Force  # path declared in pubspec.yaml
 Ok "Source files copied"
 
+# T28 (F-060): license gate before every APK build (CLAUDE.md: re-run the license audit before any APK build).
+# Every package in pubspec.lock must be named in docs/DEPENDENCIES.md or THIRD_PARTY_NOTICES.md. Exempt: dev/test tooling
+# that never ships in the APK, and Flutter SDK parts whose licenses Flutter collects itself. A new unregistered package stops the build.
+$lockText = (Get-Content -LiteralPath "$PROJECT_SRC\pubspec.lock" -Raw) -replace "`r`n", "`n"  # pubspec.lock, LF-normalized
+$licenseDocs = (Get-Content -LiteralPath "$PSScriptRoot\docs\DEPENDENCIES.md" -Raw -Encoding UTF8) + (Get-Content -LiteralPath "$PSScriptRoot\THIRD_PARTY_NOTICES.md" -Raw -Encoding UTF8)  # the two registries
+$licenseExempt = @('flutter', 'sky_engine', 'flutter_web_plugins',  # Flutter SDK (BSD-3-Clause, collected by Flutter itself)
+                   'flutter_test', 'flutter_lints', 'lints', 'boolean_selector', 'fake_async', 'leak_tracker', 'leak_tracker_flutter_testing',
+                   'leak_tracker_testing', 'matcher', 'stack_trace', 'stream_channel', 'test_api', 'vm_service')  # dev/test tooling only, not in the APK
+$lockPkgs = [regex]::Matches($lockText, '(?m)^  ([a-z0-9_]+):\n    dependency:') | ForEach-Object { $_.Groups[1].Value }  # package names
+$unregistered = @($lockPkgs | Where-Object { ($licenseExempt -notcontains $_) -and ($licenseDocs -notmatch "(?<![\w-])$([regex]::Escape($_))(?![\w-])") })  # not named anywhere
+if ($lockPkgs.Count -lt 5) { Err "License gate: could not read packages from pubspec.lock" }  # parsing sanity check
+if ($unregistered.Count -gt 0) { Err "License gate: packages not registered in docs/DEPENDENCIES.md or THIRD_PARTY_NOTICES.md: $($unregistered -join ', '). Verify each license from a primary source and register it before building." }  # stop
+Ok "License gate: all $($lockPkgs.Count) pubspec.lock packages are registered or exempt"  # passed
+
 # --- Step 7b: תיקיית-גישור ל-Chaquopy (FR-D-237) ---
 # Chaquopy סורק תיקייה שלמה לקבצי .py — אם נפנה אותו לשורש הפרויקט (D:\PY-IS\maps-gui) הוא
 # ייכנס גם ל-.venv\ (עשרות-אלפי קבצים, מאות MB), מה שיהפוך את ה-build לאיטי-מאוד/כושל.
@@ -224,7 +238,7 @@ if (-not (Test-Path "$ANDROID_PY_DIR\radar-profiles")) {  # פעם אחת — ju
 # נותק בשקט (עורך ששומר קובץ חדש במקום לעדכן את הקיים) — ה-APK קיבל עותק מ-9/11. העתקה טרייה = תמיד הגרסה הנוכחית.
 # הקבצים: גשר ה-MPM + כלי בדיקת מעקב המכ"ם (שלב ג', MAPS-GUI_SRS.md FR-D-282) — כולם stdlib בלבד.
 foreach ($pyFile in @('mpm_api.py', 'radar_android.py', 'radar_service.py', 'radar_physics.py', 'radar_track.py',
-                      'radar_placement.py', 'rocket_model.py')) {  # כל קובץ שהאפליקציה מייבאת
+                      'radar_placement.py', 'rocket_model.py', 'elev_cache.py', 'area_fire.py')) {  # כל קובץ שהאפליקציה מייבאת (elev_cache.py: T23, מטמון גבהים קבוע; area_fire.py: A6, ירי מאזור לאזור)
     if (-not (Test-Path "$PSScriptRoot\$pyFile")) { Err "Missing Python source for Android: $pyFile" }  # קובץ חסר = עצירה
     Remove-Item "$ANDROID_PY_DIR\$pyFile" -Force -ErrorAction SilentlyContinue  # מסיר hardlink/עותק ישן (גם אם נותק)
     Copy-Item "$PSScriptRoot\$pyFile" "$ANDROID_PY_DIR\$pyFile" -Force  # עותק טרי

@@ -11,6 +11,7 @@ import sys  # sys.path וקוד יציאה
 import time  # המתנה
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # שורש הפרויקט
+os.environ.setdefault("MAPS_GUI_ELEV_CACHE", os.path.join(__import__("tempfile").mkdtemp(prefix="elevcache_test_"), "c.sqlite"))  # T23: הבדיקה מזריקה גבהים מזויפים — מטמון זמני, לעולם לא המטמון האמיתי של המשתמש
 
 import mpm_api  # נקודת הכניסה של ה-Kotlin
 import radar_android as ra  # המתאם
@@ -82,7 +83,7 @@ rk = wait(call("rocket_start", {"gun": {"lat": R_LAT, "lon": R_LON, "alt_m": 100
 check("רקטה: הסתיימה עם מסלול ופגיעה", rk["status"] == "done" and rk["result"]["ok"] and rk["result"]["impact"]["range_m"] > 1000,
       rk.get("error") or str(rk["result"].get("impact")))
 ra._http_elevations = lambda cells: (time.sleep(0.3), [100.0 for _ in cells])[1]  # שליפה איטית — כדי שיהיה זמן לבטל
-ra._CACHE.clear()  # בלי מטמון
+ra._STORE = ra.elev_cache.ElevCache(":memory:")  # T23: מטמון ריק בזיכרון — כדי שהשליפה האיטית באמת תרוץ ויהיה זמן לבטל
 cj = call("radar_check_start", BASE)["job_id"]  # התחלה
 call("radar_job_cancel", {"job_id": cj})  # ביטול מיד
 check("ביטול: העבודה נעצרת עם status=cancelled", wait(cj)["status"] == "cancelled")

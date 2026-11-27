@@ -34,7 +34,7 @@ d:\PY-IS\maps-gui\
 
 *תשתית משותפת:*
 - `ports.py` — קבועי `GEO_PORT`/`WEATHER_PORT`/`FLIGHT_PORT` (מקור אמת יחיד, נצרך ע"י `main.py`, שלושת השרתים, `test_requests.py`, `security_checks.py`)
-- `server_common.py` — `create_app(name)` — Flask app אחיד (.env/logging/CORS/`/metrics`) לשלושת השרתים
+- `server_common.py` — `create_app(name)` — Flask app אחיד (.env/logging/CORS/`/metrics`) לשלושת השרתים. **מ-27/11/2026:** CORS רק ל-`file://`/`null`, תקרת גוף 8MB, ו-`before_request` שדורש טוקן הפעלה (`app_token.py`, כותרת `X-App-Token`) כש-`MAPS_GUI_APP_TOKEN` מוגדר. `main.py` יוצר את הטוקן ומזריק אותו למפה ב-`QWebEngineScript`
 - `metrics.py` — `register_metrics(app)`, נצרך ע"י `server_common.py`
 - `security_types.py` — `SecurityFinding` (dataclass) בלבד — קיים כדי ש-`security_checks.py` ו-`cis_checks.py` לא ייבאו זה מזה במעגל
 
@@ -125,6 +125,10 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 13. **עדכן תמיד את `MAPS-GUI_README.md` ו-`MAPS-GUI_SRS.md`** — על כל שינוי בקוד (פיצ'ר/באג/ריפקטור/קובץ שנוסף-נמחק), לפני שהשינוי נחשב "הושלם" — לא רק כשמתבקש במפורש
 14. **עברית בלבד גם בתקשורת שלך איתי** — לא רק ב-UI של האפליקציה (כלל #2), גם בכל עדכון-סטטוס/דוח/הודעה שאתה כותב לי
 15. **כשנדרשת ממני החלטה: הסבר קודם את המונחים הרלוונטיים ואת ההשלכות של כל אפשרות על התוצאה, ורק אחר כך שאל** — אל תניח הנחות בהחלטות ארכיטקטורה, תלויות חדשות, או שינויים בכלים קיימים
+16. **בדיקות לא נוגעות בנתוני המשתמש:** שרת בדיקה מקבל `MAPS_GUI_STATIONS_FILE` (קובץ עמדות זמני) ו-`MAPS_GUI_ELEV_CACHE` (מטמון גבהים זמני); דפדפן בדיקה — `QWebEngineProfile()` בלי שם (off-the-record). `tests/run_regression.py` כבר עושה זאת לכל חבילה. כל בדיקה שמזייפת גבהים חייבת מטמון זמני (ב-27/11 בדיקה כתבה 1,421 גבהים מזויפים למטמון האמיתי — נמחקו)
+17. **עדכוני וואטסאפ (wa-status):** כל 5 דקות דרך `check-interval`, `done` בסוף שלב, `blocked` כשממתינים להחלטה. בלי סודות/נתיבים
+18. **לפני כל APK:** `build_apk.ps1` מריץ שער רישיונות (כל חבילה ב-pubspec.lock רשומה ב-DEPENDENCIES/THIRD_PARTY_NOTICES). חבילה חדשה — לבדוק רישיון ממקור ראשוני ולרשום לפני בנייה
+19. **מלכודת כלי:** בפקודות Bash (heredoc/python -c) הרצף `\b` עלול להפוך לתו backspace בקובץ. לכתיבת regex עם `\b` או escape-ים — להשתמש בכלי Edit/Write, או ב-`chr(92)`
 
 ### ⚡ אילוצים טכניים ידועים
 - FlightRadar24 חוסם Cloudflare — לכן יש 3 שלבי fallback (Android) / אימות מדורג עם FR24_TOKEN קודם (Desktop)
@@ -135,6 +139,17 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 - אם `pip install` נכשל עם שגיאת רגיסטרי על `Common AppData` — זו בעיה ידועה בסביבה הזו (Windows חסר ערך רגיסטרי סטנדרטי), כבר תוקנה פעם אחת ב-HKCU
 
 ---
+
+### 📍 מצב נוכחי (27/11/2026) — הסעיף העדכני; הסעיפים ההיסטוריים למטה נשמרים לרקע
+- **גרסה:** Desktop + Android 1.0.5 (APK נבנה 27/11). **הבא: 1.0.6** — כל הקוד מוכן; **בנייה רק באישור מפורש** (אבן דרך M4 בתוכנית ה-QA).
+- **תוכנית QA (`.qa/fix-plan.md`, `.qa/findings.xlsx`):** M1, M2, M3 הושלמו (FR-D-292, 295, 296). נשאר M4 (APK). T27 בוטל (תיקיית הבנייה נשארת ב-git לפי החלטה).
+- **החלטות פעילות:** מכ"ם פעיל **לא** נשמר בין הפעלות (תמיד מתחילים ידני); בעורך "➕ חדש" הסוג ריק; commit + push ל-origin בסוף כל אבן דרך.
+- **כלים חדשים (27/11):**
+  - **ירי מאזור לאזור** (`area_fire.py`, משותף; Desktop ב-MAP.py, Android ב-`area_fire_controller.dart`/`area_fire_panel.dart`) — טבלת ירי + אינטרפולציה + אימות מדגמי (החטאה ≤1 מ' נמוך, ≤5 מ' גבוה), רכס, נראות מכ"ם ירוק/אדום מול כל המכ"מים המוצבים. תוכנית: `docs/PLAN_BALLISTICS_AREA_FIRE.md`. FR-D-294.
+  - **מטמון גבהים קבוע** (`elev_cache.py`, SQLite ב-`%LOCALAPPDATA%\maps-gui\`) — FR-D-293.
+  - **השוואת כל המכ"מים המוצבים** על מסלול (`/radar_track/compare`) ואזהרת מרחק לפני בדיקת מעקב — FR-D-296.
+- **בדיקות:** `tests/run_regression.py` (+`--full` ל-fuzz), `tests/e2e_all_tools.py` (אופציונלי, מבודד, מצב טוקן), `maps-gui-android-src/test/logic_test.dart` (`flutter test`, דורש עותק המדריך ב-`assets/`).
+- **Open-Meteo:** המכסה היומית נוצלה פעמיים ב-27/11 בזמן בדיקות — לבדוק עם שטח סינתטי (`_fetch_elevations` מוחלף) כשאפשר.
 
 ### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:

@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
     private val FILES_CHANNEL = "com.mapsapp.maps_gui_android/files"  // חייב להיות זהה ל-file_bridge.dart
     private val REQ_SAVE = 7101  // קוד בקשה לשמירה
     private val REQ_OPEN = 7102  // קוד בקשה לפתיחה
+    private val MAX_OPEN_BYTES = 20L * 1024 * 1024  // T17 (F-049): תקרת קובץ לפתיחה — 20MB (מסלול CSV/ייבוא JSON גדולים הרבה פחות)
     private var pendingResult: MethodChannel.Result? = null  // התשובה שממתינה לחלון הקבצים
     private var pendingText: String? = null  // הטקסט שממתין לשמירה
 
@@ -43,8 +44,20 @@ class MainActivity : FlutterActivity() {
                 pendingText = null
                 res.success(true)  // נשמר
             } else if (requestCode == REQ_OPEN) {  // פתיחה
-                val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }  // קריאה
-                res.success(text)  // התוכן
+                val bytes = contentResolver.openInputStream(uri)?.use { input ->  // T17 (F-049): קריאה בחלקים עם תקרה — קובץ ענק לא ימלא את הזיכרון
+                    val out = java.io.ByteArrayOutputStream()  // באפר
+                    val chunk = ByteArray(64 * 1024)  // 64KB בכל פעם
+                    var total = 0L  // כמה נקראו
+                    while (true) {  // עד הסוף
+                        val n = input.read(chunk)  // חלק
+                        if (n < 0) break  // סוף הקובץ
+                        total += n  // צבירה
+                        if (total > MAX_OPEN_BYTES) throw java.io.IOException("הקובץ גדול מדי (עד ${MAX_OPEN_BYTES / (1024 * 1024)}MB)")  // T17: תקרה
+                        out.write(chunk, 0, n)  // הוספה
+                    }
+                    out.toByteArray()  // התוכן
+                }
+                res.success(bytes?.toString(Charsets.UTF_8))  // התוכן
             } else {
                 res.success(null)
             }

@@ -280,7 +280,9 @@ class RadarTrackController extends ChangeNotifier {
         if (s == 'running') { // עדיין רץ
           final note = st['note']; // הודעה
           final tot = st['batches_total']; // שליפות
-          onProgress(note != null ? '$note' : (tot != null ? 'שולף גבהי שטח… ${st['batches_done']}/$tot' : 'מחשב…'));
+          final eta = st['eta_s']; // T23 (F-055): הערכת זמן שנותר מהשרת (שניות)
+          final etaTxt = (eta is num && eta > 0) ? (eta < 90 ? ' · נותרו כ-${eta.round()} שנ\'' : ' · נותרו כ-${(eta / 60).round()} דק\'') : ''; // T23: עד דקה וחצי בשניות
+          onProgress(note != null ? '$note' : (tot != null ? 'שולף גבהי שטח… ${st['batches_done']}/$tot$etaTxt' : 'מחשב…')); // T23: + הערכת זמן
           return;
         }
         t.cancel(); // הסתיים
@@ -487,7 +489,16 @@ class RadarTrackController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance(); // אחסון מקומי
     final raw = prefs.getString(_prefsKey); // ה-JSON
     if (raw == null) return {}; // ריק
-    try { return (jsonDecode(raw) as Map).cast<String, dynamic>(); } catch (_) { return {}; } // פגום = ריק
+    try {
+      final d = (jsonDecode(raw) as Map).cast<String, dynamic>(); // פענוח
+      if (d['v'] is num && d['profiles'] is Map) return (d['profiles'] as Map).cast<String, dynamic>(); // T17 (F-049): מבנה עם גרסה {'v':1,'profiles':{…}}
+      return d; // T17: מבנה ישן (מפה שטוחה שם→פרופיל) — נקרא כמו שהוא, ויישמר במבנה החדש בשמירה הבאה (מיגרציה)
+    } catch (_) { return {}; } // פגום = ריק
+  }
+
+  Future<void> _saveStore(Map<String, dynamic> store) async { // T17 (F-049): שמירה עם גרסת פורמט — מאפשר מיגרציה עתידית
+    final prefs = await SharedPreferences.getInstance(); // אחסון
+    await prefs.setString(_prefsKey, jsonEncode({'v': 1, 'profiles': store})); // המבנה החדש
   }
 
   Future<List<String>> profileNames() async => (await _loadStore()).keys.toList()..sort(); // השמות
@@ -495,8 +506,7 @@ class RadarTrackController extends ChangeNotifier {
   Future<void> saveProfile(String name) async {
     final store = await _loadStore(); // הקיים
     store[name] = currentProfile(); // הוספה/דריסה
-    final prefs = await SharedPreferences.getInstance(); // אחסון
-    await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await _saveStore(store); // T17 (F-049): שמירה במבנה עם גרסת פורמט
     await refreshMyProfiles(); // FR-D-286: בורר הפרופיל הפעיל מתעדכן
   }
 
@@ -508,8 +518,7 @@ class RadarTrackController extends ChangeNotifier {
   Future<void> deleteProfile(String name) async {
     final store = await _loadStore(); // הקיים
     store.remove(name); // מחיקה
-    final prefs = await SharedPreferences.getInstance(); // אחסון
-    await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await _saveStore(store); // T17 (F-049): שמירה במבנה עם גרסת פורמט
     await refreshMyProfiles(); // FR-D-286: בורר הפרופיל הפעיל מתעדכן (ואם הפעיל נמחק — חוזרים ל"ידני")
   }
 
@@ -569,7 +578,7 @@ class RadarTrackController extends ChangeNotifier {
   }
 
   Future<void> _loadSites() async {
-    // טוען את המכ"מים המוצבים, את הניתוק ואת המכ"ם הפעיל מההפעלה הקודמת (ברירת מחדל: ידני)
+    // טוען את המכ"מים המוצבים ואת הניתוק מההפעלה הקודמת. T22: המכ"ם הפעיל לא משוחזר — תמיד מתחילים ידני
     final prefs = await SharedPreferences.getInstance(); // אחסון
     final raw = prefs.getString(_sitesPrefsKey); // ה-JSON
     if (raw == null) return; // אין עדיין
@@ -578,8 +587,7 @@ class RadarTrackController extends ChangeNotifier {
       sites = ((d['sites'] as List?) ?? const []).whereType<Map>().map(_normSite).toList(); // הרשימה
       final det = d['detached'] as Map?; // ניתוק
       if (det != null) detached = {'los': det['los'] == true, 'radial': det['radial'] == true};
-      final a = '${d['active'] ?? ''}'; // הפעיל
-      if (a.isNotEmpty && sites.any((s) => s['name'] == a)) { await activateSite(a); } else { notifyListeners(); } // שחזור
+      notifyListeners(); // T22 (F-054, החלטה Q-R5-6 א'): לא משחזרים את המכ"ם הפעיל — כל הפעלה מתחילה ב"ללא מכ"ם (ידני)"
     } catch (_) {
       // קובץ פגום — מתחילים ריק, בלי לדרוס עד השמירה הבאה
     }
@@ -590,7 +598,7 @@ class RadarTrackController extends ChangeNotifier {
   Future<void> _saveSites() async {
     // שמירת הרשימה, המכ"ם הפעיל והניתוק — עם שדה גרסה
     final prefs = await SharedPreferences.getInstance(); // אחסון
-    await prefs.setString(_sitesPrefsKey, jsonEncode({'v': 1, 'sites': sites, 'active': activeSite, 'detached': detached})); // שמירה
+    await prefs.setString(_sitesPrefsKey, jsonEncode({'v': 1, 'sites': sites, 'detached': detached})); // שמירה (T22: בלי המכ"ם הפעיל — הוא לא נשמר בין הפעלות)
   }
 
   void _saveSitesSoon() { _siteSaveTimer?.cancel(); _siteSaveTimer = Timer(const Duration(milliseconds: 600), _saveSites); } // שמירה מושהית
@@ -600,7 +608,7 @@ class RadarTrackController extends ChangeNotifier {
     _typeSaveTimer?.cancel();
     _typeSaveTimer = Timer(const Duration(milliseconds: 800), () async {
       final store = await _loadStore(); store[name] = params; // עדכון
-      final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+      await _saveStore(store); // T17 (F-049): גרסת פורמט — // שמירה
     });
   }
 
@@ -831,7 +839,7 @@ class RadarTrackController extends ChangeNotifier {
     final t = activeType; if (t == null || t['lib'] != true) return 'אין סוג נעול לשכפל'; // רק סוג נעול
     name = name.trim(); if (name.isEmpty) return 'נדרש שם'; // ולידציה
     final store = await _loadStore(); store[name] = Map<String, dynamic>.from(t['params'] as Map); // עותק מלא של הסוג
-    final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); // שמירה
+    await _saveStore(store); // T17 (F-049): גרסת פורמט — // שמירה
     await refreshMyProfiles(); // רענון
     _sp['type_key'] = 'my:$name'; _sp['type_name'] = name; // המכ"ם עובר לעותק
     await activateSite(activeSite); // החלה מחדש (פתוח)
@@ -889,14 +897,14 @@ class RadarTrackController extends ChangeNotifier {
       if (doc is Map && doc['format'] == 'maps-gui-radar-profile' && doc['params'] is Map) { // קובץ פרופיל בודד — נוסף כסוג "שלי" ונוצר ממנו מכ"ם
         var nm = '${doc['name'] ?? 'פרופיל מיובא'}'.trim(); if (nm.length > 100) nm = nm.substring(0, 100); if (nm.isEmpty) nm = 'פרופיל מיובא'; // שם הסוג
         final st = await _loadStore(); st[nm] = Map<String, dynamic>.from(doc['params'] as Map); // הוספה
-        final pr = await SharedPreferences.getInstance(); await pr.setString(_prefsKey, jsonEncode(st)); await refreshMyProfiles(); // שמירה
+        await _saveStore(st); // T17 (F-049): גרסת פורמט — await refreshMyProfiles(); // שמירה
         final m = await quickCreate('my:$nm'); // מכ"ם מוצב מהסוג
         return 'נוסף הסוג "$nm" ל"הפרופילים שלי" ✔ $m';
       }
       if (doc is! Map || doc['format'] != 'maps-gui-radar-sites' || doc['sites'] is! List) return 'זה לא קובץ מכ"ם של maps-gui (פרופיל או מכ"מים מוצבים)';
       final store = await _loadStore(); // סוגים שלי
       for (final t in (doc['my_types'] as List? ?? const [])) { if (t is Map && t['name'] != null && t['params'] is Map) store['${t['name']}'] = t['params']; }
-      final prefs = await SharedPreferences.getInstance(); await prefs.setString(_prefsKey, jsonEncode(store)); await refreshMyProfiles(); // שמירה
+      await _saveStore(store); // T17 (F-049): גרסת פורמט — await refreshMyProfiles(); // שמירה
       var n = 0; // כמה מכ"מים
       for (final s in (doc['sites'] as List)) {
         if (s is! Map || s['name'] == null || s['params'] is! Map || (s['params'] as Map)['type_key'] == null) continue; // לא תקין
@@ -930,7 +938,7 @@ class RadarTrackController extends ChangeNotifier {
       if (site != null) { // FR-D-288: יש מכ"ם פעיל — לא דורסים את שדותיו; הפרופיל נוסף כסוג "שלי" ונוצר ממנו מכ"ם
         var nm = '${doc['name'] ?? 'פרופיל מיובא'}'.trim(); if (nm.isEmpty) nm = 'פרופיל מיובא'; if (nm.length > 100) nm = nm.substring(0, 100); // שם
         final st = await _loadStore(); st[nm] = Map<String, dynamic>.from(doc['params'] as Map); // הוספה
-        final pr = await SharedPreferences.getInstance(); await pr.setString(_prefsKey, jsonEncode(st)); await refreshMyProfiles(); // שמירה
+        await _saveStore(st); // T17 (F-049): גרסת פורמט — await refreshMyProfiles(); // שמירה
         return 'נוסף כסוג "$nm" ✔ ${await quickCreate('my:$nm')}'; // מכ"ם מוצב מהסוג
       }
       return 'נטענו ${applyProfile((doc['params'] as Map).cast<String, dynamic>())} שדות מהפרופיל ✔';

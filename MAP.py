@@ -283,6 +283,9 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
         .leaflet-popup-tip {{ background-color: #1e1e2e; }}
         .leaflet-popup-content {{ margin: 10px 14px; }}
+        /* T11 (F-040, WCAG 2.5.8): יעד לחיצה של לפחות 24×24 לכל כפתור בפאנלים (טאבים, ✏️ תותח, כפתורי עמדות ועוד) */
+        .leaflet-control button {{ min-height: 24px; min-width: 24px; box-sizing: border-box; }}
+        .leaflet-control a[role=button] {{ min-height: 24px; min-width: 24px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }}  /* T11: גם קישורים-כפתורים (💾 📂 🗑 בעמדות שמורות) */
         {_build_web_mobile_css() if target == 'web' else ''}
     </style>
 </head>
@@ -559,7 +562,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             // שורת יחידות (מטר/רגל/א"ר) וייחוס (AGL/MSL) לגובה הבחינה
             var row = L.DomUtil.create('div', '', parent); row.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;color:#666;flex-wrap:wrap;';  // שורה
             function sel(opts, tip) {{  // בורר קטן
-                var s = L.DomUtil.create('select', '', row); s.title = tip; s.setAttribute('aria-label', tip); s.style.cssText = 'font-size:9px;min-height:22px;max-width:110px;';
+                var s = L.DomUtil.create('select', '', row); s.title = tip; s.setAttribute('aria-label', tip); s.style.cssText = 'font-size:9px;min-height:24px;max-width:110px;';  // T11 (F-040): יעד לחיצה ≥24px (היה 22)
                 opts.forEach(function(o) {{ var e = L.DomUtil.create('option', '', s); e.value = o[0]; e.textContent = o[1]; }});  // אפשרויות
                 if (onChange) L.DomEvent.on(s, 'change', onChange); return s;  // שינוי
             }}
@@ -573,7 +576,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             // "📐 גזרה מהמכ"ם": כיוון הפנים ± זווית הסריקה (מערך מופע), או 0–360 (אנטנה גנרית)
             var b = L.DomUtil.create('button', '', parent); b.textContent = '📐 גזרה מהמכ"ם';  // הכפתור
             b.title = 'ממלא את הגזרה מכיוון הפנים ± זווית הסריקה של המכ"ם (מערך מופע), או 0–360 (אנטנה גנרית)'; b.setAttribute('aria-label', b.title);  // הסבר
-            b.style.cssText = 'font-size:9px;min-height:22px;padding:1px 4px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // עיצוב
+            b.style.cssText = 'font-size:9px;min-height:24px;padding:1px 4px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // T11 (F-040): ≥24px (היה 22); עיצוב
             L.DomEvent.on(b, 'click', function(e) {{
                 L.DomEvent.stopPropagation(e); L.DomEvent.preventDefault(e);  // לא מגיע למפה
                 var bo = _radarBoresightInput ? (parseFloat(_radarBoresightInput.value) || 0) : 0;  // כיוון הפנים
@@ -2514,6 +2517,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 }}
                 // canvas לגרף הסשן — flex:1 ממלא את שארית גובה העמודה
                 var canvas = document.createElement('canvas');
+                canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', 'גרף קו ראייה: גובה השטח, קו הראייה וגובה היעד לאורך המרחק');  // T12 (F-041): שם נגיש לגרף
                 canvas.style.cssText = 'flex:1;width:100%;display:block;';
                 col.appendChild(canvas);
                 row.appendChild(col);
@@ -3836,6 +3840,15 @@ def create_map(target='desktop', api_base='', output_path=None):
             .catch(function(e) {{ if (infoEl) infoEl.textContent = '🎯 שגיאה: ' + e.message; }});  // הודעה בפאנל
         }}
 
+        function _rtEtaText(d) {{  // T23 (F-055): " · נותרו כ-X" לפי הערכת השרת (eta_s), או '' כשאין
+            var s = d && typeof d.eta_s === 'number' ? d.eta_s : 0;  // שניות שנותרו
+            if (s <= 0) return '';  // אין הערכה / הסתיים
+            return ' · נותרו כ-' + (s < 90 ? Math.max(1, Math.round(s)) + " שנ'" : Math.round(s / 60) + " דק'");  // עד דקה וחצי בשניות, אחר כך בדקות (גרשיים כפולים — בלי escape בתוך ה-f-string)
+        }}
+        function _rtRevealResult(el) {{  // T23: גלילה לסיכום בתוך הפאנל — שלא יישאר מתחת לתחתית החלון
+            if (el && el.scrollIntoView) el.scrollIntoView({{block: 'nearest', behavior: 'smooth'}});  // רק כמה שצריך
+        }}
+
         function _radarTrackPoll() {{
             // בודק את מצב ה-job; מצייר ומסכם בסיום
             if (!_radarTrackJobId) return;  // אין job פעיל
@@ -3846,7 +3859,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 if (jobId !== _radarTrackJobId) return;  // תשובה ל-job שכבר הוחלף
                 var el = _radarTrackInfoEl;  // אלמנט הסיכום
                 if (d.status === 'running') {{  // עדיין רץ — מציג התקדמות
-                    if (el) el.textContent = '🎯 ' + (d.note || (d.batches_total ? ('שולף גבהי שטח… ' + d.batches_done + '/' + d.batches_total) : 'מחשב…'));
+                    if (el) el.textContent = '🎯 ' + (d.note || (d.batches_total ? ('שולף גבהי שטח… ' + d.batches_done + '/' + d.batches_total + _rtEtaText(d)) : 'מחשב…'));  // T23: + הערכת זמן
                     return;  // ממתין ל-tick הבא
                 }}
                 clearInterval(_radarTrackPollTimer); _radarTrackPollTimer = null;  // הסתיים — עוצרים polling
@@ -3858,8 +3871,10 @@ def create_map(target='desktop', api_base='', output_path=None):
                     _radarTrackLastResult = d.result;  // שלב א3: למניפה, לגרף הצד ולייצוא
                     _radarTrackDrawFan(d.result);  // מניפת LOS (אם המתג פעיל)
                     _radarTrackDrawSide(_rtViewEls.side, d.result);  // גרף הצד
+                    _rtRevealResult(el);  // T23 (F-055): גלילה לסיכום — גם בחישוב הבליסטי
                 }} else if (d.status === 'error') {{  // נכשל
                     if (el) el.textContent = '🎯 שגיאה: ' + (d.error || 'לא ידועה');  // הסיבה
+                    _rtRevealResult(el);  // T23: גם שגיאה צריכה להיראות
                 }} else if (el) {{  // בוטל
                     el.textContent = '';  // מנקה
                 }}
@@ -4344,7 +4359,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             // בחירת מכ"ם פעיל: שדות הסוג מהפרופיל, שדות ההצבה מהמכ"ם המוצב, וכל הצופים למיקום שלו. '' = ידני
             var s = _rs.sites.filter(function(x) {{ return x.name === name; }})[0] || null;  // המכ"ם
             _rs.active = s ? s.name : '';  // הפעיל
-            try {{ localStorage.setItem('rs_active', _rs.active); }} catch (e) {{}}  // לזכור בין הפעלות
+            // T22 (F-054, החלטה Q-R5-6 א'): הבחירה לא נשמרת בין הפעלות — כל הפעלה מתחילה ב"ללא מכ"ם (ידני)"
             if (s) {{
                 var t = _rsTypeOf(s.params.type_key);  // הסוג
                 _rs.applying = true;  // מונע לולאת עדכונים
@@ -4387,6 +4402,10 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (_rtMyProfiles.length) {{ var g2 = L.DomUtil.create('optgroup', '', sel); g2.label = 'הפרופילים שלי (ניתן לעריכה)';
                 _rtMyProfiles.forEach(function(p) {{ var o = L.DomUtil.create('option', '', g2); o.value = 'my:' + p.name; o.textContent = p.name; }}); }}
             if (current) sel.value = current;  // הנוכחי
+            else {{  // T22 (F-054): בלי ברירת מחדל — המשתמש בוחר סוג בעצמו (קודם הסוג הפעיל מולא מראש וכך נשמר סוג שגוי)
+                var ph = L.DomUtil.create('option', '', sel); ph.value = ''; ph.textContent = '— בחר סוג מכ"ם —'; ph.disabled = true;  // שורת הנחיה
+                sel.insertBefore(ph, sel.firstChild); sel.value = '';  // ראשונה ונבחרת
+            }}
         }}
 
         function _rsFillSiteSelect(sel) {{
@@ -4471,7 +4490,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             row.title = 'המכ"ם הפעיל — כל הכלים עובדים עליו (פרט לנתוני המטרה ולשדות של ההצבה). ניהול הרשימה: בבורר העליון';  // הסבר
             L.DomUtil.create('span', '', row).textContent = '📡 מכ"ם פעיל';  // תווית
             var sel = L.DomUtil.create('select', '', row);  // הבורר
-            sel.style.cssText = 'flex:1;min-width:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-height:22px;';  // רוחב גמיש
+            sel.style.cssText = 'flex:1;min-width:0;font-size:9px;padding:1px;border:1px solid #ccc;border-radius:3px;min-height:24px;';  // T11 (F-040): ≥24px (היה 22); רוחב גמיש
             sel.setAttribute('aria-label', 'מכ"ם פעיל לכל הכלים');  // נגישות
             var status = L.DomUtil.create('div', '', wrap); status.style.cssText = 'font-size:8.5px;color:#555;';  // שורת המצב
             var b = {{sel: sel, status: status, detach: opts.detach || null}};  // המופע
@@ -4565,15 +4584,15 @@ def create_map(target='desktop', api_base='', output_path=None):
             var msg = L.DomUtil.create('div', '', box); msg.style.cssText = 'font-size:9px;color:#555;';  // הודעות
             var ed = L.DomUtil.create('div', '', box); ed.style.cssText = 'display:none;flex-direction:column;gap:3px;border-top:1px solid #ddd;padding-top:3px;';  // עורך
             var nameIn = L.DomUtil.create('input', '', ed); nameIn.type = 'text'; nameIn.placeholder = 'שם המכ"ם המוצב'; nameIn.setAttribute('aria-label', 'שם המכ"ם המוצב');  // שם
-            nameIn.style.cssText = 'font-size:11px;padding:2px 4px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-height:22px;';
-            var typeSel = L.DomUtil.create('select', '', ed); typeSel.setAttribute('aria-label', 'סוג המכ"ם'); typeSel.style.cssText = 'font-size:10px;min-height:22px;';  // סוג
+            nameIn.style.cssText = 'font-size:11px;padding:2px 4px;border:1px solid #ccc;border-radius:3px;direction:rtl;min-height:24px;';  // T11 (F-040): יעד לחיצה ≥24px (היה 22)
+            var typeSel = L.DomUtil.create('select', '', ed); typeSel.setAttribute('aria-label', 'סוג המכ"ם'); typeSel.style.cssText = 'font-size:10px;min-height:24px;';  // T11 (F-040): ≥24px (היה 22); סוג
             var edRow = L.DomUtil.create('div', '', ed); edRow.style.cssText = 'display:flex;gap:3px;';  // שמירה/ביטול
             var saveB = L.DomUtil.create('button', '', edRow), cancelB = L.DomUtil.create('button', '', edRow);  // הכפתורים
             saveB.textContent = '✔ שמור'; cancelB.textContent = 'ביטול';
             [saveB, cancelB].forEach(function(x) {{ x.style.cssText = 'flex:1;font-size:10px;min-height:24px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;'; }});
             var fileIn = L.DomUtil.create('input', '', box); fileIn.type = 'file'; fileIn.accept = '.json'; fileIn.style.display = 'none';  // בורר קבצים לייבוא
             function openEditor(site) {{  // עורך: חדש (site=null) או עריכה
-                _rs.editing = site; ed.style.display = 'flex'; _rsTypeOptions(typeSel, site ? site.params.type_key : (_rsActiveSite() ? _rsActiveSite().params.type_key : (_rtLib[0] ? 'lib:' + _rtLib[0].file : '')));
+                _rs.editing = site; ed.style.display = 'flex'; _rsTypeOptions(typeSel, site ? site.params.type_key : '');  // T22 (F-054): מכ"ם חדש — סוג ריק, חובה לבחור (עריכה — הסוג הקיים)
                 nameIn.value = site ? site.name : _rsUniqueName('מכ"ם ' + (_rs.sites.length + 1)); nameIn.focus();
             }}
             mk('➕ חדש', 'הוספת מכ"ם מוצב: שם וסוג. המיקום — המכ"ם הנוכחי, או לחיצה על המפה', function() {{ _rtLoadLibrary(function() {{ openEditor(null); }}); }});
@@ -4666,8 +4685,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             // טוען ספרייה, סוגים שלי ומכ"מים מוצבים. השרת המקומי עולה במקביל למפה — אם עוד לא ענה, מנסים שוב כל 2 שנ' (עד 30 פעם)
             _rtLoadLibrary(function() {{ _rsReloadMyTypes(function() {{ _rsLoadSites(function() {{
                 _rs.sitesLoaded = true;  // הרשימה נטענה
-                var a = ''; try {{ a = localStorage.getItem('rs_active') || ''; }} catch (e) {{}}  // הפעיל הקודם
-                if (!_rs.active && a && _rs.sites.some(function(s) {{ return s.name === a; }})) _rsActivate(a); else _rsRefreshBars();  // שחזור (ברירת מחדל: ידני)
+                try {{ localStorage.removeItem('rs_active'); }} catch (e) {{}}  // T22 (F-054): מוחקים בחירה שנשמרה בגרסאות קודמות — לא משחזרים אותה
+                _rsRefreshBars();  // T22: תמיד מתחילים ב"ללא מכ"ם (ידני)"; בחירה בסשן הזה נשארת עד סגירה
             }}); }}); }});
             setTimeout(function() {{  // בדיקה: האם הכל נטען?
                 if ((!_rtLib.length || !_rs.sitesLoaded) && attempt < 30) {{ _rtLibRequested = false; _rsInitLoad(attempt + 1); }}  // עוד לא — שוב
@@ -4739,13 +4758,14 @@ def create_map(target='desktop', api_base='', output_path=None):
             .then(function(d) {{
                 if (jobId !== _rtPlace.jobId) return;  // הוחלף
                 if (d.status === 'running') {{  // עדיין רץ
-                    var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' : '';  // שליפה
+                    var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' + _rtEtaText(d) : '';  // שליפה + הערכת זמן (T23)
                     _rtPlace.info.textContent = '🗺 ' + (d.note || 'מחשב…') + (d.note && d.note.indexOf('שולף') === 0 ? prog : '');  // הודעה
                     return;  // ממתין
                 }}
                 clearInterval(_rtPlace.timer); _rtPlace.timer = null; _rtPlace.jobId = null;  // הסתיים
                 if (d.status === 'done') _rtPlacementDraw(d.result);  // ציור
                 else if (d.status === 'error') _rtPlace.info.textContent = '🗺 שגיאה: ' + (d.error || 'לא ידועה');  // שגיאה
+                _rtRevealResult(_rtPlace.info);  // T23: גלילה לתוצאה/לשגיאה
             }})
             .catch(function() {{}});  // כשל רשת בבדיקה בודדת — ה-tick הבא ינסה שוב
         }}
@@ -4832,7 +4852,74 @@ def create_map(target='desktop', api_base='', output_path=None):
             // כפתור "בדוק מעקב מכ"ם": בונה את המסלול מהמקור שנבחר ומריץ
             if (_rtSrc.sel && _rtSrc.sel.value === 'rocket') {{ _rtRunRocket(infoEl, timelineEl); return; }}  // רקטה — אסינכרוני (חישוב בשרת)
             var b = _rtBuildTrajectory();  // המסלול
-            if (b) _radarTrackRun(b.points, infoEl, timelineEl, b.opts);  // הרצה
+            if (!b) return;  // T29: אין מסלול (ההודעה כבר הוצגה)
+            if (radarObs && _rtFarWarning(b.points, infoEl)) return;  // T29 (החלטה 5): המכ"ם רחוק מכל המסלול — המשתמש בחר לא להמשיך
+            _radarTrackRun(b.points, infoEl, timelineEl, b.opts);  // הרצה
+        }}
+
+        function _rtFarWarning(points, infoEl) {{  // T29: אזהרה לפני בדיקה כשהמכ"ם רחוק מכל נקודה במסלול יותר מהטווח שלו. true = לא להמשיך
+            var rk = parseFloat(_radarRangeInput && _radarRangeInput.value);  // טווח המכ"ם [ק"מ] מכלי הדופלר (או מהמכ"ם הפעיל)
+            if (!(rk > 0) || !points || !points.length) return false;  // אין טווח/מסלול — לא מזהירים
+            var dmin = Infinity;  // המרחק הקרוב ביותר
+            points.forEach(function(p) {{ var d = map.distance(radarObs, L.latLng(p.lat, p.lon)); if (d < dmin) dmin = d; }});  // לכל נקודה
+            if (dmin <= rk * 1000) return false;  // יש נקודה בטווח — בלי אזהרה
+            var go = confirm('⚠️ המכ"ם רחוק מכל נקודה במסלול: ' + (dmin / 1000).toFixed(1) + ' ק"מ, והטווח שלו ' + rk + ' ק"מ. הבדיקה כנראה תסתיים בלי גילוי (ושליפת השטח לוקחת זמן). להמשיך בכל זאת?');  // שאלה
+            if (!go && infoEl) infoEl.textContent = '🎯 לא הורץ — המכ"ם רחוק מהמסלול. הזז את המכ"ם, בחר מכ"ם אחר, או השתמש ב"📊 השווה את כל המכ"מים".';  // הסבר
+            return !go;  // true = לא להמשיך
+        }}
+
+        var _rtCmp = {{jobId: null, timer: null, el: null}};  // T30: מצב ההשוואה
+
+        function _rtCompareAll() {{  // T30 (החלטה 5): המסלול מול כל המכ"מים המוצבים — טבלה מי רואה את הפגז ומתי
+            if (_rtSrc.sel && _rtSrc.sel.value === 'rocket') {{ alert('ההשוואה זמינה למסלול בליסטי, לטיסה ולשיוט — לרקטה הרץ קודם "בדוק מעקב" ואז בחר "מסלול בליסטי"'); return; }}  // רקטה — מחושבת בנפרד
+            var b = _rtBuildTrajectory();  // המסלול מהמקור שנבחר
+            if (!b) return;  // אין
+            var el = _rtCmp.el; el.innerHTML = ''; el.textContent = '📊 מתחיל השוואה…';  // משוב
+            if (_rtCmp.timer) {{ clearInterval(_rtCmp.timer); _rtCmp.timer = null; }}  // השוואה קודמת
+            fetch('http://localhost:5002/radar_track/compare', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{trajectory: b.points, alt_ref: (b.opts && b.opts.alt_ref) || 'msl'}})}})
+            .then(function(r) {{ return r.json().then(function(d) {{ if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }}); }})  // שגיאה עם הסבר
+            .then(function(d) {{
+                _rtCmp.jobId = d.job_id;  // ה-job
+                _rtCmp.timer = setInterval(function() {{  // polling
+                    fetch('http://localhost:5002/radar_doppler/status?job_id=' + d.job_id).then(function(r) {{ return r.json(); }}).then(function(st) {{
+                        if (st.status === 'running') {{ el.textContent = '📊 ' + (st.note || 'משווה…') + (st.batches_total ? ' (' + st.batches_done + '/' + st.batches_total + ')' + _rtEtaText(st) : ''); return; }}  // התקדמות
+                        clearInterval(_rtCmp.timer); _rtCmp.timer = null;  // הסתיים
+                        if (st.status === 'done') _rtCompareRender(st.result);  // הטבלה
+                        else el.textContent = st.status === 'error' ? '📊 שגיאה: ' + (st.error || '') : '📊 בוטל.';  // שגיאה/ביטול
+                        _rtRevealResult(el);  // גלילה לתוצאה
+                    }}).catch(function() {{}});  // ה-tick הבא
+                }}, 1000);
+            }})
+            .catch(function(e) {{ el.textContent = '📊 ' + e.message; }});  // שגיאת קלט/רשת
+        }}
+
+        function _rtCompareRender(res) {{  // T30: טבלת ההשוואה (מי שרואה ראשון — למעלה)
+            var el = _rtCmp.el; el.innerHTML = '';  // ניקוי
+            var s = res.summary || {{}};  // סיכום
+            var head = document.createElement('div'); head.style.cssText = 'font-size:9.5px;margin-bottom:2px;';  // שורת סיכום
+            head.textContent = '📊 ' + (s.seeing || 0) + ' מתוך ' + (s.radars || 0) + ' מכ"מים רואים את המסלול' + (s.first ? ' · ראשון: ' + s.first + ' (אחרי ' + s.first_t + " ש')" : '');  // הטקסט
+            el.appendChild(head);  // הוספה
+            var rows = (res.rows || []).slice().sort(function(a, b) {{  // מיון: רואים לפי זמן גילוי, אחריהם לא רואים, ואחרונים שגיאות
+                function k(r) {{ return !r.ok ? 3e9 : (r.detected ? (r.first_detection_t == null ? 1e9 : r.first_detection_t) : 2e9); }}  // מפתח
+                return k(a) - k(b);  // השוואה
+            }});
+            var t = document.createElement('table'); t.style.cssText = 'border-collapse:collapse;font-size:9px;width:100%;direction:rtl;';  // הטבלה
+            t.setAttribute('aria-label', 'השוואת המכ"מים המוצבים על המסלול');  // נגישות
+            var hr = t.insertRow();  // כותרת
+            ['מכ"ם', 'רואה', "גילוי [ש']", 'מרחק [ק"מ]', 'כיסוי', 'מעקב', "התרעה [ש']"].forEach(function(h) {{ var th = document.createElement('th'); th.textContent = h; th.style.cssText = 'background:#f5f5f5;padding:1px 3px;border-bottom:1px solid #ddd;'; hr.appendChild(th); }});  // עמודות
+            rows.forEach(function(r) {{  // כל מכ"ם
+                var tr = t.insertRow();  // שורה
+                var cells = !r.ok ? [r.name, '⚠️ ' + (r.error || 'שגיאה'), '', '', '', '', ''] :  // שגיאה במכ"ם הזה
+                    [r.name, r.detected ? '✔ כן' : '✖ לא', r.first_detection_t == null ? '—' : r.first_detection_t,  // רואה + מתי
+                     r.first_detection_km == null ? (r.min_dist_km == null ? '—' : r.min_dist_km.toFixed(1)) : r.first_detection_km.toFixed(1),  // מרחק
+                     r.coverage_pct == null ? '—' : r.coverage_pct + '%', r.tracked ? '✔' : '—', r.warning_time_s == null ? '—' : r.warning_time_s];  // כיסוי, מעקב, התרעה
+                cells.forEach(function(v, i) {{ var td = tr.insertCell(); td.textContent = String(v); td.style.cssText = 'padding:1px 3px;border-bottom:1px solid #f0f0f0;white-space:nowrap;' + (i === 1 && r.ok ? (r.detected ? 'color:#1e7e34;' : 'color:#b00020;') : ''); if (!r.ok && i === 1) td.colSpan = 6; }});  // תאים (טקסט + צבע, לא רק צבע)
+            }});
+            el.appendChild(t);  // הוספה
+            var note = document.createElement('div'); note.style.cssText = 'font-size:8.5px;color:#666;margin-top:2px;';  // הערה
+            note.textContent = 'כל מכ"ם נבדק עם פרמטרי הסוג וההצבה שלו (טווח, גזרה, גובה אנטנה) — לא עם השדות שבכלי הדופלר.';  // הסבר
+            el.appendChild(note);  // הוספה
         }}
 
         var _radarLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
@@ -4948,6 +5035,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             header.appendChild(closeBtn);
             _radarProfilePanelEl.appendChild(header);
             var canvas = document.createElement('canvas');
+            canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', 'חתך-צד של קרן מכ"ם: שטח, קו ראייה ואלומה לפי מרחק');  // T12 (F-041): שם נגיש לגרף
             canvas.style.cssText = 'flex:1;width:100%;display:block;';
             _radarProfilePanelEl.appendChild(canvas);
             document.body.appendChild(_radarProfilePanelEl);
@@ -5862,6 +5950,430 @@ def create_map(target='desktop', api_base='', output_path=None):
             .catch(function() {{ if (onDone) onDone(null); }});
         }}
 
+        // ═══════════════ A5: ירי מאזור לאזור (docs/PLAN_BALLISTICS_AREA_FIRE.md) ═══════════════
+        var _af = {{mode: false, areas: [], draw: null, drawPts: [], drawLayer: null, jobId: null, timer: null,  // מצב הכלי
+                   result: null, resultJob: null, visJob: null, vis: null, visSig: null, layers: null, estTimer: null, els: {{}}}};  // תוצאות ושכבות
+        var _afRenderer = null;  // Canvas renderer — אלפי קווים בלי להאט את המפה
+        var AF_GREEN = '#1e9e3a', AF_RED = '#d93025', AF_LAUNCH = '#e8710a', AF_TARGET = '#8e44ad';  // צבעים: נצפה / לא נצפה / שיגור / מטרה
+        var AF_MAX_DRAW = 2000;  // דילול תצוגה מעל המספר הזה (החלטה 15)
+        var AF_REJECT_NAMES = {{out_of_range: 'מחוץ לטווח', qe_limits: 'מחוץ לגבולות ההגבהה', min_range: 'קרוב מטווח מינימלי', max_tof: 'זמן מעוף ארוך', terrain: 'פוגע בשטח (רכס)'}};  // שמות סיבות הפסילה
+
+        function _afSites() {{  // חתימה של המכ"מים המוצבים — לזיהוי "הצביעה ישנה" (החלטה 16)
+            return JSON.stringify((_rs.sites || []).map(function(s) {{ var p = s.params || {{}}; return [s.name, p.lat, p.lon, p.h_antenna, p.range_km, p.start_bearing_deg, p.end_bearing_deg, p.ridge_margin_deg]; }}));  // שם, מיקום, אנטנה, טווח, גזרה, מרווח
+        }}
+
+        function _afLayers() {{  // שכבות המפה של הכלי (נוצרות פעם אחת)
+            if (!_af.layers) {{  // עוד לא נוצרו
+                _afRenderer = L.canvas({{padding: 0.5}});  // ציור על canvas
+                _af.layers = {{areas: L.layerGroup().addTo(map), paths: L.layerGroup().addTo(map), heatL: L.layerGroup(), heatT: L.layerGroup(), sel: L.layerGroup().addTo(map)}};  // אזורים, מסלולים, מפות חום, בחירה
+            }}
+            return _af.layers;  // השכבות
+        }}
+
+        function _afSetMode(on) {{  // מתג "מסלול בודד | מאזור לאזור"
+            _af.mode = on;  // המצב
+            var body = _af.els.panelBody, sw = _af.els.switchRow, box = _af.els.box;  // הרכיבים
+            Array.prototype.forEach.call(body.children, function(ch) {{  // כל רכיבי הפאנל
+                if (ch === sw || ch === box) return;  // המתג והכלי החדש — מטופלים בנפרד
+                if (on) {{ ch.dataset.afDisp = ch.style.display; ch.style.display = 'none'; }}  // מסתירים את המסלול הבודד, זוכרים את המצב
+                else if (ch.dataset.afDisp !== undefined) {{ ch.style.display = ch.dataset.afDisp; delete ch.dataset.afDisp; }}  // מחזירים בדיוק כמו שהיה
+            }});
+            box.style.display = on ? 'flex' : 'none';  // הכלי החדש
+            _af.els.btnSingle.style.background = on ? '#f5f5f5' : '#fab387';  // הדגשת המצב
+            _af.els.btnArea.style.background = on ? '#fab387' : '#f5f5f5';  // כנ"ל
+            var ly = _afLayers();  // השכבות
+            [ly.areas, ly.paths, ly.sel].forEach(function(l) {{ if (on) {{ if (!map.hasLayer(l)) l.addTo(map); }} else map.removeLayer(l); }});  // השכבות גלויות רק במצב הזה
+            if (!on) {{ map.removeLayer(ly.heatL); map.removeLayer(ly.heatT); _afCancelDraw(); }}  // יציאה מהמצב — מפות חום וציור
+            else {{ _afApplyLayerToggles(); _afCheckStale(); }}  // חזרה — השכבות לפי הבחירה, ובדיקת צביעה ישנה
+        }}
+
+        function _afMk(parent, tag, text, css) {{  // יצירת רכיב קטן
+            var el = L.DomUtil.create(tag, '', parent);  // הרכיב
+            if (text) el.textContent = text;  // טקסט
+            if (css) el.style.cssText = css;  // עיצוב
+            return el;  // הרכיב
+        }}
+        function _afBtn(parent, text, tip, fn, css) {{  // כפתור ≥24px עם שם נגיש
+            var b = _afMk(parent, 'button', text, 'font-size:10px;min-height:24px;padding:1px 6px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;' + (css || ''));  // הכפתור
+            b.title = tip; b.setAttribute('aria-label', tip);  // נגישות
+            L.DomEvent.on(b, 'click', function(e) {{ L.DomEvent.stopPropagation(e); fn(); }});  // לחיצה
+            return b;  // הכפתור
+        }}
+        function _afNum(parent, label, val, tip) {{  // שדה מספר עם תווית (ריק = בלי גבול)
+            var w = _afMk(parent, 'label', '', 'display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:9px;color:#555;');  // השורה
+            w.title = tip || '';  // הסבר
+            _afMk(w, 'span', label, 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');  // תווית
+            var i = _afMk(w, 'input', '', 'width:58px;flex-shrink:0;font-size:11px;padding:1px 2px;border:1px solid #ccc;border-radius:3px;direction:ltr;text-align:center;');  // השדה
+            i.type = 'number'; i.value = val; i.setAttribute('aria-label', label);  // ערך ונגישות
+            L.DomEvent.on(i, 'change', _afScheduleEstimate);  // שינוי = הערכה מחדש
+            return i;  // השדה
+        }}
+        function _afChk(parent, label, checked) {{  // תיבת סימון
+            var w = _afMk(parent, 'label', '', 'display:flex;align-items:center;gap:4px;font-size:9px;color:#555;cursor:pointer;');  // השורה
+            var c = _afMk(w, 'input'); c.type = 'checkbox'; c.checked = checked;  // התיבה
+            _afMk(w, 'span', label);  // תווית
+            return c;  // התיבה
+        }}
+
+        function _afBuild(panelBody) {{  // בניית מתג המצבים והכלי — נקרא בסוף בניית הפאנל הבליסטי
+            _af.els.panelBody = panelBody;  // הפאנל
+            var sw = L.DomUtil.create('div', '');  // שורת המתג
+            sw.style.cssText = 'display:flex;gap:2px;margin-bottom:3px;';  // עיצוב
+            panelBody.insertBefore(sw, panelBody.firstChild);  // בראש הפאנל
+            _af.els.switchRow = sw;  // נשמר
+            _af.els.btnSingle = _afBtn(sw, 'מסלול בודד', 'מצב מסלול בודד — הכלי הקיים, בלי שינוי', function() {{ _afSetMode(false); }}, 'flex:1;font-weight:bold;background:#fab387;');  // מצב רגיל
+            _af.els.btnArea = _afBtn(sw, '🗺 מאזור לאזור', 'מצב חדש: אזורי שיגור ואזורי מטרה, ספירת כל המסלולים האפשריים', function() {{ _afSetMode(true); }}, 'flex:1;font-weight:bold;');  // המצב החדש
+            var box = _afMk(panelBody, 'div', '', 'display:none;flex-direction:column;gap:3px;');  // מכל הכלי
+            _af.els.box = box;  // נשמר
+            _afMk(box, 'div', 'סמן אזורי שיגור (רשת כל 500 מ\\') ואזורי מטרה (כל 200 מ\\'). מהירות הלוע, המטאו והפגז נלקחים מהגדרות הכלי הבליסטי.', 'font-size:9px;color:#555;line-height:1.35;');  // הסבר קצר
+            var drawRow = _afMk(box, 'div', '', 'display:flex;gap:2px;flex-wrap:wrap;');  // כפתורי ציור
+            _afBtn(drawRow, '✏️ מצולע שיגור', 'ציור מצולע שיגור: לחיצות על המפה, ואז "סיים"', function() {{ _afStartDraw('launch', 'poly'); }}, 'border-color:' + AF_LAUNCH + ';');  // מצולע שיגור
+            _afBtn(drawRow, '▭ מלבן שיגור', 'מלבן שיגור: שתי לחיצות — פינה ופינה נגדית', function() {{ _afStartDraw('launch', 'rect'); }}, 'border-color:' + AF_LAUNCH + ';');  // מלבן שיגור
+            _afBtn(drawRow, '✏️ מצולע מטרה', 'ציור מצולע מטרה: לחיצות על המפה, ואז "סיים"', function() {{ _afStartDraw('target', 'poly'); }}, 'border-color:' + AF_TARGET + ';');  // מצולע מטרה
+            _afBtn(drawRow, '▭ מלבן מטרה', 'מלבן מטרה: שתי לחיצות — פינה ופינה נגדית', function() {{ _afStartDraw('target', 'rect'); }}, 'border-color:' + AF_TARGET + ';');  // מלבן מטרה
+            var drawCtl = _afMk(box, 'div', '', 'display:none;gap:3px;align-items:center;font-size:9px;color:#333;');  // מצב ציור פעיל
+            _af.els.drawMsg = _afMk(drawCtl, 'span', '');  // הודעת הציור
+            _af.els.drawDone = _afBtn(drawCtl, '✔ סיים', 'סיום המצולע (לפחות 3 נקודות)', _afFinishDraw);  // סיום
+            _afBtn(drawCtl, 'בטל', 'ביטול הציור', _afCancelDraw);  // ביטול
+            _af.els.drawCtl = drawCtl;  // נשמר
+            _af.els.list = _afMk(box, 'div', '', 'display:flex;flex-direction:column;gap:2px;');  // רשימת האזורים
+            var saveRow = _afMk(box, 'div', '', 'display:flex;gap:2px;flex-wrap:wrap;align-items:center;');  // שמירה וטעינה של סט אזורים
+            _af.els.setSel = _afMk(saveRow, 'select', '', 'font-size:10px;min-height:24px;max-width:120px;');  // סטים שמורים
+            _af.els.setSel.setAttribute('aria-label', 'סטים שמורים של אזורים');  // נגישות
+            _afBtn(saveRow, '📂 טען', 'טעינת סט האזורים שנבחר', _afLoadSet);  // טעינה
+            _afBtn(saveRow, '💾 שמור', 'שמירת האזורים הנוכחיים בשם', _afSaveSet);  // שמירה
+            _afBtn(saveRow, '🗑', 'מחיקת הסט שנבחר', _afDeleteSet);  // מחיקה
+            _afMk(box, 'div', 'אפשרויות', 'font-size:9px;font-weight:bold;color:#888;border-top:1px solid #eee;padding-top:2px;');  // כותרת
+            var gr = _afMk(box, 'div', '', 'display:flex;gap:8px;');  // ענפים
+            _af.els.low = _afChk(gr, 'ענף נמוך', true); _af.els.high = _afChk(gr, 'ענף גבוה', true);  // שני הענפים (החלטה 2)
+            L.DomEvent.on(_af.els.low, 'change', _afScheduleEstimate); L.DomEvent.on(_af.els.high, 'change', _afScheduleEstimate);  // הערכה מחדש
+            _af.els.qeMin = _afNum(box, 'הגבהה מינימלית [מיל]', '', 'ריק = בלי גבול');  // גבול תחתון
+            _af.els.qeMax = _afNum(box, 'הגבהה מרבית [מיל]', '', 'ריק = בלי גבול');  // גבול עליון
+            _af.els.minRange = _afNum(box, 'טווח מינימלי [מ\\']', '', 'ריק = בלי');  // טווח מינימלי
+            _af.els.maxTof = _afNum(box, 'זמן מעוף מרבי [ש\\']', '', 'ריק = בלי');  // זמן מעוף מרבי
+            _af.els.crest = _afChk(box, 'בדיקת מעבר מעל השטח (רכס)', true);  // רכס
+            L.DomEvent.on(_af.els.crest, 'change', _afScheduleEstimate);  // הערכה מחדש
+            _af.els.margin = _afNum(box, 'מרווח בטיחות מעל השטח [מ\\']', 0, 'כמה מטרים מעל הקרקע המסלול חייב לעבור');  // מרווח
+            _af.els.est = _afMk(box, 'div', 'סמן לפחות אזור שיגור אחד ואזור מטרה אחד.', 'font-size:9px;color:#555;');  // הערכה
+            var runRow = _afMk(box, 'div', '', 'display:flex;gap:3px;');  // הרצה
+            _af.els.run = _afBtn(runRow, '▶ חשב מסלולים', 'חישוב כל המסלולים האפשריים מכל נקודת שיגור לכל נקודת מטרה', _afRun, 'flex:1;background:#f9e2af;font-weight:bold;');  // הרצה
+            _af.els.cancel = _afBtn(runRow, '⏹ בטל', 'ביטול החישוב', _afCancel);  // ביטול
+            _af.els.cancel.style.display = 'none';  // רק בזמן ריצה
+            _af.els.info = _afMk(box, 'div', '', 'font-size:9.5px;color:#222;white-space:pre-line;line-height:1.35;');  // התקדמות וסיכום
+            _af.els.info.setAttribute('role', 'status');  // קוראי מסך מכריזים
+            var res = _afMk(box, 'div', '', 'display:none;flex-direction:column;gap:3px;border-top:1px solid #eee;padding-top:3px;');  // אזור התוצאות
+            _af.els.res = res;  // נשמר
+            var vrow = _afMk(res, 'div', '', 'display:flex;gap:3px;align-items:center;flex-wrap:wrap;');  // צביעה
+            _af.els.recolor = _afBtn(vrow, '🎨 עדכן צביעה', 'צביעה מחדש לפי כל המכ"מים המוצבים: ירוק = נצפה, אדום = לא נצפה', _afRecolor, 'background:#e8f5e9;');  // עדכן צביעה (החלטה 16)
+            _af.els.stale = _afMk(vrow, 'span', '', 'font-size:9px;color:#b00020;');  // הודעת "ישנה"
+            _afMk(res, 'div', '🟩 ירוק = לפחות מכ"ם מוצב אחד רואה את הקטע · 🟥 אדום = אף מכ"ם לא רואה. "רואה" = בטווח, בגזרה ולא מוסתר ע"י השטח (קו ראייה — קירוב; בדיקת מעקב מלאה למסלול שנבחר).', 'font-size:8.5px;color:#555;line-height:1.35;');  // מקרא (טקסט + אייקון, לא רק צבע)
+            var lrow = _afMk(res, 'div', '', 'display:flex;gap:8px;flex-wrap:wrap;');  // שכבות
+            _af.els.showPaths = _afChk(lrow, 'מסלולים', true); _af.els.showHeatL = _afChk(lrow, 'מפת חום שיגור', false); _af.els.showHeatT = _afChk(lrow, 'מפת חום מטרה', false);  // מתגי שכבות
+            [_af.els.showPaths, _af.els.showHeatL, _af.els.showHeatT].forEach(function(c) {{ L.DomEvent.on(c, 'change', _afApplyLayerToggles); }});  // החלפה
+            var frow = _afMk(res, 'div', '', 'display:flex;gap:3px;flex-wrap:wrap;align-items:center;font-size:9px;');  // סינון
+            _af.els.fBranch = _afMk(frow, 'select', '', 'font-size:10px;min-height:24px;');  // ענף
+            [['all', 'כל הענפים'], ['low', 'נמוך'], ['high', 'גבוה']].forEach(function(o) {{ var op = _afMk(_af.els.fBranch, 'option', o[1]); op.value = o[0]; }});  // אפשרויות
+            _af.els.fBranch.setAttribute('aria-label', 'סינון לפי ענף');  // נגישות
+            _af.els.fLaunch = _afMk(frow, 'select', '', 'font-size:10px;min-height:24px;max-width:110px;'); _af.els.fLaunch.setAttribute('aria-label', 'סינון לפי אזור שיגור');  // אזור שיגור
+            _af.els.fTarget = _afMk(frow, 'select', '', 'font-size:10px;min-height:24px;max-width:110px;'); _af.els.fTarget.setAttribute('aria-label', 'סינון לפי אזור מטרה');  // אזור מטרה
+            _af.els.fUnseen = _afChk(frow, 'רק לא נצפים', false);  // רק לא נצפים
+            [_af.els.fBranch, _af.els.fLaunch, _af.els.fTarget, _af.els.fUnseen].forEach(function(el) {{ L.DomEvent.on(el, 'change', _afRender); }});  // סינון = ציור מחדש
+            _af.els.drawNote = _afMk(res, 'div', '', 'font-size:9px;color:#555;');  // הודעת דילול
+            var trow = _afMk(res, 'div', '', 'display:flex;gap:3px;');  // ייצוא
+            _afBtn(trow, '⬇ CSV', 'ייצוא כל המסלולים האפשריים לקובץ CSV (כולל הנראות)', _afCsv);  // CSV
+            _af.els.table = _afMk(res, 'div', '', 'max-height:180px;overflow:auto;border:1px solid #eee;');  // טבלה
+            _af.els.selInfo = _afMk(res, 'div', '', 'font-size:9px;color:#222;white-space:pre-line;');  // פרטי מסלול שנבחר
+            _afRefreshSets();  // רשימת הסטים השמורים
+            _afRenderAreas();  // רשימה ריקה
+        }}
+
+        // ── ציור אזורים ──
+        function _afStartDraw(kind, shape) {{  // התחלת ציור
+            _afCancelDraw();  // ציור קודם
+            _af.draw = {{kind: kind, shape: shape}}; _af.drawPts = [];  // המצב
+            _af.els.drawCtl.style.display = 'flex';  // הודעה + כפתורים
+            _af.els.drawDone.style.display = shape === 'poly' ? '' : 'none';  // "סיים" רק במצולע
+            _af.els.drawMsg.textContent = shape === 'poly' ? 'לחץ על המפה להוספת נקודות…' : 'לחץ על פינה ראשונה…';  // הנחיה
+            map.getContainer().style.cursor = 'crosshair';  // סמן
+        }}
+        function _afCancelDraw() {{  // ביטול ציור
+            _af.draw = null; _af.drawPts = [];  // ניקוי
+            if (_af.drawLayer) {{ map.removeLayer(_af.drawLayer); _af.drawLayer = null; }}  // הקו הזמני
+            if (_af.els.drawCtl) _af.els.drawCtl.style.display = 'none';  // הסתרה
+            map.getContainer().style.cursor = '';  // סמן רגיל
+        }}
+        function _afMapClick(latlng) {{  // לחיצה על המפה במצב מאזור לאזור
+            if (!_af.draw) return;  // לא בציור — לא עושים כלום (לא מזיזים תותח)
+            _af.drawPts.push([latlng.lat, latlng.lng]);  // נקודה
+            var col = _af.draw.kind === 'launch' ? AF_LAUNCH : AF_TARGET;  // צבע
+            if (_af.drawLayer) map.removeLayer(_af.drawLayer);  // הקו הקודם
+            if (_af.draw.shape === 'rect') {{  // מלבן
+                if (_af.drawPts.length === 1) {{ _af.drawLayer = L.circleMarker(latlng, {{radius: 4, color: col}}).addTo(map); _af.els.drawMsg.textContent = 'לחץ על הפינה הנגדית…'; return; }}  // פינה ראשונה
+                var a = _af.drawPts[0], b = _af.drawPts[1];  // שתי הפינות
+                _afAddArea(_af.draw.kind, [[a[0], a[1]], [a[0], b[1]], [b[0], b[1]], [b[0], a[1]]]);  // ארבע הפינות
+                _afCancelDraw(); return;  // סיום
+            }}
+            _af.drawLayer = L.polyline(_af.drawPts, {{color: col, dashArray: '4 4', weight: 2}}).addTo(map);  // קו זמני
+            _af.els.drawMsg.textContent = _af.drawPts.length + ' נקודות — המשך, או "סיים"';  // הנחיה
+        }}
+        function _afFinishDraw() {{  // סיום מצולע
+            if (!_af.draw || _af.drawPts.length < 3) {{ _af.els.drawMsg.textContent = 'צריך לפחות 3 נקודות'; return; }}  // מעט מדי
+            _afAddArea(_af.draw.kind, _af.drawPts.slice());  // הוספה
+            _afCancelDraw();  // סיום
+        }}
+        function _afAddArea(kind, poly) {{  // הוספת אזור לרשימה
+            var n = _af.areas.filter(function(a) {{ return a.kind === kind; }}).length + 1;  // מספור לפי סוג
+            _af.areas.push({{kind: kind, polygon: poly, name: (kind === 'launch' ? 'שיגור ' : 'מטרה ') + n}});  // האזור
+            _afRenderAreas(); _afScheduleEstimate();  // ציור והערכה
+        }}
+        function _afRenderAreas() {{  // רשימת האזורים בפאנל + על המפה
+            var ly = _afLayers(); ly.areas.clearLayers();  // ניקוי המפה
+            var list = _af.els.list; list.innerHTML = '';  // ניקוי הרשימה
+            _af.areas.forEach(function(a, i) {{  // כל אזור
+                var col = a.kind === 'launch' ? AF_LAUNCH : AF_TARGET;  // צבע לפי סוג
+                L.polygon(a.polygon, {{color: col, weight: 2, fillOpacity: 0.08, dashArray: a.kind === 'target' ? '6 3' : null}}).bindTooltip(a.name).addTo(ly.areas);  // על המפה (מטרה מקווקו — לא רק צבע)
+                var row = _afMk(list, 'div', '', 'display:flex;gap:3px;align-items:center;font-size:9px;');  // שורה
+                _afMk(row, 'span', a.kind === 'launch' ? '🚀' : '🎯', 'color:' + col + ';');  // סמל סוג
+                var nm = _afMk(row, 'input', '', 'flex:1;min-width:0;font-size:10px;padding:1px 3px;border:1px solid #ddd;border-radius:3px;direction:rtl;');  // שם
+                nm.value = a.name; nm.setAttribute('aria-label', 'שם האזור');  // ערך ונגישות
+                L.DomEvent.on(nm, 'change', function() {{ a.name = nm.value.trim().slice(0, 80) || a.name; _afRenderAreas(); }});  // עדכון שם
+                _afBtn(row, '🔍', 'התמקד באזור', function() {{ map.fitBounds(L.latLngBounds(a.polygon), {{maxZoom: 14}}); }});  // זום
+                _afBtn(row, '✕', 'מחיקת האזור', function() {{ _af.areas.splice(i, 1); _afRenderAreas(); _afScheduleEstimate(); }});  // מחיקה
+            }});
+            if (!_af.areas.length) _afMk(list, 'div', 'אין עדיין אזורים.', 'font-size:9px;color:#888;');  // ריק
+        }}
+
+        // ── סטים שמורים (עמדות שמורות, כלי ballistics_areas) ──
+        function _afRefreshSets() {{  // רשימת הסטים מהשרת
+            fetch('http://localhost:5002/stations/list?tool=ballistics_areas').then(function(r) {{ return r.json(); }}).then(function(list) {{
+                var sel = _af.els.setSel; sel.innerHTML = '';  // ניקוי
+                (Array.isArray(list) ? list : []).forEach(function(s) {{ var o = _afMk(sel, 'option', s.name); o.value = s.name; }});  // אפשרויות
+                if (!sel.options.length) {{ var o = _afMk(sel, 'option', '(אין סטים שמורים)'); o.value = ''; }}  // ריק
+            }}).catch(function() {{}});  // שרת לא זמין — לא קריטי
+        }}
+        function _afSaveSet() {{  // שמירת האזורים בשם
+            if (!_af.areas.length) {{ _af.els.est.textContent = 'אין אזורים לשמירה'; return; }}  // ריק
+            var name = prompt('שם לסט האזורים:', 'אזורים ' + new Date().toLocaleDateString('he-IL'));  // שם
+            if (!name) return;  // בוטל
+            fetch('http://localhost:5002/stations/save', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{tool: 'ballistics_areas', name: name.slice(0, 100), params: {{areas: _af.areas.map(function(a) {{ return {{name: a.name, kind: a.kind, polygon: a.polygon}}; }})}}}})}})  // הנתונים
+                .then(function() {{ _afRefreshSets(); _af.els.est.textContent = 'נשמר: ' + name; }}).catch(function(e) {{ _af.els.est.textContent = 'שמירה נכשלה: ' + e.message; }});  // תוצאה
+        }}
+        function _afLoadSet() {{  // טעינת סט
+            var name = _af.els.setSel.value; if (!name) return;  // לא נבחר
+            fetch('http://localhost:5002/stations/list?tool=ballistics_areas').then(function(r) {{ return r.json(); }}).then(function(list) {{
+                var s = (list || []).filter(function(x) {{ return x.name === name; }})[0];  // הסט
+                if (!s || !s.params || !Array.isArray(s.params.areas)) return;  // לא תקין
+                _af.areas = s.params.areas.filter(function(a) {{ return Array.isArray(a.polygon) && a.polygon.length >= 3; }}).map(function(a) {{ return {{name: String(a.name || ''), kind: a.kind === 'target' ? 'target' : 'launch', polygon: a.polygon}}; }});  // אזורים תקינים בלבד
+                _afRenderAreas(); _afScheduleEstimate();  // ציור והערכה
+                if (_af.areas.length) map.fitBounds(L.latLngBounds([].concat.apply([], _af.areas.map(function(a) {{ return a.polygon; }}))), {{maxZoom: 13}});  // התמקדות
+            }}).catch(function() {{}});  // כשל — לא קריטי
+        }}
+        function _afDeleteSet() {{  // מחיקת סט
+            var name = _af.els.setSel.value; if (!name || !confirm('למחוק את "' + name + '"?')) return;  // אישור
+            fetch('http://localhost:5002/stations/delete', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{tool: 'ballistics_areas', name: name}})}}).then(_afRefreshSets);  // מחיקה
+        }}
+
+        // ── בקשה, הערכה והרצה ──
+        function _afRequest() {{  // בניית בקשת החישוב מהאזורים, מהאפשרויות ומהגדרות הכלי הבליסטי
+            var c = _ballisticsGetCommonParams() || {{}};  // מהירות לוע, מטאו, פגז, יחידות
+            function v(el) {{ return el.value === '' ? null : parseFloat(el.value); }}  // ערך או null
+            var groups = []; if (_af.els.low.checked) groups.push('low'); if (_af.els.high.checked) groups.push('high');  // ענפים
+            return {{launch_areas: _af.areas.filter(function(a) {{ return a.kind === 'launch'; }}).map(function(a) {{ return {{name: a.name, polygon: a.polygon}}; }}),  // אזורי שיגור
+                     target_areas: _af.areas.filter(function(a) {{ return a.kind === 'target'; }}).map(function(a) {{ return {{name: a.name, polygon: a.polygon}}; }}),  // אזורי מטרה
+                     mv: c.mv, met: c.met, fitting: c.fitting, dt: c.dt, coriolis: c.coriolis, earth_curvature: c.earth_curvature,  // פרמטרי ירי
+                     angle_unit: 'mils', groups: groups, qe_min: v(_af.els.qeMin), qe_max: v(_af.els.qeMax),  // גבולות במילים
+                     min_range_m: v(_af.els.minRange), max_tof_s: v(_af.els.maxTof), crest: _af.els.crest.checked, safety_margin_m: v(_af.els.margin) || 0}};  // סינונים
+        }}
+        function _afFmtTime(s) {{  // שניות → טקסט קריא
+            if (s == null) return '';  // אין
+            return s < 90 ? Math.max(1, Math.round(s)) + " שנ'" : (s < 5400 ? Math.round(s / 60) + " דק'" : (s / 3600).toFixed(1) + ' שעות');  // שניות/דקות/שעות
+        }}
+        function _afScheduleEstimate() {{  // הערכה מחדש (debounce) אחרי שינוי
+            clearTimeout(_af.estTimer); _af.estTimer = setTimeout(_afEstimate, 400);  // 0.4 שנ'
+        }}
+        function _afEstimate() {{  // הערכה לפני הרצה (החלטה 11: בלי תקרה, אבל עם הערכה)
+            var req = _afRequest();  // הבקשה
+            if (!req.launch_areas.length || !req.target_areas.length) {{ _af.els.est.textContent = 'סמן לפחות אזור שיגור אחד ואזור מטרה אחד.'; return; }}  // חסר
+            fetch('http://localhost:5002/ballistics/area/estimate', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(req)}})
+            .then(function(r) {{ return r.json(); }}).then(function(d) {{
+                if (d.error) {{ _af.els.est.textContent = '⚠️ ' + d.error; return; }}  // שגיאה
+                _af.els.est.textContent = d.launch_points.toLocaleString() + ' נקודות שיגור × ' + d.target_points.toLocaleString() + ' נקודות מטרה = ' + d.pairs.toLocaleString() + ' זוגות (' + d.trajectories_max.toLocaleString() + ' מסלולים לבדיקה). זמן משוער: ' + _afFmtTime(d.eta_s) + (d.cells_missing ? ' (מתוכו שליפת שטח: ' + _afFmtTime(d.eta_parts_s.terrain) + ', בפעם הבאה מהמטמון)' : '');  // ההערכה
+            }}).catch(function() {{ _af.els.est.textContent = 'השרת לא זמין להערכה'; }});  // כשל
+        }}
+        function _afRun() {{  // התחלת חישוב
+            var req = _afRequest();  // הבקשה
+            if (!req.launch_areas.length || !req.target_areas.length) {{ _af.els.info.textContent = 'סמן לפחות אזור שיגור אחד ואזור מטרה אחד.'; return; }}  // חסר
+            if (!req.groups.length) {{ _af.els.info.textContent = 'בחר לפחות ענף אחד.'; return; }}  // בלי ענפים
+            _afCancel(true);  // job קודם
+            _af.result = null; _af.vis = null; _af.visJob = null;  // ניקוי תוצאה קודמת
+            _afLayers().paths.clearLayers(); _af.els.res.style.display = 'none';  // ניקוי המפה
+            _af.els.info.textContent = 'מתחיל…';  // משוב
+            fetch('http://localhost:5002/ballistics/area/start', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(req)}})
+            .then(function(r) {{ return r.json(); }}).then(function(d) {{
+                if (d.error || !d.job_id) {{ _af.els.info.textContent = '⚠️ ' + (d.error || 'שגיאה'); return; }}  // שגיאה
+                _af.jobId = d.job_id; _af.els.cancel.style.display = ''; _af.els.run.disabled = true;  // מצב ריצה
+                _af.timer = setInterval(function() {{ _afPoll(d.job_id, false); }}, 1000);  // polling
+            }}).catch(function(e) {{ _af.els.info.textContent = '⚠️ ' + e.message; }});  // כשל
+        }}
+        function _afCancel(silent) {{  // ביטול job פעיל
+            if (_af.timer) {{ clearInterval(_af.timer); _af.timer = null; }}  // עצירת polling
+            var id = _af.jobId; _af.jobId = null;  // ה-job
+            if (id) fetch('http://localhost:5002/ballistics/area/cancel?job_id=' + id, {{method: 'POST'}}).catch(function() {{}});  // ביטול בשרת
+            _af.els.cancel.style.display = 'none'; _af.els.run.disabled = false;  // מצב רגיל
+            if (id && silent !== true) _af.els.info.textContent = 'בוטל.';  // משוב
+        }}
+        function _afPoll(jobId, isVis) {{  // מצב job (חישוב או צביעה)
+            fetch('http://localhost:5002/ballistics/area/status?job_id=' + jobId).then(function(r) {{ return r.json(); }}).then(function(d) {{
+                if (isVis ? jobId !== _af.visJob : jobId !== _af.jobId) return;  // job שהוחלף
+                var el = _af.els.info;  // שורת המצב
+                if (d.status === 'running') {{  // עדיין רץ
+                    var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' : '';  // שליפה
+                    el.textContent = (isVis ? '🎨 ' : '⏳ ') + (d.note || 'מחשב…') + prog + (d.eta_s ? ' · נותרו כ-' + _afFmtTime(d.eta_s) : '');  // התקדמות + הערכה
+                    return;  // ממתין
+                }}
+                if (isVis) {{ clearInterval(_af.visTimer); _af.visTimer = null; }} else {{ clearInterval(_af.timer); _af.timer = null; _af.jobId = null; _af.els.cancel.style.display = 'none'; _af.els.run.disabled = false; }}  // עצירה
+                if (d.status === 'done') {{  // הצליח
+                    if (isVis) {{ _af.vis = d.result; _af.visSig = _af.visSigPending; _afCheckStale(); _afRender(); _afSummary(); }}  // צביעה
+                    else {{ _af.result = d.result; _af.resultJob = jobId; _af.visJob = _af.vis = null; _af.visSig = null; _afShowResult(); }}  // תוצאה חדשה (מזהה ה-job נשמר — לצביעה ול-CSV)
+                }} else el.textContent = d.status === 'error' ? '⚠️ ' + (d.error || 'שגיאה') : (isVis ? 'הצביעה בוטלה.' : 'בוטל.');  // שגיאה/ביטול
+                if (el.scrollIntoView) el.scrollIntoView({{block: 'nearest', behavior: 'smooth'}});  // T23: גלילה לתוצאה
+            }}).catch(function() {{}});  // כשל רשת — ה-tick הבא
+        }}
+
+        // ── תוצאות ──
+        function _afShowResult() {{  // אחרי חישוב: מילוי מסננים, ציור, סיכום, וצביעה ראשונה אוטומטית
+            var r = _af.result;  // התוצאה
+            _af.els.res.style.display = 'flex';  // אזור התוצאות
+            [['fLaunch', r.areas.launch, 'כל אזורי השיגור'], ['fTarget', r.areas.target, 'כל אזורי המטרה']].forEach(function(x) {{  // מסנני אזורים
+                var sel = _af.els[x[0]]; sel.innerHTML = '';  // ניקוי
+                var o = _afMk(sel, 'option', x[2]); o.value = '-1';  // הכול
+                x[1].forEach(function(nm, i) {{ var op = _afMk(sel, 'option', nm); op.value = String(i); }});  // כל אזור
+            }});
+            _afDrawHeat(); _afRender(); _afSummary();  // ציור וסיכום
+            if ((_rs.sites || []).length) _afRecolor();  // יש מכ"מים — צביעה ראשונה אוטומטית
+            else {{ _af.visSig = _afSites(); _afCheckStale(); }}  // אין מכ"מים — הכול אדום (החלטה 14)
+        }}
+        function _afSummary() {{  // טקסט הסיכום
+            var r = _af.result; if (!r) return;  // אין
+            var s = r.summary, v = r.verification || {{}};  // קיצורים
+            var lines = ['✅ ' + s.pairs_feasible.toLocaleString() + ' מתוך ' + s.pairs.toLocaleString() + ' זוגות אפשריים · ' + s.trajectories_feasible.toLocaleString() + ' מסלולים אפשריים (מתוך ' + s.trajectories_checked.toLocaleString() + ' שנבדקו).'];  // ספירות (החלטה 10)
+            var rej = Object.keys(s.rejected).filter(function(k) {{ return s.rejected[k]; }}).map(function(k) {{ return AF_REJECT_NAMES[k] + ': ' + s.rejected[k].toLocaleString(); }});  // פסילות
+            if (rej.length) lines.push('נפסלו: ' + rej.join(' · '));  // פירוט
+            if (v.checked) lines.push('דיוק (מדגם ' + v.checked + ' מסלולים, מסלול אמיתי מכל נקודת שיגור): החטאה מרבית ' + v.miss_max_m + ' מ\\', RMS ' + v.miss_rms_m + ' מ\\'; שגיאת הגבהה עד ' + v.qe_err_max_mils + ' מיל.');  // אימות (החלטה 1)
+            if (_af.vis) {{ var vs = _af.vis.summary; lines.push('🎨 ' + vs.radars + ' מכ"מים: ' + vs.trajectories_seen_any.toLocaleString() + ' מסלולים נצפים בחלקם, ' + vs.trajectories_seen_full.toLocaleString() + ' במלואם, ' + vs.trajectories_unseen.toLocaleString() + ' לא נצפים כלל.'); }}  // נראות
+            lines.push('זמן חישוב: ' + _afFmtTime(s.elapsed_s) + '.');  // זמן
+            _af.els.info.textContent = lines.join(String.fromCharCode(10));  // שורות
+        }}
+        function _afMask(i) {{  // מסיכת הנראות של מסלול (או null אם לא חושבה)
+            return _af.vis && _af.vis.masks ? _af.vis.masks[i] : null;  // המסיכה
+        }}
+        function _afFiltered() {{  // אינדקסים של מסלולים אחרי הסינון
+            var r = _af.result, out = [];  // התוצאה
+            var fb = _af.els.fBranch.value, fl = parseInt(_af.els.fLaunch.value || '-1', 10), ft = parseInt(_af.els.fTarget.value || '-1', 10), fu = _af.els.fUnseen.checked;  // המסננים
+            r.rows.forEach(function(row, i) {{  // כל מסלול
+                if (fb !== 'all' && row.group !== fb) return;  // ענף
+                if (fl >= 0 && row.la !== fl) return;  // אזור שיגור
+                if (ft >= 0 && row.ta !== ft) return;  // אזור מטרה
+                if (fu) {{ var m = _afMask(i); if (m && m.some(function(x) {{ return x; }})) return; }}  // רק לא נצפים
+                out.push(i);  // עבר
+            }});
+            return out;  // הרשימה
+        }}
+        function _afRender() {{  // ציור המסלולים (ירוק/אדום לפי קטע) + טבלה
+            var r = _af.result; if (!r) return;  // אין
+            var ly = _afLayers(); ly.paths.clearLayers(); ly.sel.clearLayers();  // ניקוי
+            var idx = _afFiltered(), shown = idx;  // אחרי סינון
+            if (idx.length > AF_MAX_DRAW) {{ var step = idx.length / AF_MAX_DRAW; shown = []; for (var k = 0; k < AF_MAX_DRAW; k++) shown.push(idx[Math.floor(k * step)]); }}  // דילול שווה (החלטה 15)
+            _af.els.drawNote.textContent = idx.length > AF_MAX_DRAW ? 'מוצגים ' + AF_MAX_DRAW.toLocaleString() + ' מתוך ' + idx.length.toLocaleString() + ' מסלולים (דילול תצוגה — כולם נספרים). צמצם בסינון כדי לראות הכול.' : idx.length.toLocaleString() + ' מסלולים מוצגים.';  // הודעה
+            if (_af.els.showPaths.checked) shown.forEach(function(i) {{  // ציור
+                var row = r.rows[i], m = _afMask(i), p = row.path;  // המסלול
+                var seg = [p[0]], cur = m ? !!m[0] : false;  // קטע נוכחי וצבעו
+                function flush() {{ if (seg.length > 1) L.polyline(seg.map(function(q) {{ return [q[0], q[1]]; }}), {{renderer: _afRenderer, color: cur ? AF_GREEN : AF_RED, weight: 2, opacity: 0.75}}).on('click', function() {{ _afSelect(i); }}).addTo(ly.paths); }}  // קטע בצבע אחד
+                for (var k = 1; k < p.length; k++) {{  // כל נקודה
+                    var vis = m ? !!m[k] : false;  // נראות הנקודה
+                    if (vis !== cur) {{ seg.push(p[k]); flush(); seg = [p[k]]; cur = vis; }}  // מעבר צבע — סוגרים קטע
+                    else seg.push(p[k]);  // ממשיכים
+                }}
+                flush();  // הקטע האחרון
+            }});
+            _afTable(idx);  // טבלה
+        }}
+        function _afTable(idx) {{  // טבלת המסלולים (200 ראשונים אחרי סינון)
+            var r = _af.result, t = _af.els.table; t.innerHTML = '';  // ניקוי
+            var tbl = _afMk(t, 'table', '', 'border-collapse:collapse;font-size:9px;width:100%;direction:rtl;');  // הטבלה
+            var hr = _afMk(tbl, 'tr');  // כותרת
+            ['שיגור', 'מטרה', 'ענף', 'הגבהה [מיל]', 'אזימוט [מיל]', 'מעוף [ש\\']', 'נצפה'].forEach(function(h) {{ _afMk(hr, 'th', h, 'position:sticky;top:0;background:#f5f5f5;padding:1px 3px;border-bottom:1px solid #ddd;'); }});  // עמודות
+            idx.slice(0, 200).forEach(function(i) {{  // שורות
+                var row = r.rows[i], m = _afMask(i);  // המסלול
+                var seen = m ? Math.round(100 * m.filter(function(x) {{ return x; }}).length / m.length) + '%' : '—';  // אחוז נצפה
+                var tr = _afMk(tbl, 'tr', '', 'cursor:pointer;');  // שורה
+                [r.areas.launch[row.la] + ' #' + (row.lp + 1), r.areas.target[row.ta] + ' #' + (row.tp + 1), row.group === 'low' ? 'נמוך' : 'גבוה', row.qe.mils, row.fire_azimuth.mils, row.tof_s, seen].forEach(function(v) {{ _afMk(tr, 'td', String(v), 'padding:1px 3px;border-bottom:1px solid #f0f0f0;white-space:nowrap;'); }});  // תאים
+                L.DomEvent.on(tr, 'click', function() {{ _afSelect(i); }});  // בחירה
+            }});
+            if (idx.length > 200) _afMk(t, 'div', 'מוצגות 200 שורות ראשונות — הכול ב-CSV.', 'font-size:9px;color:#888;padding:2px;');  // הערה
+        }}
+        function _afSelect(i) {{  // מסלול שנבחר: הדגשה, פרטים, ופתיחה במסלול בודד
+            var r = _af.result, row = r.rows[i], ly = _afLayers(); ly.sel.clearLayers();  // ניקוי
+            L.polyline(row.path.map(function(q) {{ return [q[0], q[1]]; }}), {{color: '#1565c0', weight: 5, opacity: 0.9}}).addTo(ly.sel);  // הדגשה בכחול
+            var m = _afMask(i), who = [];  // מי רואה
+            if (m && _af.vis) {{ var bits = 0; m.forEach(function(x) {{ bits |= x; }}); (_af.vis.radars || []).forEach(function(rd, b) {{ if (bits & (1 << b)) who.push(rd.name); }}); }}  // איחוד הביטים
+            _af.els.selInfo.innerHTML = '';  // ניקוי
+            _afMk(_af.els.selInfo, 'div', '🔵 ' + r.areas.launch[row.la] + ' #' + (row.lp + 1) + ' → ' + r.areas.target[row.ta] + ' #' + (row.tp + 1) + ' · ענף ' + (row.group === 'low' ? 'נמוך' : 'גבוה') + String.fromCharCode(10) +
+                'טווח ' + Math.round(row.range_m).toLocaleString() + ' מ\\' · הגבהה ' + row.qe.mils + ' מיל · אזימוט ירי ' + row.fire_azimuth.mils + ' מיל · מעוף ' + row.tof_s + ' ש\\' · קודקוד ' + Math.round(row.apex_msl_m) + ' מ\\'' + String.fromCharCode(10) +
+                (m ? 'נצפה ע"י: ' + (who.length ? who.join(', ') : 'אף מכ"ם') : 'הצביעה עוד לא חושבה'));  // הפרטים
+            _afBtn(_af.els.selInfo, '🔍 פתח במסלול בודד (חישוב מדויק + מעקב מכ"ם)', 'מציב את התותח והמטרה של המסלול הזה בכלי הבודד, לחישוב מדויק ובדיקת מעקב מכ"ם מלאה', function() {{  // מעבר לכלי הבודד
+                _afSetMode(false);  // מצב בודד
+                ballisticsEditing = 'gun'; _placeBallisticsPoint(L.latLng(row.launch[0], row.launch[1]));  // תותח (הגובה נשלף מחדש — T21)
+                ballisticsEditing = 'target'; _placeBallisticsPoint(L.latLng(row.target[0], row.target[1]));  // מטרה
+                _ballisticsSelectTab('solve');  // טאב פתרון ירי
+            }}, 'margin-top:2px;');  // סוף הכפתור
+        }}
+        function _afDrawHeat() {{  // מפות חום: תא לכל נקודה, צבע לפי מספר המסלולים (סולם רציף, גוון אחד)
+            var r = _af.result, ly = _afLayers(); ly.heatL.clearLayers(); ly.heatT.clearLayers();  // ניקוי
+            [['launch', ly.heatL, r.resolution_m.launch, [222, 235, 247], [8, 81, 156], 'מסלולים מנקודת השיגור'], ['target', ly.heatT, r.resolution_m.target, [242, 240, 247], [84, 39, 143], 'מסלולים אל נקודת המטרה']].forEach(function(x) {{  // שיגור בכחול, מטרה בסגול
+                var pts = r.heat[x[0]], mx = Math.max(1, Math.max.apply(null, pts.map(function(p) {{ return p.count; }})));  // המרבי
+                pts.forEach(function(p) {{  // כל נקודה
+                    var t = p.count / mx, c = x[3].map(function(a, j) {{ return Math.round(a + t * (x[4][j] - a)); }});  // צבע בסולם
+                    var dLat = x[2] / 2 / 111320, dLon = dLat / Math.cos(p.lat * Math.PI / 180);  // חצי תא
+                    L.rectangle([[p.lat - dLat, p.lon - dLon], [p.lat + dLat, p.lon + dLon]], {{renderer: _afRenderer, weight: 0, fillColor: 'rgb(' + c.join(',') + ')', fillOpacity: p.count ? 0.7 : 0.25}}).bindTooltip(p.count + ' ' + x[5]).addTo(x[1]);  // תא + ריחוף עם המספר
+                }});
+            }});
+        }}
+        function _afApplyLayerToggles() {{  // הצגת/הסתרת השכבות לפי המתגים
+            if (!_af.els.showPaths || !_af.mode) return;  // לא במצב
+            var ly = _afLayers();  // השכבות
+            if (_af.els.showHeatL.checked) ly.heatL.addTo(map); else map.removeLayer(ly.heatL);  // חום שיגור
+            if (_af.els.showHeatT.checked) ly.heatT.addTo(map); else map.removeLayer(ly.heatT);  // חום מטרה
+            _afRender();  // מסלולים
+        }}
+        function _afRecolor() {{  // "עדכן צביעה" — נראות מול כל המכ"מים המוצבים
+            if (!_af.resultJob) return;  // אין תוצאה בשרת
+            _af.visSigPending = _afSites();  // המכ"מים ברגע הבקשה
+            _af.els.stale.textContent = '';  // מנקים הודעה
+            fetch('http://localhost:5002/ballistics/area/visibility', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{job_id: _af.resultJob}})}})
+            .then(function(rsp) {{ return rsp.json(); }}).then(function(d) {{
+                if (d.error || !d.job_id) {{ _af.els.stale.textContent = '⚠️ ' + (d.error || 'שגיאה'); return; }}  // שגיאה
+                _af.visJob = d.job_id;  // ה-job
+                if (_af.visTimer) clearInterval(_af.visTimer);  // קודם
+                _af.visTimer = setInterval(function() {{ _afPoll(d.job_id, true); }}, 1000);  // polling
+            }}).catch(function(e) {{ _af.els.stale.textContent = '⚠️ ' + e.message; }});  // כשל
+        }}
+        function _afCheckStale() {{  // האם המכ"מים השתנו מאז הצביעה (החלטה 16: הודעה + כפתור, בלי עדכון אוטומטי)
+            if (!_af.result || !_af.els.stale) return;  // אין תוצאה
+            var changed = _af.visSig !== null && _af.visSig !== _afSites();  // השוואה
+            _af.els.stale.textContent = changed ? '⚠️ המכ"מים המוצבים השתנו — הצביעה ישנה. לחץ "עדכן צביעה".' : '';  // הודעה
+        }}
+        setInterval(function() {{ if (_af.mode && _af.result) _afCheckStale(); }}, 3000);  // בדיקה תקופתית קלה (השוואת מחרוזת)
+        function _afCsv() {{  // ייצוא CSV (דרך fetch כדי שטוקן ההפעלה יישלח)
+            if (!_af.resultJob) return;  // אין תוצאה
+            fetch('http://localhost:5002/ballistics/area/csv?job_id=' + _af.resultJob + (_af.visJob && _af.vis ? '&vis_job=' + _af.visJob : ''))  // הבקשה
+            .then(function(r) {{ return r.blob(); }}).then(function(blob) {{
+                var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'area_fire.csv';  // קישור הורדה
+                document.body.appendChild(a); a.click(); setTimeout(function() {{ URL.revokeObjectURL(a.href); a.remove(); }}, 1000);  // הורדה וניקוי
+            }}).catch(function(e) {{ _af.els.info.textContent = '⚠️ ייצוא נכשל: ' + e.message; }});  // כשל
+        }}
+
         function _ballisticsBuildTrajTab(body) {{
             var top = L.DomUtil.create('div', '', body);
             top.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
@@ -5907,6 +6419,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             // לא מתפתר כמו ב-div רגיל. אומת ישירות: getBoundingClientRect() החזיר {{w:0,h:0}} ממש.
             // תוקן ברוחב-פיקסלים מוחלט (לא %) — עוקף את כל הבעיה, לא רק מטפל בתזמון
             canvas.style.cssText = 'width:250px;height:90px;display:block;margin-top:3px;';
+            canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', 'גרף המסלול הבליסטי: גובה לפי טווח (הערכים המדויקים בטקסט מתחת)');  // T12 (F-041): שם נגיש לגרף
             top.appendChild(canvas);
 
             function _runTraj() {{
@@ -6068,6 +6581,14 @@ def create_map(target='desktop', api_base='', output_path=None):
             rtBtn.textContent = '🎯 בדוק מעקב מכ"ם';  // תווית
             rtBtn.title = 'משתמש במכ"ם ובפרמטרים מכלי "תצפית מכ"ם דופלר" (🎯) ובמקור המסלול שנבחר למעלה';  // הסבר בריחוף
             rtBtn.style.cssText = 'font-size:10px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#94e2d5;cursor:pointer;';  // עיצוב כמו שאר הכפתורים
+            var rtCmpBtn = L.DomUtil.create('button', '', top);  // T30: השוואת כל המכ"מים המוצבים
+            rtCmpBtn.textContent = '📊 השווה את כל המכ"מים המוצבים';  // תווית
+            rtCmpBtn.title = 'בודק את המסלול מול כל מכ"ם ברשימה (עם הפרמטרים שלו) ומציג טבלה: מי רואה את הפגז, מתי, ומאיזה מרחק';  // הסבר
+            rtCmpBtn.style.cssText = 'font-size:10px;padding:3px;min-height:24px;border-radius:3px;border:1px solid #ccc;background:#e8f5e9;cursor:pointer;';  // עיצוב
+            L.DomEvent.on(rtCmpBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _rtCompareAll(); }});  // לחיצה
+            _rtCmp.el = L.DomUtil.create('div', '', top);  // T30: אזור התוצאה
+            _rtCmp.el.style.cssText = 'font-size:9.5px;color:#222;max-height:200px;overflow:auto;';  // עיצוב
+            _rtCmp.el.setAttribute('role', 'status');  // קוראי מסך
             // ---- הגדרות סריקה ומעקב (שלב א2) — מקופלות כברירת מחדל, כדי לא להעמיס על הטאב ----
             var rtCfg = L.DomUtil.create('details', '', top);  // אזור מתקפל
             rtCfg.style.cssText = 'font-size:9px;border:1px solid #ddd;border-radius:3px;padding:2px 4px;';  // מסגרת עדינה
@@ -6177,6 +6698,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _rtPlace.info = L.DomUtil.create('div', '', rtPl);  // התקדמות ותוצאה
             _rtPlace.info.style.cssText = 'font-size:9px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;';  // טקסט
             _rtPlace.legend = document.createElement('canvas');  // מקרא הסולם
+            _rtPlace.legend.setAttribute('role', 'img'); _rtPlace.legend.setAttribute('aria-label', 'מקרא מפת החום: צבע בהיר = ציון נמוך, כהה = גבוה');  // T12 (F-041)
             _rtPlace.legend.style.cssText = 'width:250px;height:30px;display:none;';  // מוסתר עד שיש תוצאה
             rtPl.appendChild(_rtPlace.legend);  // לאזור
             L.DomEvent.on(plRun, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _rtPlacementRun(); }});  // הפעלה
@@ -6185,6 +6707,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             var rtInfo = L.DomUtil.create('div', '', top);  // שורת הסיכום של הבדיקה — נפרדת מ-info כדי שלא תידרס
             rtInfo.style.cssText = 'font-size:9.5px;color:#333;white-space:pre-wrap;direction:rtl;text-align:right;';  // כמו info
             var rtTimeline = document.createElement('canvas');  // ציר הזמן של המעקב (שלב א2)
+            rtTimeline.setAttribute('role', 'img'); rtTimeline.setAttribute('aria-label', 'ציר זמן המעקב: מצב הגילוי והמעקב לאורך זמן המעוף (הפירוט בטקסט הסיכום)');  // T12 (F-041)
             rtTimeline.style.cssText = 'width:250px;height:40px;display:none;margin-top:2px;';  // רוחב בפיקסלים — ר' ההערה על canvas למטה; מוסתר עד שיש תוצאה
             top.appendChild(rtTimeline);  // לטאב
             // ---- שלב א3: מניפת LOS, ייצוא CSV, גרף צד ופרופיל שטח לנקודה ----
@@ -6198,11 +6721,13 @@ def create_map(target='desktop', api_base='', output_path=None):
             rtCsvBtn.textContent = '⬇ CSV'; rtCsvBtn.title = 'ייצוא שורה לכל נקודה: זמן, מיקום, גובה, טווח, זווית, מצב וסיבה';  // תווית והסבר
             rtCsvBtn.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // עיצוב
             var rtSide = document.createElement('canvas');  // גרף צד: מרחק × גובה
+            rtSide.setAttribute('role', 'img'); rtSide.setAttribute('aria-label', 'גרף צד: גובה המסלול והשטח לפי מרחק מהמכ"ם, צבוע לפי מצב הגילוי');  // T12 (F-041)
             rtSide.style.cssText = 'width:250px;height:120px;display:none;margin-top:2px;border:1px solid #eee;';  // מוסתר עד שיש תוצאה
             top.appendChild(rtSide);  // לטאב
             var rtProfInfo = L.DomUtil.create('div', '', top);  // כותרת פרופיל השטח
             rtProfInfo.style.cssText = 'font-size:9px;color:#333;direction:rtl;text-align:right;';  // כמו שאר הטקסטים
             var rtProfile = document.createElement('canvas');  // פרופיל שטח לנקודה שנלחצה
+            rtProfile.setAttribute('role', 'img'); rtProfile.setAttribute('aria-label', 'פרופיל שטח בין המכ"ם לנקודה שנבחרה במסלול');  // T12 (F-041)
             rtProfile.style.cssText = 'width:250px;height:90px;display:none;border:1px solid #eee;';  // מוסתר עד לחיצה
             top.appendChild(rtProfile);  // לטאב
             _rtViewEls = {{fan: rtFanChk, side: rtSide, profile: rtProfile, profInfo: rtProfInfo}};  // הפניות גלובליות לפונקציות הציור
@@ -6721,6 +7246,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 _ballisticsBuildMetTab(tabBodies['met']);
                 _ballisticsBuildRadarTab(tabBodies['radar']);  // כלי בדיקת מעקב מכ"ם — מקור מסלול, הגדרות ותוצאות
                 _selectTab('traj');
+                _afBuild(panelBody);  // A5: מתג "מסלול בודד | מאזור לאזור" בראש הפאנל + הכלי החדש (המסלול הבודד לא משתנה)
 
                 L.DomEvent.disableClickPropagation(container);
                 L.DomEvent.disableScrollPropagation(container);
@@ -6745,6 +7271,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         map.on('click', function(e) {{
             if (!ballisticsActive) return;
             if (_rtMapPickActive) return;  // תיקון תקלה: הלחיצה שייכת לבחירה מטאב "מעקב מכ"ם" (מכ"ם / מרכז שיוט) — לא להזיז תותח/מטרה
+            if (_af.mode) {{ _afMapClick(e.latlng); return; }}  // A5: במצב "מאזור לאזור" הלחיצה מציירת אזור (או לא עושה כלום) — לא מזיזה תותח/מטרה
             _placeBallisticsPoint(e.latlng);
         }});
 

@@ -34,6 +34,7 @@ def create_app(import_name):
         logging.basicConfig(filename='app_combined.log', level=logging.INFO, format='%(asctime)s - %(message)s')
         _log_configured = True
     app = Flask(import_name)
+    app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # T8 (F-042): גוף בקשה עד 8MB (מסלול של 6,000 נקודות ≈ 0.5MB) — מעבר לזה 413 לפני פענוח
     CORS(app, origins=_cors_origins(), allow_headers=["Content-Type", _TOKEN_HEADER])  # T4 (F-031): רק מקור הממשק (map.html נטען כ-file://), לא כל אתר
     app.before_request(_require_app_token)  # T5 (F-031): כל בקשה חייבת את טוקן ההפעלה כש-main.py הגדיר אותו
     register_metrics(app)  # מוסיף נתיב GET /metrics למעקב הדשבורד

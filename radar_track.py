@@ -96,6 +96,8 @@ def normalize_trajectory(points):
             continue  # מדלגים על הנקודה
         if not (math.isfinite(t) and math.isfinite(lat) and math.isfinite(lon) and math.isfinite(alt)):  # NaN/אינסוף
             continue  # מדלגים
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):  # T13 (F-044): קואורדינטה מחוץ לטווח — חסרת משמעות, ואסור לשלוח אותה לשירות הגבהים
+            continue  # מדלגים כמו על NaN
         clean.append({"t": t, "lat": lat, "lon": lon, "alt": alt})  # נקודה תקינה
     clean.sort(key=lambda q: q["t"])  # סדר כרונולוגי
     uniq = []  # בלי זמנים כפולים (הפרש-זמן אפס היה מחלק באפס בחישוב המהירות)

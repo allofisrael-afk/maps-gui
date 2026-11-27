@@ -36,7 +36,10 @@ PAIR_CODE_PATH = STATE_DIR / "pair_code.txt"  # קוד-הצימוד (8 תווי�
 MAX_LEN = 500  # הודעות ארוכות מזה נחתכות אוטומטית
 SEND_TIMEOUT_SEC = 60  # זמן מרבי לחיבור+שליחה בפקודות send/summary/daily/test
 FILE_TIMEOUT_SEC = 900  # זמן מרבי לחיבור+העלאה בפקודת send-file — קובץ של ~100MB לוקח כמה דקות
-FILE_MAX_MB = 2000  # מגבלת גודל מסמך בוואטסאפ (~2GB)
+FILE_MAX_MB = 200  # T26 (F-058): תקרה שלנו (וואטסאפ מאפשר ~2GB) — APK הוא ~110MB; קובץ ענק הוא כנראה טעות
+FILE_ALLOWED_EXT = (".apk", ".pdf", ".png", ".jpg", ".jpeg", ".txt", ".md", ".csv", ".log", ".zip", ".json", ".xlsx", ".docx", ".html")  # T26: סוגים מותרים — לא קבצי הגדרות/סודות
+FILE_BLOCKED_NAMES = ("config.json", ".env", "settings.local.json")  # T26: שמות שאסור לשלוח גם אם הסיומת מותרת (עלולים להכיל סודות)
+FILE_BLOCKED_DIRS = ("session", "state", ".git")  # T26: תיקיות שאסור לשלוח מהן (חיבור הוואטסאפ, מצב, git)
 SETUP_TIMEOUT_SEC = 300  # זמן מרבי לסריקת QR / הזנת קוד-צימוד ב-setup
 EMOJI = {  # אימוג'י הסטטוס לפי סוג ההודעה — לפי ההחלטה שסוכמה
     "start": "⏳",  # התחלת משימה
@@ -158,6 +161,15 @@ _SANITIZE_MAX_IN = 4000  # T3: תקרת אורך לקלט הסינון — מו�
 def _basename_of(match):
     """מחליף נתיב מלא בשם הקובץ/התיקייה האחרון בלבד."""
     return re.split(r"[\\/]", match.group(0).rstrip("\\/"))[-1]  # הרכיב האחרון של הנתיב
+
+
+def safe_filename(name):
+    """T26 (F-058): שם קובץ בטוח לשליחה — רק אותיות (כולל עברית), ספרות, נקודה, מקף וקו תחתון; עד 100 תווים."""
+    stem, dot, ext = name.rpartition(".")  # שם וסיומת
+    if not dot:  # בלי סיומת
+        stem, ext = name, ""  # הכול שם
+    clean = "".join(ch if (ch.isalnum() or ch in "-_.") else "_" for ch in stem).strip("._") or "file"  # תווים בטוחים בלבד
+    return (clean[:90] + ("." + "".join(ch for ch in ext if ch.isalnum())[:8] if ext else ""))  # שם מקוצר + סיומת נקייה
 
 
 def sanitize(text):
@@ -315,7 +327,7 @@ def deliver(text, cfg, setup_mode=False, use_code=False, timeout=SEND_TIMEOUT_SE
             if file_path:  # שליחת קובץ כמסמך (למשל APK) — הטקסט הוא הכיתוב
                 data = Path(file_path).read_bytes()  # תוכן הקובץ כבייטים — חד-משמעי (מחרוזת עלולה להתפרש ככתובת URL)
                 mime = "application/vnd.android.package-archive" if str(file_path).lower().endswith(".apk") else "application/octet-stream"  # סוג הקובץ להתקנה בטלפון
-                _client.send_document(build_jid(target), data, caption=text, filename=Path(file_path).name, mimetype=mime)  # העלאה ושליחה; חוזר אחרי אישור השרת
+                _client.send_document(build_jid(target), data, caption=text, filename=safe_filename(Path(file_path).name), mimetype=mime)  # העלאה ושליחה; חוזר אחרי אישור השרת (T26: שם מסונן)
             else:  # הודעת טקסט רגילה — כמו קודם
                 _client.send_message(build_jid(target), text)  # שליחה; חוזר אחרי אישור השרת
             finish(True, "sent")  # הצלחה
@@ -501,6 +513,12 @@ def cmd_send_file(args):
     if not p.is_file():  # קובץ חסר — הודעה ברורה
         print(f"הקובץ לא נמצא: {p.name}")  # רק שם הקובץ, בלי נתיב מלא
         return 1  # כשל — פקודה ידנית, מדווחים בבירור
+    if p.suffix.lower() not in FILE_ALLOWED_EXT:  # T26 (F-058): סוג לא מותר
+        print(f"סוג קובץ לא מותר לשליחה: {p.suffix or '(בלי סיומת)'}")  # הסבר
+        return 1  # כשל
+    if p.name.lower() in FILE_BLOCKED_NAMES or any(part in FILE_BLOCKED_DIRS for part in p.resolve().parts):  # T26: קובץ רגיש
+        print(f"הקובץ {p.name} חסום לשליחה (עלול להכיל סודות או את חיבור הוואטסאפ)")  # הסבר
+        return 1  # כשל
     size_mb = p.stat().st_size / (1024 * 1024)  # גודל במגה-בייט
     if size_mb > FILE_MAX_MB:  # מעל מגבלת המסמכים של וואטסאפ
         print(f"הקובץ גדול מדי ({size_mb:.0f}MB > {FILE_MAX_MB}MB)")  # הסבר

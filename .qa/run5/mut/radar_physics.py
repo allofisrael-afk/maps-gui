@@ -118,9 +118,10 @@ def _parse_radar_common_params(args):
     לא כולל lat/lon/bearing (שונים במהות בין שני ה-endpoints, כל אחד קולט אותם בעצמו)."""
     def _f(name, default):
         try:
-            return float(args.get(name, default))
+            v = float(args.get(name, default))  # המרה
         except (TypeError, ValueError):
             return default
+        return v if math.isfinite(v) else default  # T7 (F-032): NaN/Inf לא עוברים את min/max — ברירת המחדל במקום
 
     range_km = min(max(_f('range_km', _RADAR_RANGE_KM_DEFAULT), _RADIAL_RANGE_KM_MIN), _RADIAL_RANGE_KM_MAX)
     min_range_km = min(max(_f('min_range_km', _RADAR_MIN_RANGE_KM_DEFAULT), 0.0), range_km)  # לא שלילי, לא מעל range_km עצמו

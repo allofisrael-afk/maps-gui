@@ -16,6 +16,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # T0: moved from .qa/run5/tests/ to tests/ - project root is now one level up
 sys.path.insert(0, ROOT)
+os.environ.setdefault("MAPS_GUI_ELEV_CACHE", os.path.join(__import__("tempfile").mkdtemp(prefix="elevcache_test_"), "c.sqlite"))  # T23: הבדיקה מזריקה גבהים מזויפים — מטמון זמני, לעולם לא המטמון האמיתי של המשתמש
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import weather_server as ws  # noqa: E402
@@ -124,8 +125,8 @@ r = client.post("/radar_track/start", data=raw, content_type="application/json")
 if r.status_code == 200:
     st = wait(r.get_json()["job_id"])
     res = st.get("result") or {}
-    rk = (res.get("radar") or {}).get("range_km")
-    repro("R5-VAL-NAN", "NaN בפרמטר עובר את הצמידה (min/max) ונכנס לחישוב", st["status"] == "done" and (rk is None or (isinstance(rk, float) and math.isnan(rk)) or "NaN" in json.dumps(res)[:100000]),
+    rk = res.get("range_km", (res.get("radar") or {}).get("range_km"))  # T7: הטווח נמצא ברמה העליונה של התוצאה (קודם חיפשנו תחת radar וקיבלנו None — חיובי שגוי)
+    repro("R5-VAL-NAN", "NaN בפרמטר עובר את הצמידה (min/max) ונכנס לחישוב", st["status"] == "done" and (rk is None or not math.isfinite(rk) or "NaN" in json.dumps(res)[:100000]),
           f"job={st['status']} radar.range_km={rk!r}")
 else:
     repro("R5-VAL-NAN", "NaN בפרמטר", False, f"http={r.status_code}")
@@ -135,8 +136,21 @@ st = wait(r.get_json()["job_id"]) if r.status_code == 200 else {"status": f"http
 repro("R5-VAL-RANGE", "קואורדינטות מסלול מחוץ לטווח (lat>90) מתקבלות ומחושבות", st["status"] == "done", f"job={st['status']}")
 
 # ── 5. jobs במקביל — אין תקרה ──
-ids = [client.post("/radar_track/start", json=base).get_json().get("job_id") for _ in range(40)]
-repro("R5-DOS-JOBS", "40 jobs במקביל התקבלו בלי תקרה (thread לכל אחד)", all(ids), f"accepted={sum(1 for i in ids if i)}")
+# T9: worker איטי (2 שנ') — אחרת ה-jobs מסתיימים מיד והתקרה לא נבחנת בכלל
+_orig_worker = ws._radar_track_worker  # המקורי
+ws._radar_track_worker = lambda job_id, *a, **k: time.sleep(2) or ws._job_fail(job_id, "test")  # עבודה איטית
+resps = [client.post("/radar_track/start", json=base) for _ in range(40)]  # 40 בקשות מהירות
+ids = [r.get_json().get("job_id") for r in resps if r.status_code == 200]  # שהתקבלו
+n429 = sum(1 for r in resps if r.status_code == 429)  # שנדחו
+repro("R5-DOS-JOBS", "40 jobs במקביל התקבלו בלי תקרה (thread לכל אחד)", len(ids) == 40, f"accepted={len(ids)} rejected_429={n429}")
+check("T9: תקרת jobs — לכל היותר 16 פעילים, השאר 429", len(ids) <= ws._JOB_MAX_ACTIVE and n429 == 40 - len(ids), f"accepted={len(ids)}")
+time.sleep(0.5)  # שה-threads יתחילו
+with ws._radar_jobs_lock:  # כמה רצים בפועל (לא ממתינים בתור)
+    queued = sum(1 for i in ids if ws._radar_jobs.get(i, {}).get("note") == ws._QUEUED_NOTE)  # בתור
+check("T9: עד 4 רצים במקביל, השאר מסומנים 'ממתין בתור'", queued >= len(ids) - ws._JOB_CONCURRENCY, f"queued={queued}")
+for i in ids:  # ניקוי — ביטול כולם
+    client.post("/radar_doppler/cancel?job_id=" + i)  # ביטול
+ws._radar_track_worker = _orig_worker  # שחזור
 for i in ids:
     if i:
         client.post("/radar_doppler/cancel?job_id=" + i)

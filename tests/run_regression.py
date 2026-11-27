@@ -9,7 +9,9 @@
 הרצה: python tests/run_regression.py [--full]  (מהשורש, עם .venv הראשי של הפרויקט - לא .qa/.venv,
 כי אלה בדיקות-הפרויקט עצמו, לא כלי-ניתוח)
 """
+import os  # T23: משתני סביבה לחבילות
 import subprocess
+import tempfile  # T23: מטמון גבהים זמני לכל חבילה
 import sys
 from pathlib import Path
 
@@ -25,11 +27,17 @@ REGRESSION_SUITES = [
     ("rocket_model.py - test_rocket_model.py", PROJECT_ROOT / "tests" / "test_rocket_model.py"),  # מודל הרקטה, שלב א6 (FR-D-275)
     ("radar_placement.py - test_radar_placement.py", PROJECT_ROOT / "tests" / "test_radar_placement.py"),  # הצעת מיקום, שלב ב' (FR-D-277)
     ("radar_physics.py - test_radar_physics.py", PROJECT_ROOT / "tests" / "test_radar_physics.py"),  # נוסחאות משותפות + תיקון הדופלר (FR-D-280)
+    ("radar_physics oracle - test_radar_physics_oracle.py", TESTS_DIR / "test_radar_physics_oracle.py"),  # T10: ערכי ייחוס מוחלטים + NaN/Inf (T7)
     ("radar_service.py - test_radar_service.py", PROJECT_ROOT / "tests" / "test_radar_service.py"),  # צינורות משותפים + השרת דרכם (FR-D-281)
     ("radar_android.py - test_radar_android.py", PROJECT_ROOT / "tests" / "test_radar_android.py"),  # מתאם האנדרואיד דרך mpm_api.dispatch_json (FR-D-282)
     ("LOS target height ref - test_los_target_ref.py", PROJECT_ROOT / "tests" / "test_los_target_ref.py"),  # גובה בחינה AGL/MSL (FR-D-290)
     ("radar algorithmic + Golden Master - test_r5_radar_algorithmic.py", TESTS_DIR / "test_r5_radar_algorithmic.py"),  # T0: הועבר מ-.qa/run5/tests; תרחיש מייצג, metamorphic, Golden Master
     ("server security - test_r5_server_security.py", TESTS_DIR / "test_r5_server_security.py"),  # T0: הועבר מ-.qa/run5/tests; שורות REPRO בתוכו מדווחות ממצאים פתוחים בלי להכשיל
+    ("elevation cache - test_elev_cache.py", TESTS_DIR / "test_elev_cache.py"),  # T23: מטמון גבהים קבוע (שורד הפעלה מחדש, קובץ פגום, זיכרון בלבד)
+    ("area-to-area engine - test_area_fire.py", TESTS_DIR / "test_area_fire.py", 400),  # A1–A3: מנוע מאזור לאזור (רשתות, טבלת ירי, סינונים, רכס, דיוק, מדרון, נראות) — ~3 דק', timeout משלו
+    ("area-to-area server - test_area_fire_server.py", TESTS_DIR / "test_area_fire_server.py"),  # A4: נקודות הקצה (estimate/start/status/visibility/csv/cancel), במקביל
+    ("area-to-area Android layer - test_area_fire_android.py", TESTS_DIR / "test_area_fire_android.py"),  # A6: radar_android דרך mpm_api.dispatch_json
+    ("multi-radar compare - test_radar_compare.py", TESTS_DIR / "test_radar_compare.py"),  # T30: מסלול מול כל המכ"מים המוצבים
 ]
 
 # T0: חבילות ארוכות שרצות רק עם --full (fuzz של 261 צירופים בתהליכים נפרדים; כמה דקות)
@@ -50,7 +58,8 @@ def run_one(label, path, timeout=120):  # T0: timeout per suite; optional suites
     # F-030: timeout=120 - שונות-זמנים אמיתית נמדדה (47-87ש', חריגה אחת מ-120ש') בלי קוד תקוע;
     # בלי timeout, תקיעה אמיתית עתידית תיתקע את כל ריצת-הרגרסיה לנצח בלי אבחון.
     try:
-        proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=timeout,  # T0: was a fixed 120
+        env = dict(os.environ, MAPS_GUI_ELEV_CACHE=os.path.join(tempfile.mkdtemp(prefix="regr_elev_"), "c.sqlite"))  # T23: לכל חבילה מטמון גבהים זמני — בדיקות עם גבהים מזויפים לא נוגעות במטמון האמיתי
+        proc = subprocess.run([str(PYTHON), str(path)], cwd=PROJECT_ROOT, timeout=timeout, env=env,  # T0: was a fixed 120; T23: env עם מטמון זמני
                                capture_output=True, text=True, encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or "") if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
@@ -61,7 +70,7 @@ def run_one(label, path, timeout=120):  # T0: timeout per suite; optional suites
 
 def main():
     print("=== חבילת רגרסיה (חייבת לעבור) ===")
-    regression_results = [run_one(l, p) for l, p in REGRESSION_SUITES]
+    regression_results = [run_one(*s) for s in REGRESSION_SUITES]  # A1: רשומה יכולה לכלול timeout שלישי (חבילה ארוכה)
     for label, ok, code, out, err in regression_results:
         print(f"{'[OK]' if ok else '[FAIL]'} {label} (exit={code})")
         if not ok:

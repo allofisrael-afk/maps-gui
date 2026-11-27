@@ -1,5 +1,5 @@
 {
- "ok": 15,
+ "ok": 17,
  "fail": 0,
  "repro": [
   [
@@ -12,11 +12,11 @@
   ],
   [
    "R5-DATA-SIZE",
-   true
+   false
   ],
   [
    "R5-DATA-SIZE",
-   true
+   false
   ],
   [
    "R5-DATA-ATOMIC",
@@ -24,15 +24,15 @@
   ],
   [
    "R5-VAL-NAN",
-   true
+   false
   ],
   [
    "R5-VAL-RANGE",
-   true
+   false
   ],
   [
    "R5-DOS-JOBS",
-   true
+   false
   ]
  ]
 }
