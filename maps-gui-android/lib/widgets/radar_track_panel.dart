@@ -24,6 +24,8 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
   String? _profSel; // פרופיל שנבחר
   List<String> _profNames = []; // הפרופילים השמורים
   String _profStatus = ''; // הודעת פרופילים
+  final _summaryKey = GlobalKey(); // T23 (F-055): עוגן לסיכום — לגלילה אליו בסיום
+  Object? _shownResult; // T23: התוצאה האחרונה שכבר גללנו אליה (גלילה פעם אחת לכל תוצאה)
 
   @override
   void dispose() {
@@ -137,6 +139,13 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
     }
     final u = c.update; // עדכון
     final r = c.result; // התוצאה
+    if (r != null && !identical(r, _shownResult)) { // T23 (F-055): תוצאה חדשה — גוללים אליה פעם אחת, כדי שהסיכום לא יישאר מתחת לתחתית המסך
+      _shownResult = r; // T23: לא לגלול שוב באותה תוצאה
+      WidgetsBinding.instance.addPostFrameCallback((_) { // T23: אחרי שהסיכום צויר
+        final ctx = _summaryKey.currentContext; // T23: מיקום הסיכום
+        if (ctx != null) Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 300), alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd); // T23: גלילה רכה בעמודת הכלים
+      });
+    }
     final pl = c.placement; // מפת החום
     final isTrack = c.trackMode == 'track'; // מצב מעקב
     final lk = c.lockedFor('radar'); // FR-D-288: שדות הסוג נעולים (מכ"ם פעיל מהספרייה)
@@ -222,7 +231,7 @@ class _RadarTrackPanelState extends State<RadarTrackPanel> {
               _btn('בטל', c.running ? () => c.cancel() : null), _btn('נקה', r == null && c.rocketPath == null ? null : c.clear),
             ]),
             if (c.running) const LinearProgressIndicator(minHeight: 2), // התקדמות
-            if (c.status.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4),
+            if (c.status.isNotEmpty) Padding(key: _summaryKey, padding: const EdgeInsets.only(top: 4), // T23: עוגן הגלילה
                 child: SelectableText(c.status, style: TextStyle(fontSize: 9.5, color: cs.onSurface))), // הסיכום
             if (r != null && r['track'] != null) SizedBox(width: 269, height: 42, child: CustomPaint(painter: RtTimelinePainter(r['track'] as Map))), // ציר זמן
             if (r != null) ...[
@@ -428,22 +437,22 @@ class _GlobalRadarBarState extends State<GlobalRadarBar> {
     if (!mounted) return;
     final nameCtrl = TextEditingController(text: oldName ?? 'מכ"ם ${c.sites.length + 1}'); // שם
     final types = <(String, String)>[for (final p in c.library) ('lib:${p['file']}', '📚 ${p['name']}'), for (final n in c.myProfileNames) ('my:$n', '👤 $n')]; // סוגים
-    String type = oldName != null ? '${(c.site!['params'] as Map)['type_key']}' : (types.isNotEmpty ? types.first.$1 : ''); // סוג נבחר
-    if (!types.any((x) => x.$1 == type) && types.isNotEmpty) type = types.first.$1; // סוג שלא ברשימה
+    String type = oldName != null ? '${(c.site!['params'] as Map)['type_key']}' : ''; // T22 (F-054): מכ"ם חדש — בלי סוג מראש, חובה לבחור
+    if (oldName != null && !types.any((x) => x.$1 == type) && types.isNotEmpty) type = types.first.$1; // עריכה: סוג שכבר לא ברשימה
     final res = await showDialog<String>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
         title: Text(oldName == null ? 'מכ"ם מוצב חדש' : 'עריכת מכ"ם', style: const TextStyle(fontSize: 14)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: nameCtrl, maxLength: 100, decoration: const InputDecoration(labelText: 'שם')), // שם
-          DropdownButton<String>(value: types.isEmpty ? null : type, isExpanded: true, hint: const Text('אין סוגים'),
+          DropdownButton<String>(value: types.any((x) => x.$1 == type) ? type : null, isExpanded: true, hint: Text(types.isEmpty ? 'אין סוגים' : '— בחר סוג מכ"ם —'), // T22: שורת הנחיה עד שבוחרים
               items: [for (final x in types) DropdownMenuItem(value: x.$1, child: Text(x.$2, style: const TextStyle(fontSize: 11), overflow: TextOverflow.ellipsis))],
               onChanged: (v) => setD(() => type = v ?? type)), // סוג
           Text('גובה אנטנה, סקטור וטווח מתמלאים מהסוג וניתנים לשינוי בכלים.', style: TextStyle(fontSize: 10, color: widget.cs.onSurfaceVariant)),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ביטול')),
-          FilledButton(onPressed: () async { final e = await c.saveSite(nameCtrl.text, type, oldName: oldName); if (ctx.mounted) Navigator.pop(ctx, e ?? 'ok'); },
+          FilledButton(onPressed: type.isEmpty ? null : () async { final e = await c.saveSite(nameCtrl.text, type, oldName: oldName); if (ctx.mounted) Navigator.pop(ctx, e ?? 'ok'); }, // T22: שמירה רק אחרי בחירת סוג
               child: const Text('שמור')),
         ],
       ),
@@ -487,7 +496,7 @@ class _GlobalRadarBarState extends State<GlobalRadarBar> {
         tooltip: tip, onPressed: fn, icon: Icon(ic, size: 18), padding: const EdgeInsets.all(12), constraints: const BoxConstraints()));
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Material(
+      child: Semantics(container: true, label: 'בורר מכ"ם פעיל וניהול המכ"מים המוצבים', child: Material( // T12 (F-041): שם נגיש לבורר הגלובלי
         color: cs.surface.withAlpha(240), borderRadius: BorderRadius.circular(10), elevation: 4,
         child: Container(
           constraints: const BoxConstraints(maxWidth: 300), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // רוחב גמיש — מתאים לטלפון צר
@@ -497,6 +506,13 @@ class _GlobalRadarBarState extends State<GlobalRadarBar> {
               btn(_open ? Icons.expand_less : Icons.tune, _open ? 'הסתר ניהול מכ"מים' : 'ניהול מכ"מים מוצבים', () => setState(() => _open = !_open)), // הרחבה
             ]),
             if (c.sitePick) Text('הקש על המפה למיקום המכ"ם הפעיל', style: TextStyle(fontSize: 10, color: cs.primary)), // מצב מיקום
+            if (_open || hasSite) // T1 (F-036, Q-R5-2): הבהרה בולטת כשמוצג שם מוצר או כשהניהול פתוח
+              Container( // T1: מסגרת צהובה עדינה, כמו בדסקטופ
+                margin: const EdgeInsets.only(top: 2), padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1), // T1: ריווח קטן
+                decoration: BoxDecoration(color: const Color(0xFFFFF8E1), border: Border.all(color: const Color(0xFFFFE08A)), borderRadius: BorderRadius.circular(3)), // T1: רקע וגבול
+                child: const Text('ℹ️ שמות המוצרים שייכים לבעליהם; אין קשר ליצרנים ואין אישור מהם. הערכים משוערים מנתונים פומביים, ואינם מפרט רשמי.', // T1: אותו נוסח כמו בדסקטופ
+                    style: TextStyle(fontSize: 9, color: Color(0xFF6B4F00), height: 1.3)), // T1: טקסט קטן וקריא
+              ),
             if (_open) Wrap(alignment: WrapAlignment.center, children: [
               btn(Icons.add, 'מכ"ם מוצב חדש', () => _editDialog(c)), // חדש
               btn(Icons.edit, 'עריכת שם או סוג', hasSite ? () => _editDialog(c, oldName: c.activeSite) : null), // עריכה
@@ -509,7 +525,7 @@ class _GlobalRadarBarState extends State<GlobalRadarBar> {
             if (_open && _msg.isNotEmpty) Text(_msg, style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant), textAlign: TextAlign.center), // הודעה
           ]),
         ),
-      ),
+      )), // T12: סוף ה-Semantics של הבורר הגלובלי
     );
   }
 }
@@ -535,21 +551,21 @@ class LosParamsForm extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<MapState>(); // המצב
-    Widget drop(String value, List<(String, String)> items, void Function(String) on) => DropdownButton<String>( // בורר קטן
+    Widget drop(String label, String value, List<(String, String)> items, void Function(String) on) => Semantics(label: label, child: DropdownButton<String>( // בורר קטן; T12 (F-041): שם נגיש
         value: value, isDense: true, items: [for (final it in items) DropdownMenuItem(value: it.$1, child: Text(it.$2, style: const TextStyle(fontSize: 10)))],
-        onChanged: (v) { if (v != null) s.updateRadialLosParam(() => on(v)); });
-    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        onChanged: (v) { if (v != null) s.updateRadialLosParam(() => on(v)); }));
+    return Semantics(container: true, label: 'פרמטרי קו ראייה: גובה בחינה, יחידות, ייחוס, מרווח רכס וגזרה', child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [ // T12 (F-041): קבוצה עם שם
       NumBox(label: 'גובה בחינה', value: s.losTgtH, cs: cs, tip: 'גובה היעד — ביחידות ובייחוס שמתחת', onChanged: (v) => s.updateRadialLosParam(() => s.losTgtH = v)),
       Wrap(spacing: 6, children: [
-        drop(s.losTgtUnit, const [('m', 'מטר'), ('ft', 'רגל'), ('kft', 'א"ר')], (v) => s.losTgtUnit = v), // יחידות
-        drop(s.losTgtRef, const [('agl', 'מעל הקרקע'), ('msl', 'מעל פני הים')], (v) => s.losTgtRef = v), // ייחוס
+        drop('יחידות גובה הבחינה', s.losTgtUnit, const [('m', 'מטר'), ('ft', 'רגל'), ('kft', 'א"ר')], (v) => s.losTgtUnit = v), // יחידות
+        drop('ייחוס גובה הבחינה', s.losTgtRef, const [('agl', 'מעל הקרקע'), ('msl', 'מעל פני הים')], (v) => s.losTgtRef = v), // ייחוס
       ]),
       NumBox(label: 'מרווח רכס (°)', value: s.losMarginDeg, cs: cs, tip: 'שולי ביטחון מעל הרכס — משפיע על הטווח', onChanged: (v) => s.updateRadialLosParam(() => s.losMarginDeg = v)),
       NumBox(label: 'גזרה — מ- (°)', value: s.losSecStart, cs: cs, onChanged: (v) => s.updateRadialLosParam(() => s.losSecStart = v)),
       NumBox(label: 'גזרה — עד (°)', value: s.losSecEnd, cs: cs, tip: '0–360 = בלי הגבלת גזרה', onChanged: (v) => s.updateRadialLosParam(() => s.losSecEnd = v)),
       TextButton(onPressed: () { final se = sectorFromRadar(s); s.updateRadialLosParam(() { s.losSecStart = se.$1; s.losSecEnd = se.$2; }); },
           child: const Text('📐 גזרה מהמכ"ם', style: TextStyle(fontSize: 10))), // כיוון הפנים ± זווית הסריקה
-    ]);
+    ])); // T12: סוף ה-Semantics
   }
 }
 

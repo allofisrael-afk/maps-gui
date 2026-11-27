@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/mpm_bridge.dart';
 import '../state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם מקבל מכאן את המסלול, המשגר והמטאו (שלב ג', FR-D-283)
+import 'area_fire_panel.dart'; // A6: מצב "מאזור לאזור"
 
 /// כלי מסלול בליסטי (MPM) — Stage 3 (FR-D-237), Android. גרסה ראשונה, בכוונה מצומצמת-היקף
 /// יחסית ל-Desktop/Web (ר' MAPS-GUI_SRS.md §3.27): הזנת תותח/מטרה ידנית (lat/lon/alt), לא
@@ -20,6 +21,7 @@ class BallisticsPanel extends StatefulWidget {
 
 class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProviderStateMixin {
   bool _open = false; // מצב מצומצם (אייקון) / פתוח (פאנל מלא) — כמו _RadialLosPanel
+  bool _areaMode = false; // A6: מתג "מסלול בודד | מאזור לאזור" (המסלול הבודד לא משתנה)
   late final TabController _tabs = TabController(length: 5, vsync: this);
 
   // --- תותח/מטרה (הזנה ידנית — ר' הערת-היקף למעלה) ---
@@ -376,6 +378,13 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
               ),
             ]),
             Text('⚠ פגז generic_155 — להדגמה בלבד', style: TextStyle(fontSize: 8.5, color: cs.error)),
+            Row(children: [ // A6: מתג המצבים
+              for (final m in const [[false, 'מסלול בודד'], [true, '🗺 מאזור לאזור']]) // שני המצבים
+                Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 1), child: ChoiceChip( // בחירה
+                  label: Center(child: Text(m[1] as String, style: const TextStyle(fontSize: 10))), selected: _areaMode == m[0], // הטקסט והמצב
+                  onSelected: (_) => setState(() => _areaMode = m[0] as bool), showCheckmark: false))), // החלפה
+            ]),
+            if (!_areaMode) ...[ // A6: התותח והמטרה רק במסלול בודד
             _header('תותח'),
             _num('קו רוחב', _gunLat, width: 80),
             _num('קו אורך', _gunLon, width: 80),
@@ -384,6 +393,7 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
             _num('קו רוחב', _tgtLat, width: 80),
             _num('קו אורך', _tgtLon, width: 80),
             _num('גובה [מ\']', _tgtAlt, width: 80),
+            ], // A6: סוף החלק של המסלול הבודד
             _header('מטאו'),
             Row(children: [
               Expanded(child: DropdownButton<String>(
@@ -404,6 +414,15 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
             _num('מקדם גרר fD', _fD, width: 60),
             _num('מקדם עילוי fL', _fL, width: 60),
             const SizedBox(height: 4),
+            if (_areaMode) AreaFirePanel(cs: cs, commonParams: _commonParams, onOpenSingle: (l, t) { // A6: הכלי החדש, עם פרמטרי הירי שלמעלה
+              setState(() { // מעבר למסלול בודד עם התותח והמטרה של המסלול שנבחר
+                _gunLat.text = '${l[0]}'; _gunLon.text = '${l[1]}'; _gunAlt.text = '${l[2]}'; // התותח
+                _tgtLat.text = '${t[0]}'; _tgtLon.text = '${t[1]}'; _tgtAlt.text = '${t[2]}'; // המטרה
+                _areaMode = false; // מצב בודד
+              });
+              _tabs.animateTo(1); // טאב פתרון ירי — לחישוב מדויק
+            }),
+            if (!_areaMode) ...[ // A6: הטאבים רק במסלול בודד
             TabBar(
               controller: _tabs, isScrollable: true, labelColor: cs.primary, unselectedLabelColor: cs.onSurfaceVariant,
               labelStyle: const TextStyle(fontSize: 10), indicatorColor: cs.primary,
@@ -413,6 +432,7 @@ class _BallisticsPanelState extends State<BallisticsPanel> with SingleTickerProv
               height: 230,
               child: TabBarView(controller: _tabs, children: [_trajTab(), _solveTab(), _tableTab(), _calTab(), _metTab()]),
             ),
+            ], // A6: סוף הטאבים
           ]),
         ),
       ),

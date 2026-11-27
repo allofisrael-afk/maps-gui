@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'screens/map_screen.dart';
 import 'state/map_state.dart';
 import 'state/radar_track_controller.dart'; // כלי בדיקת מעקב המכ"ם (שלב ג', FR-D-283)
+import 'state/area_fire_controller.dart'; // A6: ירי מאזור לאזור
 import 'legal/about.dart'; // רישום רישיונות צד-שלישי שאינם חבילות Dart (ביקורת רישוי)
 
 void main() {
@@ -19,6 +20,7 @@ void main() {
       create: (_) => RadarTrackController(), // נוצר פעם אחת
       update: (_, map, rt) => (rt ?? RadarTrackController())..attach(map), // attach אידמפוטנטי
     ),
+    ChangeNotifierProvider(create: (_) => AreaFireController()), // A6: בקר "מאזור לאזור" — אזורים, ציור, job, תוצאה וצביעה
   ], child: const MapsApp()));
 }
 
