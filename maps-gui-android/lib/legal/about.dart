@@ -49,6 +49,9 @@ const String _dataSources = r'''Map tiles and data services used by this app:
 - Dark basemap: (c) CARTO, (c) OpenStreetMap contributors.
 - Elevation and weather data: Open-Meteo.com, licensed under CC BY 4.0,
   https://open-meteo.com/
+- Local elevation tiles: SRTM data courtesy of the U.S. Geological Survey
+  (public domain), via the AWS Registry of Open Data "Terrain Tiles",
+  https://registry.opendata.aws/terrain-tiles/
 - Flight data: FlightRadar24 and The OpenSky Network.
 - NOTAM data: Israel Airports Authority (brin.iaa.gov.il).
 - Airport CTR boundaries: Israel eAIP (AD 2.17).''';
