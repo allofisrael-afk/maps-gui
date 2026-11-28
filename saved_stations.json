@@ -58,25 +58,6 @@
       }
     },
     {
-      "name": "EL/M-2084 MMR סקטור",
-      "_schema_version": 1,
-      "params": {
-        "type_key": "lib:ELM-2084_sector_public_data.json",
-        "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)",
-        "lat": 31.732839253650067,
-        "lon": 37.05688476562501,
-        "boresight_deg": 0,
-        "h_antenna": 5,
-        "range_km": 100,
-        "start_bearing_deg": 295,
-        "end_bearing_deg": 65,
-        "angle_step_deg": 10,
-        "reflectivity": "land",
-        "lobing_enabled": false,
-        "ridge_margin_deg": 0
-      }
-    },
-    {
       "name": "ELM-2311 C-MMR סקטור (נתונים פומביים, טווח משוער) 2",
       "_schema_version": 1,
       "params": {
@@ -185,6 +166,25 @@
         "range_km": 300,
         "reflectivity": "land",
         "ridge_margin_deg": 0,
+        "start_bearing_deg": 180,
+        "type_key": "lib:ELM-2084_sector_public_data.json",
+        "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)"
+      }
+    },
+    {
+      "name": "EL/M-2084 MMR סקטור",
+      "_schema_version": 1,
+      "params": {
+        "angle_step_deg": 10,
+        "boresight_deg": 0,
+        "end_bearing_deg": 300,
+        "h_antenna": 5,
+        "lat": 31.732839253650067,
+        "lobing_enabled": false,
+        "lon": 37.05688476562501,
+        "range_km": 100,
+        "reflectivity": "land",
+        "ridge_margin_deg": 1.2,
         "start_bearing_deg": 180,
         "type_key": "lib:ELM-2084_sector_public_data.json",
         "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)"

@@ -33,6 +33,9 @@ MOCK = r"""(function(){
     return {summary: {launch_points: 1, target_points: n, pairs: n, pairs_feasible: n, trajectories_feasible: n, trajectories_checked: n * 2, rejected: {out_of_range: 0, qe_limits: 0, min_range: 0, max_tof: 0, terrain: 0}, groups: ['low'], elapsed_s: 3, met: '', met_stale: false},
             verification: {checked: 0}, tables: [], resolution_m: {launch: 500, target: 200, terrain: 150}, areas: {launch: ['שיגור 1'], target: ['מטרה 1']},
             heat: {launch: [{area: 0, lat: 31.2, lon: 34.75, count: n}], target: [{area: 0, lat: 31.3, lon: 34.86, count: 1}]}, rows: rows}; }
+  window.__resultFor = function(kind){  // 28/11: תוצאה סינתטית לרדיאלי
+    var rays = []; for (var b = 0; b < 4; b++) rays.push({bearing_deg: b * 10, lat: 31.3 + b * 0.01, lon: 34.8 + b * 0.01, blocked: b % 2 === 1});  // 4 קרניים
+    return {range_km: 10, min_range_km: 0, n_bearings: 4, clear_count: 2, span_deg: 30, observer_lat: 31.25, observer_lon: 34.79, rays: rays}; };
   function resp(d){ return Promise.resolve({ok: true, status: 200, json: function(){ return Promise.resolve(d); }, blob: function(){ return Promise.resolve(new Blob(['x'])); }, clone: function(){ return this; }}); }
   window.fetch = function(u, opt){ u = String(u); window.__calls.push(u.replace('http://localhost:5002', ''));
     if (u.indexOf('/ballistics/area/estimate') >= 0) return resp({launch_points: 1, target_points: 5, pairs: 5, trajectories_max: 10, eta_s: 5, cells_missing: 0, eta_parts_s: {}});
@@ -44,6 +47,15 @@ MOCK = r"""(function(){
       if (j.state === 'running') return resp({status: 'running', note: 'מחשב', eta_s: 60});
       if (j.state === 'done') return resp({status: 'done', result: result(j.n)});
       return resp({status: j.state, error: j.state === 'error' ? 'x' : null}); }
+    // 28/11: רדיוס ראייה רדיאלי ודופלר מכ"ם — אותו מנגנון: start → job, status → running/done, cancel
+    var kinds = [['/los_radial/', 'R'], ['/radar_doppler/', 'D']];  // נתיב וקידומת מזהה
+    for (var q = 0; q < kinds.length; q++) { var base = kinds[q][0];
+      if (u.indexOf(base + 'start') >= 0 || u.indexOf('/radar_doppler/evaluate_route') >= 0) { var rid = kinds[q][1] + (++window.__n); window.__jobs[rid] = {state: 'running'}; return resp({job_id: rid}); }
+      if (u.indexOf(base + 'cancel') >= 0) { var cr = u.split('job_id=')[1]; if (window.__jobs[cr]) window.__jobs[cr].state = 'cancelled'; return resp({ok: true}); }
+      if (u.indexOf(base + 'status') >= 0) { var jr = window.__jobs[u.split('job_id=')[1]] || {state: 'error'};
+        if (jr.state === 'running') return resp({status: 'running', batches_done: 1, batches_total: 4});
+        if (jr.state === 'done') return resp({status: 'done', result: window.__resultFor(kinds[q][1])});
+        return resp({status: jr.state}); } }
     return resp({});  // שאר הקריאות של המפה (תחנות, פרופילים...) — תשובה ריקה
   };
 })();"""  # שרת מדומה בתוך הדף
@@ -111,8 +123,31 @@ def run():  # התרחיש
     check("ביטול חישוב אחד: נשלח ביטול רק עבורו, האחרים נשארים", wait("_af.runs[2].status === 'cancelled'") and js("__calls.filter(function(c){ return c.indexOf('/cancel') >= 0; }).length === 1 && __calls.filter(function(c){ return c.indexOf('/cancel') >= 0; })[0].indexOf('J3') >= 0 && _af.runs[0].status === 'done' && _af.runs[1].status === 'done'") is True)  # ביטול
     js("_afRemoveRun(_af.runs[1]); 'ok'")  # הסרת הנבחר
     check("הסרת החישוב הנבחר: יורד מהמפה, אחר נבחר במקומו", wait("_af.runs.length === 2 && _af.cur === _af.runs[0] && _af.els.info.textContent.indexOf('4 מתוך 4') >= 0") and js("document.querySelectorAll('#map *').length > 0") is True)  # הסרה
+    run_radial()  # 28/11: שלב 2 — רדיוס ראייה רדיאלי
     errs = js("JSON.stringify(window.__errs || [])")  # שגיאות JS
     check("אין שגיאות JavaScript", errs in ("[]", None), str(errs))  # קונסולה
+
+
+def run_radial():  # 28/11: רדיוס ראייה — שני חישובים במקביל, הזזת צופה לא מבטלת, ביטול/הסרה/Undo לחישוב אחד
+    js("""_rsActivate(''); _afSetMode(false); toggleRadialLos();
+          map.fire('click', {latlng: L.latLng(31.25, 34.79), originalEvent: {}}); _runRadialLos(); 'ok'""")  # צופה + חישוב ראשון
+    wait("_radialRuns.length === 1 && _radialRuns[0].status === 'running'")  # רץ
+    js("map.fire('click', {latlng: L.latLng(31.40, 34.90), originalEvent: {}}); _runRadialLos(); 'ok'")  # צופה חדש + חישוב שני בזמן שהראשון רץ
+    check("רדיאלי: הצבת צופה חדש והפעלה נוספת לא מבטלות את הראשון", wait("_radialRuns.length === 2 && _radialRuns.every(function(r){ return r.status === 'running'; })") and not js("__calls.some(function(c){ return c.indexOf('/los_radial/cancel') >= 0; })"), str(js("JSON.stringify(_radialRuns.map(function(r){ return r.status; }))")))  # שניהם רצים
+    js("__jobs[_radialRuns[0].jobId].state = 'done'; 'ok'")  # הראשון מסתיים
+    check("רדיאלי: הראשון צויר בשכבה שלו, השני עדיין רץ", wait("_radialRuns[0].status === 'done' && _radialRuns[0].layer.getLayers().length > 4 && map.hasLayer(_radialRuns[0].layer) && _radialRuns[1].status === 'running'"))  # תוצאה 1
+    js("__jobs[_radialRuns[1].jobId].state = 'done'; 'ok'")  # השני מסתיים
+    check("רדיאלי: שתי התוצאות על המפה יחד", wait("_radialRuns[1].status === 'done' && map.hasLayer(_radialRuns[0].layer) && map.hasLayer(_radialRuns[1].layer) && _radialRuns[1].layer.getLayers().length > 4"))  # שתיהן
+    js("_performUndo(); 'ok'")  # Undo — הפונקציה של כפתור הביטול במפה
+    check("רדיאלי: Undo מסתיר רק את התוצאה האחרונה", wait("!map.hasLayer(_radialRuns[1].layer) && map.hasLayer(_radialRuns[0].layer)"))  # Undo
+    js("_runRadialLos(); 'ok'")  # שלישי
+    wait("_radialRuns.length === 3 && _radialRuns[2].status === 'running'")  # רץ
+    js("_cancelRadialRun(_radialRuns[2]); 'ok'")  # ביטול השלישי
+    check("רדיאלי: ביטול חישוב אחד שולח ביטול רק עבורו", wait("_radialRuns[2].status === 'cancelled'") and js("__calls.filter(function(c){ return c.indexOf('/los_radial/cancel') >= 0; }).length === 1 && map.hasLayer(_radialRuns[0].layer)") is True)  # ביטול
+    js("_removeRadialRun(_radialRuns[0]); 'ok'")  # הסרת הראשון
+    check("רדיאלי: הסרה מורידה מהמפה ומהרשימה", wait("_radialRuns.length === 2 && _radialRunsEl.children.length === 2"))  # הסרה
+    js("toggleRadialLos(); 'ok'")  # כיבוי הכלי
+    check("רדיאלי: כיבוי הכלי מנקה את כל החישובים", wait("_radialRuns.length === 0"))  # כיבוי
 
 
 def main():  # הפעלה

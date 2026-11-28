@@ -358,6 +358,47 @@ def create_map(target='desktop', api_base='', output_path=None):
             _updateUndoRedoButtons();
         }}
 
+        // ── 28/11 (FR-D-301): רשימת חישובים לכלי עם חישוב ברקע — כמה חישובים במקביל, כל תוצאה בשכבה משלה ──
+        function _jrHhmm() {{  // 28/11: שעה נוכחית HH:MM לשם החישוב
+            var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);  // 28/11: טקסט
+        }}
+        function _jrRunning(rn) {{ return rn.status === 'running' || rn.status === 'starting'; }}  // 28/11: האם החישוב עדיין רץ
+        function _jrRow(listEl, rn, h) {{  // 28/11: שורת חישוב — מצב, הצג/הסתר, ביטול, הסרה. h = {{cancel(rn), remove(rn)}}
+            if (!rn.row) {{  // 28/11: יצירה בפעם הראשונה
+                var row = L.DomUtil.create('div', '', listEl);  // 28/11: השורה
+                row.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:9px;border:1px solid #eee;border-radius:3px;padding:1px 3px;direction:rtl;';  // 28/11: עיצוב
+                var chk = L.DomUtil.create('input', '', row); chk.type = 'checkbox'; chk.checked = true;  // 28/11: הצג במפה
+                chk.title = 'הצג במפה'; chk.setAttribute('aria-label', 'הצג במפה: ' + rn.label);  // 28/11: נגישות
+                L.DomEvent.on(chk, 'click', L.DomEvent.stopPropagation);  // 28/11: לא ללחיצה על המפה
+                L.DomEvent.on(chk, 'change', function() {{ rn.show = chk.checked; _jrApplyShow(rn); }});  // 28/11: הצגה/הסתרה
+                var lbl = L.DomUtil.create('span', '', row); lbl.textContent = rn.label;  // 28/11: שם
+                lbl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';  // 28/11: עיצוב
+                var st = L.DomUtil.create('span', '', row); st.style.cssText = 'color:#555;white-space:nowrap;';  // 28/11: מצב
+                function mk(txt, tip, fn) {{  // 28/11: כפתור קטן
+                    var b = L.DomUtil.create('button', '', row); b.textContent = txt; b.title = tip; b.setAttribute('aria-label', tip);  // 28/11: טקסט ונגישות
+                    b.style.cssText = 'font-size:10px;min-height:20px;padding:0 4px;border-radius:3px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;';  // 28/11: עיצוב
+                    L.DomEvent.on(b, 'click', function(e) {{ L.DomEvent.stopPropagation(e); fn(rn); }});  // 28/11: לחיצה
+                    return b;  // 28/11: הכפתור
+                }}
+                rn.row = {{el: row, st: st, stop: mk('⏹', 'ביטול החישוב ' + rn.label, h.cancel), del: mk('🗑', 'הסרת ' + rn.label + ' מהרשימה ומהמפה', h.remove)}};  // 28/11: נשמר
+            }}
+            var run = _jrRunning(rn);  // 28/11: רץ?
+            rn.row.st.textContent = run ? '⏳ ' + (rn.prog || '…') : (rn.status === 'done' ? '✅' : (rn.status === 'error' ? '⚠️ שגיאה' : 'בוטל'));  // 28/11: מצב קצר
+            rn.row.st.title = rn.note || '';  // 28/11: פירוט במעבר עכבר
+            rn.row.stop.style.display = run ? '' : 'none';  // 28/11: ביטול רק בזמן ריצה
+            rn.row.del.style.display = run ? 'none' : '';  // 28/11: הסרה אחרי סיום
+            rn.row.el.style.display = rn.undone ? 'none' : '';  // 28/11: חישוב שבוטל ב-Undo — מוסתר
+        }}
+        function _jrApplyShow(rn) {{  // 28/11: שכבת החישוב על המפה לפי "הצג" ו-Undo
+            if (rn.show && !rn.undone) {{ if (!map.hasLayer(rn.layer)) rn.layer.addTo(map); }} else map.removeLayer(rn.layer);  // 28/11: הצגה/הסתרה
+        }}
+        function _jrUndoRestore(rn, present, listEl, h) {{  // 28/11: Undo/Redo של "הפעל חישוב" — מסתיר/מחזיר את התוצאה של החישוב הזה בלבד
+            return function() {{  // 28/11: פעולת השחזור
+                rn.undone = present; _jrApplyShow(rn); _jrRow(listEl, rn, h);  // 28/11: present=true → מסתירים; false → מחזירים
+                return _jrUndoRestore(rn, !present, listEl, h);  // 28/11: הכיוון ההפוך (Redo)
+            }};
+        }}
+
         // הליבה הגנרית: setFn/getFn מתארים "איך לקרוא/לכתוב" את הערך (שדה DOM, מיקום משקיף,
         // דגל שכבה וכו') — לא תלוי בסוג הפעולה. מחזיר פונקציה שכשנקראת: קוראת את הערך הנוכחי
         // (לפני שהיא דורסת אותו — זה מה ש-redo/undo הבא יצטרך), כותבת את targetValue, ומחזירה
@@ -604,21 +645,16 @@ def create_map(target='desktop', api_base='', output_path=None):
 
         // ── מצב כלי רדיוס-ראייה רדיאלי (Viewshed מכומת) — כלי נפרד מ-LOS הרגיל ──
         var radialLosActive    = false; // האם מצב הצבת תצפית לרדיוס-ראייה פעיל (cursor crosshair)
-        var radialLosLoading   = false; // job רץ כרגע בשרת — מונע הפעלה כפולה
         var radialLosObs       = null;  // נקודת התצפית הנוכחית (L.LatLng), null אם לא הוצבה עדיין
         var radialLosObsMk     = null;  // סמן התצפית על המפה
         var radialLosStartLn   = null;  // קו תצוגה מקדימה לאזימוט ההתחלה
         var radialLosEndLn     = null;  // קו תצוגה מקדימה לאזימוט הסיום
         var radialLosStartMk   = null;  // ידית גרירה בקצה קו ההתחלה — קובעת גם זווית וגם טווח משותף
         var radialLosEndMk     = null;  // ידית גרירה בקצה קו הסיום
-        var radialLosPolygon   = null;  // L.polygon עם התוצאה המחושבת (מוחלף בכל "הפעל חישוב" מוצלח)
-        var radialLosSpokes    = [];    // קווי "חישור" צבעוניים (ירוק/אדום) — אחד לכל כיוון, ר' _drawRadialLosPolygon
-        var radialLosJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
-        var radialLosPollTimer = null;  // מזהה ה-setInterval של ה-polling, לצורך עצירה
+        var _radialRuns = [], _radialRunSeq = 0, _radialRunsEl = null;  // 28/11 (FR-D-301): חישובי רדיוס ראייה — כמה במקביל, כל תוצאה בשכבה משלה
         var radialLosInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות)
         var _radialLosBtnEl      = null; // הפניה לכפתור 📡 לצורך שינוי צבעו
         var _radialPanelBodyEl   = null; // גוף הפאנל (שדות+כפתורים) — מוסתר עד שהכלי נבחר (חוויית משתמש: אייקון קודם, פרמטרים אחר כך)
-        var _radialCancelBtnEl   = null; // הפניה לכפתור "בטל" לצורך הצגה/הסתרה
         var _radialRangeInput    = null; // שדה קלט טווח מרחק (ק"מ)
         var _radialMinRangeInput = null; // שדה קלט טווח מינימלי/אזור עיוור (ק"מ)
         var _radialStepInput     = null; // שדה קלט צעד זווית (מעלות)
@@ -2129,8 +2165,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             }} else if (radialLosActive) {{
                 // מצב רדיוס-ראייה רדיאלי — לחיצה בודדת (לא זוג כמו LOS) ממקמת/מזיזה משקיף
                 // ומציגה תצוגה מקדימה בלבד; החישוב האמיתי מופעל רק בלחיצה מפורשת על "הפעל חישוב"
-                if (radialLosLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
-                _placeRadialLosObserver(e.latlng);
+                _placeRadialLosObserver(e.latlng);  // 28/11: גם בזמן חישוב — אפשר להציב צופה חדש ולהריץ חישוב נוסף במקביל
             }} else if (radarActive) {{
                 // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי (לחיצה=משקיף+תצוגה מקדימה בלבד)
                 if (radarLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
@@ -2864,7 +2899,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
             // (ר' _buildStationUI), כדי לא לשכפל את לוגיקת יצירת הסמן בשני מקומות
             var _prevRadialObs = radialLosObs;  // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
-            clearRadialLosResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
+            _clearRadialObserver();  // ניקוי הצופה והתצוגה המקדימה הקודמים (28/11: התוצאות והחישובים שרצים נשארים)
             radialLosObs = latlng;
             radialLosObsMk = L.marker(latlng, {{icon: _radialLosMarkerIcon(), draggable: true}}).addTo(map);
             radialLosObsMk.bindTooltip('תצפית רדיוס ראייה', {{permanent:false, direction:'top'}});
@@ -2884,7 +2919,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _rsOnObserverMoved('radial', latlng);  // FR-D-288: אם מחובר למכ"ם הפעיל — המכ"ם וכל הכלים זזים איתו
             if (!_isRestoringUndo) {{
                 _pushUndo('רדיוס ראייה: מיקום משקיף', _makePlacementRestore(
-                    _placeRadialLosObserver, clearRadialLosResult,
+                    _placeRadialLosObserver, _clearRadialObserver,  // 28/11: Undo של הצבת צופה מנקה רק את הצופה — לא את התוצאות והחישובים
                     function() {{ return radialLosObs; }}, _prevRadialObs));
             }}
         }}
@@ -2936,7 +2971,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         function _runRadialLos() {{
             // מפעיל את החישוב האמיתי בשרת (בניגוד לתצוגה המקדימה, שהיא מקומית בלבד) — נקרא רק
             // בלחיצה מפורשת על "הפעל חישוב", לא אוטומטית בלחיצה על המפה או בגרירת ידית.
-            if (!radialLosObs || radialLosLoading) return;
+            if (!radialLosObs) return;  // 28/11: בלי חסימה בזמן חישוב — כל "הפעל חישוב" הוא חישוב נוסף ברשימה
             var rangeKm    = _radialRangeInput    ? parseFloat(_radialRangeInput.value)    : NaN;
             var minRangeKm = _radialMinRangeInput ? parseFloat(_radialMinRangeInput.value) : NaN;
             var stepDeg    = _radialStepInput     ? parseFloat(_radialStepInput.value)     : NaN;
@@ -2959,12 +2994,13 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (isNaN(marginDeg))  marginDeg = 0;
             if (isNaN(vCenter))    vCenter = 0;
             if (isNaN(vWidth))     vWidth = 4;
-            radialLosLoading = true;
-            _radialRunLbl = (_rs && _rs.detached.radial) ? 'צופה נפרד (לא לפי מכ"ם)' : _rtActiveLabel();  // FR-D-288: לפי איזה מכ"ם חושב — נלכד בתחילת החישוב
-            _radialRunLbl += ' · גובה בחינה ' + _rsHeightText(_radialTgtInput, _radialTgtUnitSel, _radialTgtRefSel);  // FR-D-290: באיזה גובה נבדק
+            var rn = {{n: ++_radialRunSeq, jobId: null, timer: null, status: 'starting', note: 'מתחיל…', prog: '', show: true, undone: false, row: null, layer: L.layerGroup().addTo(map),  // 28/11: חישוב חדש ברשימה
+                      label: '#' + (_radialRunSeq) + ' · ' + _jrHhmm() + ' · ' + rangeKm + ' ק"מ · ' + startDeg + '°–' + endDeg + '°'}};  // 28/11: שם
+            rn.radarLbl = (_rs && _rs.detached.radial) ? 'צופה נפרד (לא לפי מכ"ם)' : _rtActiveLabel();  // FR-D-288: לפי איזה מכ"ם חושב — נלכד בתחילת החישוב (28/11: לכל חישוב)
+            rn.radarLbl += ' · גובה בחינה ' + _rsHeightText(_radialTgtInput, _radialTgtUnitSel, _radialTgtRefSel);  // FR-D-290: באיזה גובה נבדק
+            _radialRuns.push(rn); _radialRow(rn);  // 28/11: לרשימה
             document.title = '__radial_los_loading__';  // איתות ל-Python — שורת לוג
             if (radialLosInfoEl) radialLosInfoEl.textContent = 'מתחיל חישוב…';
-            if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'block';  // מציג את כפתור הביטול רק בזמן ריצה
             var url = 'http://localhost:5002/los_radial/start?lat=' + radialLosObs.lat + '&lon=' + radialLosObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
@@ -2974,144 +3010,122 @@ def create_map(target='desktop', api_base='', output_path=None):
             .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
             .then(function(data) {{
                 if (data.error) throw new Error(data.error);
-                radialLosJobId = data.job_id;
-                radialLosPollTimer = setInterval(_pollRadialLosStatus, 1000);  // בדיקת התקדמות כל שנייה
+                rn.jobId = data.job_id; rn.status = 'running'; _radialRow(rn);  // 28/11: מזהה ה-job של החישוב הזה
+                rn.timer = setInterval(function() {{ _pollRadialRun(rn); }}, 1000);  // בדיקת התקדמות כל שנייה (28/11: לכל חישוב בנפרד)
             }})
             .catch(function(err) {{
-                radialLosLoading = false;
+                rn.status = 'error'; rn.note = err.message; _radialRow(rn);  // 28/11: בשורת החישוב
                 document.title = '__radial_los_error__';
                 if (radialLosInfoEl) radialLosInfoEl.textContent = '';
-                if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
                 alert('שגיאה בהפעלת חישוב רדיוס ראייה: ' + err.message);
             }});
         }}
 
-        var _radialRunLbl = '';  // FR-D-288: תווית המכ"ם שהיה פעיל בתחילת חישוב רדיוס הראייה האחרון
+        var _radialRunH = {{cancel: function(rn) {{ _cancelRadialRun(rn); }}, remove: function(rn) {{ _removeRadialRun(rn); }}}};  // 28/11: פעולות השורה
+        function _radialRow(rn) {{ if (_radialRunsEl) _jrRow(_radialRunsEl, rn, _radialRunH); }}  // 28/11: שורת חישוב ברשימת הפאנל
 
-        function _pollRadialLosStatus() {{
-            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
-            if (!radialLosJobId) return;
-            fetch('http://localhost:5002/los_radial/status?job_id=' + radialLosJobId)
+        function _pollRadialRun(rn) {{
+            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים (28/11: לחישוב מסוים; האחרים ממשיכים)
+            if (!rn.jobId || !_jrRunning(rn)) return;  // 28/11: בוטל/הסתיים
+            var isLast = rn === _radialRuns[_radialRuns.length - 1];  // 28/11: שורת המידע מציגה את החישוב האחרון
+            fetch('http://localhost:5002/los_radial/status?job_id=' + rn.jobId)
             .then(function(r) {{ return r.json(); }})
             .then(function(data) {{
+                if (!_jrRunning(rn)) return;  // 28/11: בוטל בינתיים
                 if (data.status === 'running') {{
-                    if (radialLosInfoEl) {{
-                        var total = data.batches_total;
-                        radialLosInfoEl.textContent = total
-                            ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)'
-                            : 'מתחיל…';
-                    }}
+                    var total = data.batches_total;
+                    rn.prog = total ? data.batches_done + '/' + total : '';  // 28/11: התקדמות בשורה
+                    rn.note = total ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)' : 'מתחיל…';  // 28/11: פירוט
+                    _radialRow(rn);  // 28/11: עדכון השורה
+                    if (radialLosInfoEl && isLast) radialLosInfoEl.textContent = rn.note;  // 28/11: שורת המידע — של האחרון
                     return;  // עדיין רץ — ממתין ל-tick הבא, לא עוצר את ה-polling
                 }}
-                clearInterval(radialLosPollTimer);  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling
-                radialLosPollTimer = null;
-                radialLosLoading = false;
-                if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
+                clearInterval(rn.timer); rn.timer = null;  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling (28/11: של החישוב הזה)
                 if (data.status === 'done') {{
+                    rn.status = 'done';  // 28/11: מצב
                     document.title = '__radial_los_loaded__';
-                    _drawRadialLosPolygon(data.result);
-                    if (radialLosInfoEl) {{
-                        radialLosInfoEl.textContent =
-                            data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
-                            data.result.clear_count + ' פנויים לגמרי' + '\\n📡 ' + _radialRunLbl;  // FR-D-288: לפי איזה מכ"ם (שורה נפרדת)
-                        radialLosInfoEl.style.whiteSpace = 'pre-line';  // מכבד את מעבר השורה
-                    }}
+                    _drawRadialRun(rn, data.result);  // 28/11: לשכבה של החישוב הזה — התוצאות הקודמות נשארות
+                    rn.note = data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' + data.result.clear_count + ' פנויים לגמרי' + '\\n📡 ' + rn.radarLbl;  // FR-D-288: לפי איזה מכ"ם (שורה נפרדת)
+                    if (radialLosInfoEl) {{ radialLosInfoEl.textContent = rn.label + ': ' + rn.note; radialLosInfoEl.style.whiteSpace = 'pre-line'; }}  // מכבד את מעבר השורה (28/11: עם שם החישוב)
                 }} else if (data.status === 'error') {{
+                    rn.status = 'error'; rn.note = data.error || 'לא ידועה';  // 28/11: מצב
                     document.title = '__radial_los_error__';
-                    if (radialLosInfoEl) radialLosInfoEl.textContent = '';
-                    alert('שגיאה בחישוב רדיוס ראייה: ' + (data.error || 'לא ידועה'));
+                    alert('שגיאה בחישוב רדיוס ראייה (' + rn.label + '): ' + (data.error || 'לא ידועה'));  // 28/11: עם שם החישוב
                 }} else if (data.status === 'cancelled') {{
+                    rn.status = 'cancelled'; rn.note = 'בוטל';  // 28/11: מצב
                     document.title = '__radial_los_cancelled__';
-                    if (radialLosInfoEl) radialLosInfoEl.textContent = '';
                 }}
-                radialLosJobId = null;
+                _radialRow(rn);  // 28/11: עדכון השורה
             }})
             .catch(function() {{
                 // כשל רשת בבדיקת סטטוס בודדת — לא עוצר את ה-polling, ה-tick הבא ינסה שוב
             }});
         }}
 
-        var _radialLosLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
-
-        function _clearRadialLosResultOnly() {{
-            // מנקה רק את ציור התוצאה (פוליגון+חישורים) בלי לגעת במשקיף עצמו — בשימוש ע"י Undo של "הפעל חישוב"
-            if (radialLosPolygon) {{ map.removeLayer(radialLosPolygon); radialLosPolygon = null; }}
-            radialLosSpokes.forEach(function(s) {{ map.removeLayer(s); }});
-            radialLosSpokes = [];
-            _radialLosLastResult = null;
-            _updateRadialLosPreview();  // מחזיר את הידיות למיקומן לפי השדות הנוכחיים, לא לפי קצוות הקרניים האחרונות
-        }}
-
-        function _drawRadialLosPolygon(result) {{
+        function _drawRadialRun(rn, result) {{
             // מצייר את הפוליגון הסופי (מחושב, לא תצוגה מקדימה) + קו "חישור" צבעוני לכל כיוון —
             // ירוק = הגיע פנוי עד הטווח המלא (blocked=false), אדום = נחסם לפני כן (blocked=true).
             // אותם צבעים בדיוק כמו קו-הראייה הרגיל (_drawLosOnMap) — עקביות חזותית בין שני הכלים.
-            // מזיז גם את ידיות הגרירה לקצוות הקשת האמיתיים, כדי שאפשר להמשיך לכוון ולהריץ שוב.
-            var _prevRadialLosResult = _radialLosLastResult;  // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
-            if (radialLosPolygon) {{ map.removeLayer(radialLosPolygon); radialLosPolygon = null; }}
-            radialLosSpokes.forEach(function(s) {{ map.removeLayer(s); }});  // ניקוי חישורים מחישוב קודם
-            radialLosSpokes = [];
+            // 28/11: לשכבה של החישוב (rn.layer) — תוצאות של חישובים אחרים נשארות על המפה
+            rn.layer.clearLayers();  // 28/11: רק השכבה של החישוב הזה
             var pts = result.rays.map(function(r) {{ return [r.lat, r.lon]; }});
             if (result.span_deg < 360) {{
                 pts.unshift([result.observer_lat, result.observer_lon]);  // פרוסת-פיצה — כולל נקודת המשקיף כקודקוד
             }}
             if (pts.length >= 3) {{  // פוליגון תקין דורש 3+ קודקודים — אם לא, מדלגים על הפוליגון (החישורים עדיין מצוירים)
-                radialLosPolygon = L.polygon(pts, {{
-                    color: '#f9e2af', weight: 1.5, fillColor: '#f9e2af', fillOpacity: 0.12  // רקע כללי מעומעם — הצבע העיקרי עכשיו בחישורים
-                }}).addTo(map);
+                L.polygon(pts, {{color: '#f9e2af', weight: 1.5, fillColor: '#f9e2af', fillOpacity: 0.12}}).bindTooltip(rn.label).addTo(rn.layer);  // רקע כללי מעומעם (28/11: עם שם החישוב)
             }}
             var obsLatLng = L.latLng(result.observer_lat, result.observer_lon);
             var minRangeM = (result.min_range_km || 0) * 1000;  // תחילת כל חישור — גבול אזור העיוור, לא המשקיף עצמו
             var rangeM    = result.range_km * 1000;  // סוף הטווח המבוקש — הקו האדום ממשיך עד כאן, לא נעצר בנקודת החסימה
+            L.circleMarker(obsLatLng, {{radius: 4, color: '#333', weight: 1, fillColor: '#f9e2af', fillOpacity: 1}}).bindTooltip(rn.label).addTo(rn.layer);  // 28/11: נקודת הצופה של החישוב (גם אחרי שהצופה הוזז)
             result.rays.forEach(function(r) {{
                 var nearPt  = _destPointJs(obsLatLng, r.bearing_deg, minRangeM);  // נקודת ההתחלה בפועל של הדגימה לכיוון הזה
                 var clearPt = L.latLng(r.lat, r.lon);  // הנקודה הרחוקה ביותר שעדיין רואים ממנה (קודקוד הפוליגון)
-                // ירוק — מתחילת הדגימה ועד הנקודה הגלויה האחרונה (תמיד מצויר, גם אם הכל גלוי)
-                radialLosSpokes.push(L.polyline([nearPt, clearPt], {{color: '#00cc44', weight: 3}}).addTo(map));
+                L.polyline([nearPt, clearPt], {{color: '#00cc44', weight: 3}}).addTo(rn.layer);  // ירוק — מתחילת הדגימה ועד הנקודה הגלויה האחרונה
                 if (r.blocked) {{
-                    // אדום — ממשיך מהנקודה הגלויה האחרונה עד סוף הטווח המבוקש (לא רק עד נקודת החסימה)
-                    var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);
-                    radialLosSpokes.push(L.polyline([clearPt, farPt], {{color: '#ff3300', weight: 3}}).addTo(map));
+                    var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);  // אדום — ממשיך מהנקודה הגלויה האחרונה עד סוף הטווח המבוקש
+                    L.polyline([clearPt, farPt], {{color: '#ff3300', weight: 3}}).addTo(rn.layer);  // הקטע המוסתר
                 }}
             }});
-            if (result.rays.length > 0) {{  // הזזת הידיות לקצוות הקשת האמיתיים, לא לקצה התצוגה המקדימה הישן
+            if (result.rays.length > 0 && radialLosObs && radialLosObs.distanceTo(obsLatLng) < 1) {{  // הזזת הידיות לקצוות הקשת (28/11: רק אם הצופה לא הוזז מאז)
                 var firstRay = result.rays[0], lastRay = result.rays[result.rays.length - 1];
                 if (radialLosStartMk) radialLosStartMk.setLatLng([firstRay.lat, firstRay.lon]);
                 if (radialLosEndMk)   radialLosEndMk.setLatLng([lastRay.lat, lastRay.lon]);
             }}
-            _radialLosLastResult = result;  // שמירת התוצאה הנוכחית — משמשת גם ל-Redo וגם כ"ערך קודם" בהרצה הבאה
             if (!_isRestoringUndo) {{
-                _pushUndo('רדיוס ראייה: הפעלת חישוב', _makePlacementRestore(
-                    _drawRadialLosPolygon, _clearRadialLosResultOnly,
-                    function() {{ return _radialLosLastResult; }}, _prevRadialLosResult));
+                _pushUndo('רדיוס ראייה: הפעלת חישוב', _jrUndoRestore(rn, true, _radialRunsEl, _radialRunH));  // 28/11: Undo מסתיר את התוצאה של החישוב הזה בלבד
             }}
         }}
 
-        function _cancelRadialLos() {{
-            // כפתור "בטל" — עוצר מיד בצד הלקוח (בלי לחכות לתשובת השרת), ומודיע גם לשרת שיפסיק
-            if (radialLosPollTimer) {{ clearInterval(radialLosPollTimer); radialLosPollTimer = null; }}
-            if (radialLosJobId) {{
-                fetch('http://localhost:5002/los_radial/cancel?job_id=' + radialLosJobId, {{method:'POST'}});
-            }}
-            radialLosJobId = null;
-            radialLosLoading = false;
-            if (_radialCancelBtnEl) _radialCancelBtnEl.style.display = 'none';
-            if (radialLosInfoEl) radialLosInfoEl.textContent = '';
+        function _cancelRadialRun(rn) {{  // 28/11: ביטול חישוב אחד — האחרים ממשיכים
+            if (rn.timer) {{ clearInterval(rn.timer); rn.timer = null; }}  // 28/11: עצירת polling
+            if (rn.jobId && _jrRunning(rn)) fetch('http://localhost:5002/los_radial/cancel?job_id=' + rn.jobId, {{method:'POST'}}).catch(function() {{}});  // 28/11: ביטול בשרת
+            if (_jrRunning(rn)) {{ rn.status = 'cancelled'; rn.note = 'בוטל'; }}  // 28/11: מצב
+            _radialRow(rn);  // 28/11: השורה
+        }}
+        function _removeRadialRun(rn) {{  // 28/11: הסרת חישוב מהרשימה ומהמפה
+            _cancelRadialRun(rn); rn.layer.clearLayers(); map.removeLayer(rn.layer);  // 28/11: ביטול אם רץ, ניקוי מהמפה
+            if (rn.row) rn.row.el.remove();  // 28/11: מהפאנל
+            _radialRuns.splice(_radialRuns.indexOf(rn), 1);  // 28/11: מהרשימה
+        }}
+        function _cancelRadialLos() {{  // 28/11: ביטול והסרה של כל החישובים — רק בכיבוי הכלי ובאיפוס המפה
+            _radialRuns.slice().forEach(_removeRadialRun);  // 28/11: כולם
+            if (radialLosInfoEl) radialLosInfoEl.textContent = '';  // ניקוי שורת המידע
         }}
 
         function clearRadialLosResult() {{
-            // ניקוי מלא — נקרא מ-resetMapState וגם בהצבת משקיף חדש (לא נערמים תוצאות ישנות)
-            _cancelRadialLos();  // עוצר polling + מבטל job בשרת אם עדיין רץ
+            // ניקוי מלא — נקרא מ-resetMapState ובכיבוי הכלי (28/11: הצבת צופה חדש מנקה רק את הצופה — _clearRadialObserver)
+            _cancelRadialLos();  // עוצר polling + מבטל job בשרת אם עדיין רץ (28/11: כל החישובים, ומסיר את התוצאות)
+            _clearRadialObserver();  // 28/11: צופה וידיות
+        }}
+        function _clearRadialObserver() {{  // 28/11: מנקה את הצופה, הידיות והתצוגה המקדימה — בלי לגעת בחישובים ובתוצאות
             if (radialLosObsMk)   {{ map.removeLayer(radialLosObsMk);   radialLosObsMk   = null; }}
             if (radialLosStartLn) {{ map.removeLayer(radialLosStartLn); radialLosStartLn = null; }}
             if (radialLosEndLn)   {{ map.removeLayer(radialLosEndLn);   radialLosEndLn   = null; }}
             if (radialLosStartMk) {{ map.removeLayer(radialLosStartMk); radialLosStartMk = null; }}
             if (radialLosEndMk)   {{ map.removeLayer(radialLosEndMk);   radialLosEndMk   = null; }}
-            if (radialLosPolygon) {{ map.removeLayer(radialLosPolygon); radialLosPolygon = null; }}
-            radialLosSpokes.forEach(function(s) {{ map.removeLayer(s); }});  // ניקוי כל קווי החישור הצבעוניים
-            radialLosSpokes = [];
-            radialLosObs = null;
-            _radialLosLastResult = null;  // אין יותר תוצאה מצוירת — מונע היסטוריית Undo "רפאים" מתוצאה שכבר לא קיימת
+            radialLosObs = null;  // אין צופה (28/11: התוצאות בשכבות החישובים — לא כאן)
         }}
 
         function toggleRadialLos() {{
@@ -3216,12 +3230,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#f9e2af;cursor:pointer;';
                 L.DomEvent.on(runBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _runRadialLos(); }});
 
-                var cancelBtn = L.DomUtil.create('button', '', panelBody);
-                cancelBtn.textContent = 'בטל';
-                cancelBtn.setAttribute('aria-label', 'בטל חישוב רדיוס ראייה רדיאלי');  // נגישות (F-027, Q-1)
-                cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
-                L.DomEvent.on(cancelBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _cancelRadialLos(); }});
-                _radialCancelBtnEl = cancelBtn;
+                _radialRunsEl = L.DomUtil.create('div', '', panelBody);  // 28/11: רשימת החישובים — כמה במקביל, לכל אחד ביטול/הסרה משלו
+                _radialRunsEl.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:110px;overflow:auto;';  // 28/11: עיצוב
 
                 var info = L.DomUtil.create('div', '', panelBody);
                 info.style.cssText = 'font-size:10px;color:#555;text-align:center;direction:rtl;min-height:12px;';
