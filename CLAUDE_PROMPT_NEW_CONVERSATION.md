@@ -151,6 +151,7 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 - **בדיקות:** `tests/run_regression.py` (+`--full` ל-fuzz), `tests/e2e_all_tools.py` (אופציונלי, מבודד, מצב טוקן), `maps-gui-android-src/test/logic_test.dart` (`flutter test`, דורש עותק המדריך ב-`assets/`).
 - **גבהים:** מקור ראשון — `srtm_dem.py` (משבצות SRTM מ-AWS, מקומיות); Open-Meteo רק לחורים/ים/מחוץ לכיסוי (FR-D-298). Open-Meteo סופר **כל נקודה** כקריאה (נמדד 26/11) — לכן המכסה נגמרה. בבדיקות: `MAPS_GUI_DEM=off` + שטח סינתטי.
 - **מטאו חי:** דרך `met_cache.py` (FR-D-299): תשובת 168 שעות נשמרת לאזור 0.1° לשעה; בכשל — שמורה עד 48 שעות עם גיל. השעה = הקרובה לעכשיו (Open-Meteo מתחיל ב-00:00). בקשה ≈ 8 קריאות מכסה (80 שדות).
+- **מאזור לאזור (FR-D-300):** רזולוציה `launch_res_m`/`target_res_m` (ריק=500/200, 50–5000); אימות ≤ `VERIFY_MAX`=2000; `eta_total_s` מהמנוע; אזהרה בממשק מעל 600 שנ'/300k מסלולים; מעל `AREA_MAP_ROWS_MAX`=20000 המפה מקבלת מדגם (CSV מלא). דסקטופ בלבד בממשק.
 
 ### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:

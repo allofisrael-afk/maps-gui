@@ -2359,7 +2359,9 @@ def _area_progress(job_id):  # A4: מאזין התקדמות של המנוע →
             if job is None:  # A4: נוקה
                 return  # A4: יציאה
             job['note'], job['stage'] = d.get('note'), d.get('stage')  # A4: הודעה ושלב
-            if d.get('stage') == 'table' and d.get('nodes'):  # A4: שלב הטבלה — הערכה לפי קצב בפועל
+            if d.get('eta_total_s') is not None:  # 28/11: המנוע מחשב זמן שנותר לכל החישוב (טבלה, זוגות, רכס, אימות)
+                job['eta_s'] = d['eta_total_s']  # 28/11: לתצוגה
+            elif d.get('stage') == 'table' and d.get('nodes'):  # A4: שלב הטבלה — הערכה לפי קצב בפועל (גיבוי — למשל צביעה)
                 if t['start'] is None:  # A4: הצומת הראשון
                     t['start'], t['n0'] = time.time(), d.get('node', 0)  # A4: נקודת התחלה
                 done = d.get('node', 0) - t['n0']  # A4: צמתים שחושבו מאז
@@ -2397,7 +2399,8 @@ def _area_worker(job_id, req):  # A4: רץ ב-thread — החישוב המלא �
             except (OSError, ValueError) as e:  # A4: לא ניתן ליצור — ממשיכים סדרתי
                 logging.warning(f"area_fire: מאגר תהליכים לא זמין, חישוב סדרתי: {e}")  # A4: אבחון
         result = area_fire.run(req, _job_fetch(job_id), met_fetch=_area_met_fetch, progress=_area_progress(job_id),  # A4: המנוע
-                               cancelled=_area_cancelled(job_id), map_fn=ex.map if ex else None)  # A4: ביטול ומקביליות
+                               cancelled=_area_cancelled(job_id), map_fn=ex.map if ex else None,  # A4: ביטול ומקביליות
+                               workers=_area_workers() if ex else 1)  # 28/11: מספר התהליכים — להערכת הזמן שנותר
         _area_finish(job_id, 'done', result=result)  # A4: הצלחה
     except (area_fire.Aborted, _rs.Aborted):  # A4: בוטל, או מכסה (הסטטוס כבר נקבע ב-_radar_track_fetch_cells)
         _area_finish(job_id, 'cancelled')  # A4: לא דורס שגיאת מכסה
@@ -2466,6 +2469,8 @@ def ballistics_area_visibility():  # A4: צביעת ירוק/אדום מול כ�
     if full:  # T9: מלא
         return full  # T9: 429
     job_id = _area_new_job('area_vis')  # A4: job חדש
+    with _radar_jobs_lock:  # 28/11: נעילה
+        _radar_jobs[job_id]['src'] = body.get('job_id')  # 28/11: איזה חישוב נצבע — כדי להחזיר למפה רק את המסיכות של המסלולים שנשלחו אליה
     _start_job(_area_vis_worker, (res['rows'], radars), _radar_jobs, _radar_jobs_lock, job_id)  # A4: ברקע; T9: דרך התור
     return jsonify({'job_id': job_id, 'radars': [r['name'] for r in radars]})  # A4: המזהה + אילו מכ"מים
 
@@ -2477,9 +2482,36 @@ def ballistics_area_status():  # A4: מצב job (חישוב או צביעה); ה
         job = _radar_jobs.get(job_id or '')  # A4: ה-job
         if job is None or job.get('kind') not in ('area', 'area_vis'):  # A4: לא קיים
             return jsonify({'error': 'job לא נמצא (אולי נוקה)'}), 404  # A4: הודעה
+        view = _area_map_view(job) if job['status'] == 'done' else None  # 28/11: התוצאה למפה (מדגם אחיד כשהיא גדולה)
         return jsonify({'status': job['status'], 'stage': job.get('stage'), 'note': job.get('note'), 'eta_s': job.get('eta_s'),  # A4: מצב
                         'batches_done': job['batches_done'], 'batches_total': job['batches_total'], 'error': job['error'],  # A4: שליפה, שגיאה
-                        'result': job['result'] if job['status'] == 'done' else None})  # A4: התוצאה רק בסיום
+                        'result': view})  # A4: התוצאה רק בסיום
+
+
+AREA_MAP_ROWS_MAX = 20000  # 28/11: כמה מסלולים לכל היותר נשלחים למפה. מעבר לזה — מדגם אחיד; הסיכום, מפות החום וה-CSV תמיד מכל המסלולים
+
+
+def _area_map_idx(job):  # 28/11: אינדקסים של המסלולים שנשלחים למפה (None = כולם). נשמר ב-job כדי שהצביעה תשתמש באותו מדגם
+    if 'map_idx' not in job:  # עוד לא חושב
+        n = len((job.get('result') or {}).get('rows') or [])  # כמה מסלולים
+        job['map_idx'] = None if n <= AREA_MAP_ROWS_MAX else [int(k * n / AREA_MAP_ROWS_MAX) for k in range(AREA_MAP_ROWS_MAX)]  # מדגם בצעדים שווים (השורות מסודרות לפי שיגור ומטרה — כיסוי מרחבי)
+    return job['map_idx']  # האינדקסים
+
+
+def _area_map_view(job):  # 28/11: התוצאה כפי שנשלחת למפה — כל השדות, אבל לכל היותר AREA_MAP_ROWS_MAX מסלולים (נקרא תחת _radar_jobs_lock)
+    res = job.get('result')  # התוצאה המלאה
+    if not isinstance(res, dict):  # אין
+        return res  # כמו שהיא
+    if job.get('kind') == 'area':  # חישוב
+        idx = _area_map_idx(job)  # המדגם
+        if idx is None:  # קטן — הכול
+            return res  # בלי שינוי
+        return dict(res, rows=[res['rows'][i] for i in idx], rows_total=len(res['rows']), rows_sampled=True)  # מדגם + סך הכול
+    src = _radar_jobs.get(job.get('src') or '')  # צביעה — החישוב שהיא שייכת אליו
+    idx = _area_map_idx(src) if src and src.get('kind') == 'area' and src.get('status') == 'done' else None  # המדגם שלו
+    if idx is None or 'masks' not in res:  # בלי מדגם
+        return res  # כמו שהיא
+    return dict(res, masks=[res['masks'][i] for i in idx])  # המסיכות של המסלולים שבמפה בלבד (הסיכום — מכולם)
 
 
 @app.route("/ballistics/area/cancel", methods=["POST"])

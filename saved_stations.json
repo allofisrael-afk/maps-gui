@@ -132,6 +132,25 @@
         "type_key": "lib:ELM-2084_sector_public_data.json",
         "type_name": "EL/M-2084 MMR סקטור (נתונים פומביים)"
       }
+    },
+    {
+      "name": "EL/M-2084 MMR מסתובב",
+      "_schema_version": 1,
+      "params": {
+        "angle_step_deg": 10,
+        "boresight_deg": 0,
+        "end_bearing_deg": 360,
+        "h_antenna": 5,
+        "lat": 32.43097672054704,
+        "lobing_enabled": false,
+        "lon": 37.68310546875,
+        "range_km": 100,
+        "reflectivity": "land",
+        "ridge_margin_deg": 0.6,
+        "start_bearing_deg": 0,
+        "type_key": "lib:ELM-2084_rotating_public_data.json",
+        "type_name": "EL/M-2084 MMR מסתובב (נתונים פומביים)"
+      }
     }
   ]
 }

@@ -30,8 +30,10 @@ from mpm.engine import simulate  # ליבת הפיזיקה — ללא שינוי
 from mpm.geodesy import direct as geo_direct, inverse as geo_inverse  # Vincenty — ללא שינוי
 from mpm.units import both, mils_to_rad  # המרות זווית
 
-LAUNCH_RES_M = 500.0  # רזולוציית אזורי שיגור — קבועה (החלטה 9)
-TARGET_RES_M = 200.0  # רזולוציית אזורי מטרה — קבועה (החלטה 9)
+LAUNCH_RES_M = 500.0  # רזולוציית אזורי שיגור — ברירת מחדל (החלטה 9; מ-28/11 ניתנת לשינוי בבקשה: launch_res_m)
+TARGET_RES_M = 200.0  # רזולוציית אזורי מטרה — ברירת מחדל (החלטה 9; מ-28/11 ניתנת לשינוי בבקשה: target_res_m)
+RES_MIN_M, RES_MAX_M = 50.0, 5000.0  # 28/11: טווח מותר לרזולוציה שהמשתמש בוחר (קטן מ-50 מ' = מיליוני נקודות; גדול מ-5 ק"מ = אזור בלי נקודות)
+VERIFY_MAX = 2000  # 28/11: תקרת מדגם האימות — מספיק סטטיסטית למדוד את שגיאת האינטרפולציה (5% ממיליוני מסלולים = שעות)
 TERRAIN_RES_M = 150.0  # רזולוציית רשת השטח לבדיקת הרכס (תאים משותפים, כדי שהמטמון ישמש שוב ושוב)
 CREST_SKIP_M = 300.0  # לא בודקים רכס ב-300 מ' הראשונים והאחרונים (הלוע על הקרקע, והפגז יורד אל המטרה)
 QE_LO_MILS = 10.0  # הגבהה נמוכה ביותר בסריקה
@@ -150,7 +152,18 @@ def parse_request(req):  # מאמת את בקשת החישוב ומחזיר מב
         "crest": bool(req.get("crest", True)), "safety_margin_m": opt_num("safety_margin_m") or 0.0,  # בדיקת רכס ומרווח
         "verify_frac": min(1.0, max(0.0, _finite(req.get("verify_frac", 0.05), "verify_frac"))),  # חלק המדגם לאימות
         "seed": int(req.get("seed", 1)),  # seed למדגם (שחזור)
+        "launch_res_m": _res(req, "launch_res_m", LAUNCH_RES_M), "target_res_m": _res(req, "target_res_m", TARGET_RES_M),  # 28/11: רזולוציות (ריק = ברירת מחדל)
     }
+
+
+def _res(req, key, default):  # 28/11: רזולוציה מהבקשה — ריק/חסר = ברירת המחדל; מחוץ לטווח = שגיאה ברורה
+    v = req.get(key)  # הערך
+    if v in (None, ""):  # לא הוגדר
+        return default  # ברירת מחדל
+    f = _finite(v, key)  # מספר סופי
+    if not (RES_MIN_M <= f <= RES_MAX_M):  # מחוץ לטווח
+        raise ValueError(f"רזולוציה ({key}) חייבת להיות בין {RES_MIN_M:g} ל-{RES_MAX_M:g} מ'")  # הודעה
+    return f  # תקין
 
 
 # ═══════════════════════ טבלת ירי ═══════════════════════
@@ -297,8 +310,8 @@ def _ang_diff(a, b):  # הפרש זוויות במעלות בתחום [-180, 180
 
 def plan(req):  # רשתות וספירות בלי רשת ובלי חישוב בליסטי — להערכה לפני הרצה
     p = parse_request(req)  # אימות
-    launch = [grid_points(a["polygon"], LAUNCH_RES_M) for a in p["launch_areas"]]  # נקודות שיגור לכל אזור
-    target = [grid_points(a["polygon"], TARGET_RES_M) for a in p["target_areas"]]  # נקודות מטרה לכל אזור
+    launch = [grid_points(a["polygon"], p["launch_res_m"]) for a in p["launch_areas"]]  # נקודות שיגור לכל אזור (28/11: ברזולוציה שנבחרה)
+    target = [grid_points(a["polygon"], p["target_res_m"]) for a in p["target_areas"]]  # נקודות מטרה לכל אזור (28/11: ברזולוציה שנבחרה)
     n_l, n_t = sum(map(len, launch)), sum(map(len, target))  # סכומים
     return {"parsed": p, "launch": launch, "target": target, "launch_points": n_l, "target_points": n_t,  # הרשתות
             "pairs": n_l * n_t, "trajectories_max": n_l * n_t * len(p["groups"])}  # זוגות ומסלולים מרביים
@@ -308,16 +321,48 @@ def _terrain_cell(lat, lon, lat_step, lon_step):  # הצמדה לתא ברשת �
     return (round(round(lat / lat_step) * lat_step, 6), round(round(lon / lon_step) * lon_step, 6))  # מפתח יציב
 
 
-def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=None):  # החישוב המלא; map_fn: למשל pool.map לחישוב צמתי הטבלה במקביל
+def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=None, workers=1):  # החישוב המלא; map_fn: למשל pool.map לחישוב צמתי הטבלה במקביל; workers: כמה תהליכים (להערכת הזמן)
     """fetch_cells(list[(lat,lon)]) -> list[elev|None]; met_fetch(lat, lon, alt) -> (met_inline, err) ל-met.source=live.
     progress(dict) נקרא בכל שלב; cancelled() → True עוצר ב-Aborted."""
     t_start = time.time()  # לזמני ריצה
+    pl = plan(req)  # רשתות (28/11: לפני tick — הערכת הזמן שנותר צריכה את הגדלים)
+    n_tgt_all = pl["target_points"]  # 28/11: כל נקודות המטרה
+    n_qe_all = int((QE_HI_MILS - QE_LO_MILS) / QE_STEP_MILS) + 1  # 28/11: הגבהות לצומת
+    tpts_all = [pt for g in pl["target"] for pt in g]  # 28/11: לנקודות ההערכה
+    eta = {"table": [_est_nodes(g, tpts_all) * n_qe_all * SEC_PER_SIM / max(1, workers) for g in pl["launch"]],  # 28/11: זמן משוער לטבלה של כל אזור (מתעדכן כשמספר הצמתים ידוע)
+           "pairs": [len(g) * n_tgt_all * len(pl["parsed"]["groups"]) * SEC_PER_PAIR for g in pl["launch"]],  # 28/11: זמן משוער לזוגות של כל אזור
+           "verify": _verify_n(pl["trajectories_max"], pl["parsed"]["verify_frac"]) * SEC_PER_SIM,  # 28/11: אימות (מתעדכן כשמספר המסלולים ידוע)
+           "ratio": {}, "key": None, "t0": None}  # 28/11: יחס בפועל/משוער לכל סוג שלב, והשלב הנוכחי
+
+    def eta_total(stage, li, frac):  # 28/11: זמן שנותר לכל החישוב — השלב הנוכחי לפי הקצב בפועל, השלבים הבאים לפי הערכה מכוילת
+        now = time.time()  # עכשיו
+        key = (stage, li)  # השלב הנוכחי
+        if eta["key"] != key:  # התחיל שלב חדש
+            if eta["key"] is not None and eta["key"][0] in ("table", "pairs"):  # השלב הקודם הסתיים — כיול
+                ps, pli = eta["key"]  # סוג ואזור
+                est = eta[ps][pli]  # ההערכה שלו
+                if est > 0.5:  # הערכה משמעותית (לא צומת מהמטמון)
+                    eta["ratio"][ps] = (now - eta["t0"]) / est  # יחס בפועל/משוער
+            eta["key"], eta["t0"] = key, now  # השלב החדש
+        cur = eta[stage][li] if stage in ("table", "pairs") else eta["verify"]  # ההערכה לשלב הנוכחי
+        cur *= eta["ratio"].get(stage, 1.0)  # מכויל
+        el = now - eta["t0"]  # זמן בשלב
+        rem = el * (1.0 - frac) / frac if frac > 0.02 and el > 2.0 else cur * (1.0 - frac)  # קצב בפועל כשיש מספיק מידע
+        r_t, r_p = eta["ratio"].get("table", 1.0), eta["ratio"].get("pairs", 1.0)  # כיולים
+        if stage == "table":  # אחרי הטבלה — הזוגות של אותו אזור
+            rem += eta["pairs"][li] * r_p  # זוגות
+        if stage in ("table", "pairs"):  # אזורים הבאים + אימות
+            rem += sum(eta["table"][j] * r_t + eta["pairs"][j] * r_p for j in range(li + 1, len(eta["table"]))) + eta["verify"]  # השאר
+        return max(0, round(rem))  # שניות
+
     def tick(**kw):  # דיווח התקדמות + בדיקת ביטול
         if cancelled and cancelled():  # בוטל
             raise Aborted()  # עצירה
         if progress:  # יש מאזין
+            st, frac = kw.get("stage"), kw.get("frac")  # 28/11: שלב וחלק שהושלם
+            if st in ("table", "pairs", "verify") and frac is not None:  # שלב עם התקדמות ידועה
+                kw["eta_total_s"] = eta_total(st, kw.get("area"), min(1.0, max(0.0, frac)))  # 28/11: זמן שנותר לכל החישוב
             progress(kw)  # דיווח
-    pl = plan(req)  # רשתות
     p, launch, target = pl["parsed"], pl["launch"], pl["target"]  # קיצורים
     tick(stage="elevations", note="שולף גבהי קרקע לנקודות האזורים…")  # שלב 1
     all_pts = [pt for g in launch for pt in g] + [pt for g in target for pt in g]  # כל הנקודות
@@ -371,21 +416,22 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
                         table[(ia, idh, ig)] = _TABLE_CACHE[key]  # מהמטמון
                     else:  # צריך לחשב
                         specs.append(((ia, idh, ig), key, spec))  # לרשימה
-        tick(stage="table", area=li, node=n_nodes - len(specs), nodes=n_nodes, note=f"טבלת ירי לאזור שיגור {li + 1}: {len(specs)} צמתים לחישוב")  # התקדמות
+        eta["table"][li] = len(specs) * len(qes) * SEC_PER_SIM / max(1, workers)  # 28/11: מספר הצמתים ידוע עכשיו — הערכה מדויקת יותר
+        tick(stage="table", area=li, node=n_nodes - len(specs), nodes=n_nodes, frac=0.0, note=f"טבלת ירי לאזור שיגור {li + 1}: {len(specs)} צמתים לחישוב")  # התקדמות
         done_nodes = n_nodes - len(specs)  # מונה
         for (ij, key, spec), br in zip(specs, (map_fn or map)(sweep_node, [s for _, _, s in specs])):  # map_fn: במקביל בשרת, סדרתי כברירת מחדל
             table[ij] = br  # לטבלה
             _cache_put(key, br)  # למטמון
             done_nodes += 1  # עוד צומת
-            tick(stage="table", area=li, node=done_nodes, nodes=n_nodes, note=f"טבלת ירי לאזור שיגור {li + 1}: צומת {done_nodes}/{n_nodes}")  # התקדמות
+            tick(stage="table", area=li, node=done_nodes, nodes=n_nodes, frac=(done_nodes - (n_nodes - len(specs))) / max(1, len(specs)), note=f"טבלת ירי לאזור שיגור {li + 1}: צומת {done_nodes}/{n_nodes}")  # התקדמות (28/11: frac = מהצמתים שבאמת מחושבים)
         tables_meta.append({"area": p["launch_areas"][li]["name"], "az_nodes": len(az_nodes), "dh_nodes": len(dh_nodes), "gun_alt_nodes": len(ga_nodes),  # תיאור
                             "trajectories": n_nodes * len(qes), "met": met_meta})  # כמה מסלולים נסרקו
         az_rel_nodes = [_ang_diff(a, az_mean) for a in az_nodes]  # צמתי הכיוון כסטייה (לאינטרפולציה)
-        tick(stage="pairs", area=li, note=f"מחשב זוגות לאזור שיגור {li + 1}…")  # שלב הזוגות
+        tick(stage="pairs", area=li, frac=0.0, note=f"מחשב זוגות לאזור שיגור {li + 1}…")  # שלב הזוגות (28/11: frac להערכת הזמן)
         pending = []  # מסלולים שעברו את כל הסינונים חוץ מרכס
         for k, (gi, ti, rng, az, dh) in enumerate(geo):  # כל זוג
             if k % 2000 == 0:  # מדי פעם
-                tick(stage="pairs", area=li, pair=k, pairs=len(geo), note=f"זוגות באזור שיגור {li + 1}: {k}/{len(geo)}")  # התקדמות
+                tick(stage="pairs", area=li, pair=k, pairs=len(geo), frac=0.5 * k / max(1, len(geo)), note=f"זוגות באזור שיגור {li + 1}: {k:,}/{len(geo):,}")  # התקדמות (28/11: חצי ראשון של השלב; השני = רכס)
             wa = _bracket(az_rel_nodes, _ang_diff(az, az_mean))  # משקלי כיוון
             wd = _bracket(dh_nodes, dh)  # משקלי הפרש גובה
             g_alt = elev[gpts[gi]]  # גובה נקודת השיגור
@@ -451,6 +497,8 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
             terr = dict(zip(cell_list, fetch_cells(cell_list)))  # גבהים (מטמון/רשת)
         pair_seen = set()  # זוגות שנספרו (לרכס)
         for idx, (gi, ti, grp, rng, az, sol) in enumerate(pending):  # בדיקת רכס + רישום
+            if idx % 2000 == 0:  # 28/11: מדי פעם — גם השלב הזה יכול לקחת דקות ארוכות
+                tick(stage="pairs", area=li, frac=0.5 + 0.5 * idx / max(1, len(pending)), note=f"בדיקת מעבר מעל השטח באזור שיגור {li + 1}: {idx:,}/{len(pending):,}")  # 28/11: התקדמות + זמן שנותר
             min_margin = None  # מרווח מינימלי
             if p["crest"]:  # בדיקה
                 for f, c in cells_for[idx]:  # כל דגימה
@@ -488,6 +536,7 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
             key_l = (li, gi)  # מפתח נקודת שיגור
             per_launch[key_l] = per_launch.get(key_l, 0) + 1  # ספירה
             per_target[ti] = per_target.get(ti, 0) + 1  # ספירה
+    eta["verify"] = _verify_n(len(rows), p["verify_frac"]) * SEC_PER_SIM  # 28/11: מספר המסלולים ידוע עכשיו
     verify = _verify(rows, p, met_fetch, tick)  # אימות מדגמי
     for r in rows:  # ניקוי שדות פנימיים
         r.pop("_slope", None)  # שיפוע
@@ -503,22 +552,28 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
                     "met": " · ".join(dict.fromkeys(m["met"].get("description") or "" for m in tables_meta if m["met"].get("description"))),  # FR-D-299: מקור המטאו (תחזית חיה: שעה, וגיל אם שמורה)
                     "met_stale": any("שמורה מלפני" in (m["met"].get("description") or "") for m in tables_meta)},  # FR-D-299: תחזית שמורה בגלל כשל שליפה — אזהרה בתצוגה
         "verification": verify, "tables": tables_meta,  # אימות וטבלאות
-        "resolution_m": {"launch": LAUNCH_RES_M, "target": TARGET_RES_M, "terrain": TERRAIN_RES_M},  # רזולוציות
+        "resolution_m": {"launch": p["launch_res_m"], "target": p["target_res_m"], "terrain": TERRAIN_RES_M},  # רזולוציות (28/11: אלה שנבחרו)
         "areas": {"launch": [a["name"] for a in p["launch_areas"]], "target": [a["name"] for a in p["target_areas"]]},  # שמות
         "heat": {"launch": heat_launch, "target": heat_target}, "rows": rows,  # מפות חום ושורות
     }
+
+
+def _verify_n(n_rows, frac):  # 28/11: גודל מדגם האימות — חלק מהמסלולים, לפחות 1, ולא יותר מ-VERIFY_MAX
+    if n_rows <= 0 or frac <= 0:  # אין מה לאמת
+        return 0  # ריק
+    return max(1, min(n_rows, VERIFY_MAX, int(round(n_rows * frac))))  # המדגם
 
 
 def _verify(rows, p, met_fetch, tick):  # אימות: מסלול אמיתי מהשיגור עם הפתרון המשוער → החטאה במטרים
     if not rows or p["verify_frac"] <= 0:  # אין מה לאמת
         return {"checked": 0}  # ריק
     rnd = random.Random(p["seed"])  # מדגם ניתן לשחזור
-    n = max(1, min(len(rows), int(round(len(rows) * p["verify_frac"]))))  # גודל המדגם
+    n = _verify_n(len(rows), p["verify_frac"])  # גודל המדגם (28/11: עם תקרה)
     sample = rnd.sample(rows, n)  # המדגם
     misses, qe_errs, atmo_cache = [], [], {}  # תוצאות, ומטמון אטמוספרה לפי גובה מעוגל
     for k, r in enumerate(sample):  # כל מסלול במדגם
         if k % 50 == 0:  # מדי פעם
-            tick(stage="verify", done=k, total=n, note=f"מאמת דיוק: {k}/{n}")  # התקדמות
+            tick(stage="verify", done=k, total=n, frac=k / n, note=f"מאמת דיוק: {k}/{n}")  # התקדמות (28/11: frac לזמן שנותר)
         gun = {"lat": r["launch"][0], "lon": r["launch"][1], "alt_m": r["_gun_alt"]}  # התותח האמיתי
         met = p["met"]  # המטאו
         if (met.get("source") or "").lower() in ("live", "open-meteo", "openmeteo"):  # חי — האימות על אטמוספרה תקנית מאותה תחזית לא זמינה כאן
@@ -669,6 +724,14 @@ def visibility(rows, radars, fetch_cells, progress=None, cancelled=None):  # ל�
 
 SEC_PER_SIM = 0.09  # זמן ממוצע למסלול בסריקה (נמדד: 0.035 נמוך – 0.15 גבוה); מתעדכן בשרת לפי מדידה בפועל
 SEC_PER_FETCH_BATCH = 13.5  # שליפת 100 תאים כולל השהיית הקצב של Open-Meteo
+SEC_PER_PAIR = 0.0004  # זמן לזוג×ענף בשלב הזוגות (אינטרפולציה + רכס) — היה מספר קבוע בתוך estimate; 28/11: משותף גם להערכת הזמן שנותר
+
+
+def _est_nodes(gpts, tpts):  # 28/11: הערכת מספר צמתי הטבלה לאזור שיגור לפני שהגבהים ידועים (הועבר מתוך estimate, בלי שינוי)
+    azs = [_haversine_az(g[0], g[1], t[0], t[1])[1] for g in (gpts[0], gpts[-1]) for t in (tpts[0], tpts[-1], tpts[len(tpts) // 2])]  # כיוונים מייצגים
+    m = math.degrees(math.atan2(sum(math.sin(math.radians(a)) for a in azs), sum(math.cos(math.radians(a)) for a in azs)))  # ממוצע
+    d = [_ang_diff(a, m) for a in azs]  # סטיות
+    return len(_nodes(min(d), max(d), 20.0, 2.0)) * 2  # צמתי כיוון × 2 (הנחה: הגבהים עוד לא ידועים; באזור הררי יש גם צמתי הפרש גובה וגובה שיגור נוספים)
 
 
 def estimate(req, cached_fn=None, workers=1, sec_per_sim=None):  # מספרים והערכת זמן — בלי רשת ובלי בליסטיקה
@@ -679,10 +742,7 @@ def estimate(req, cached_fn=None, workers=1, sec_per_sim=None):  # מספרים 
     n_qe = int((QE_HI_MILS - QE_LO_MILS) / QE_STEP_MILS) + 1  # דגימות לצומת
     nodes = 0  # צמתים בכל הטבלאות
     for gpts in launch:  # כל אזור שיגור
-        azs = [_haversine_az(g[0], g[1], t[0], t[1])[1] for g in (gpts[0], gpts[-1]) for t in (tpts[0], tpts[-1], tpts[len(tpts) // 2])]  # כיוונים מייצגים
-        m = math.degrees(math.atan2(sum(math.sin(math.radians(a)) for a in azs), sum(math.cos(math.radians(a)) for a in azs)))  # ממוצע
-        d = [_ang_diff(a, m) for a in azs]  # סטיות
-        nodes += len(_nodes(min(d), max(d), 20.0, 2.0)) * 2  # צמתי כיוון × 2 (הנחה: הגבהים עוד לא ידועים; באזור הררי יש גם צמתי הפרש גובה וגובה שיגור נוספים)
+        nodes += _est_nodes(gpts, tpts)  # 28/11: אותה הערכה שהחישוב עצמו משתמש בה לזמן שנותר
     pts = [pt for g in launch for pt in g] + tpts  # נקודות האזורים
     cells = set()  # תאי שטח לרכס
     lat_ref = sum(pt[0] for pt in pts) / len(pts)  # רוחב ייחוס
@@ -703,7 +763,11 @@ def estimate(req, cached_fn=None, workers=1, sec_per_sim=None):  # מספרים 
     missing = len(all_cells) - len(cached)  # חסרים
     table_s = nodes * n_qe * (sec_per_sim or SEC_PER_SIM) / max(1, workers)  # זמן הטבלאות
     fetch_s = math.ceil(missing / 100.0) * SEC_PER_FETCH_BATCH  # זמן שליפת השטח
-    pairs_s = pl["pairs"] * len(p["groups"]) * 0.0004  # זמן הזוגות (אינטרפולציה + רכס)
+    pairs_s = pl["pairs"] * len(p["groups"]) * SEC_PER_PAIR  # זמן הזוגות (אינטרפולציה + רכס)
+    verify_n = _verify_n(pl["trajectories_max"], p["verify_frac"])  # 28/11: מדגם האימות (חסם עליון — לפי כל המסלולים האפשריים)
+    verify_s = verify_n * SEC_PER_SIM  # 28/11: האימות רץ סדרתי — מסלול אמיתי אחד לכל מסלול במדגם
     return {"launch_points": pl["launch_points"], "target_points": pl["target_points"], "pairs": pl["pairs"],  # גדלים
             "trajectories_max": pl["trajectories_max"], "table_nodes": nodes, "cells": len(all_cells), "cells_missing": missing,  # עבודה
-            "eta_s": round(table_s + fetch_s + pairs_s), "eta_parts_s": {"table": round(table_s), "terrain": round(fetch_s), "pairs": round(pairs_s)}}  # זמן
+            "resolution_m": {"launch": p["launch_res_m"], "target": p["target_res_m"]},  # 28/11: הרזולוציות שבשימוש
+            "eta_s": round(table_s + fetch_s + pairs_s + verify_s),  # 28/11: כולל האימות
+            "eta_parts_s": {"table": round(table_s), "terrain": round(fetch_s), "pairs": round(pairs_s), "verify": round(verify_s)}}  # זמן לפי שלב

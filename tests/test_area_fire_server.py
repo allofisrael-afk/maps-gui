@@ -69,6 +69,30 @@ def main():  # הכול בתוך main — חובה עם ProcessPoolExecutor ב-W
     rows = list(csv.reader(io.StringIO(text)))  # השורות
     check("CSV: כותרת + 60 שורות, עם נראות", csv_r.status_code == 200 and len(rows) == 61 and rows[0][-1] == "seen_by" and rows[1][-1] == "R-test", str(len(rows)))  # ייצוא
     check("CSV: שם שמתחיל ב-= מנוטרל (גרש) — הגנה מהזרקת נוסחה", rows[1][4].startswith("'="), rows[1][4])  # CWE-1236
+    # ── 28/11: רזולוציה, תקרת אימות, זמן שנותר, מדגם למפה ──
+    import area_fire  # 28/11: המנוע (לבדיקות ישירות)
+    est2 = c.post("/ballistics/area/estimate", json=dict(req, target_res_m=400)).get_json()  # 28/11: רזולוציית מטרה גסה פי 2
+    check("רזולוציה: target_res_m=400 → פחות נקודות מטרה מברירת המחדל", 0 < est2.get("target_points", 0) < est["target_points"] and est2.get("resolution_m") == {"launch": 500.0, "target": 400.0}, str(est2.get("target_points")))  # 28/11: הרזולוציה משפיעה
+    check("רזולוציה: ריק = ברירת מחדל (500/200)", est.get("resolution_m") == {"launch": 500.0, "target": 200.0}, str(est.get("resolution_m")))  # 28/11: ברירת מחדל
+    bad_res = c.post("/ballistics/area/start", json=dict(req, launch_res_m=10))  # 28/11: מחוץ לטווח
+    check("רזולוציה מחוץ לטווח (10 מ') → 400 עם הודעה", bad_res.status_code == 400 and "רזולוציה" in bad_res.get_json().get("error", ""))  # 28/11: ולידציה
+    check("הערכה כוללת את זמן האימות", "verify" in (est.get("eta_parts_s") or {}), str(est.get("eta_parts_s")))  # 28/11: אימות בהערכה
+    check("תקרת אימות: 5% ממיליון = 2,000 (לא 50,000)", area_fire._verify_n(1_000_000, 0.05) == 2000 and area_fire._verify_n(100, 0.05) == 5)  # 28/11: תקרה
+    ticks = []  # 28/11: דיווחי ההתקדמות
+    area_fire.run(req, lambda pts: [300.0] * len(pts), progress=ticks.append)  # 28/11: חישוב ישיר (סדרתי)
+    stages = {t["stage"] for t in ticks if t.get("eta_total_s") is not None}  # 28/11: שלבים עם זמן שנותר
+    check("זמן שנותר לכל החישוב מדווח בשלבי הטבלה/הזוגות/האימות", {"pairs", "verify"} <= stages, str(sorted(stages)))  # 28/11: הערכה מלאה
+    ws.AREA_MAP_ROWS_MAX = 10  # 28/11: סף קטן — כדי לבדוק מדגם עם 60 מסלולים
+    r3 = c.post("/ballistics/area/start", json=req).get_json()  # 28/11: חישוב חדש (המדגם נקבע לכל job)
+    st3 = wait(r3["job_id"])  # 28/11: המתנה
+    res3 = st3.get("result") or {}  # 28/11: התוצאה כפי שנשלחה למפה
+    check("תוצאה גדולה: למפה נשלח מדגם (10 מתוך 60) עם rows_total", len(res3.get("rows", [])) == 10 and res3.get("rows_total") == 60 and res3.get("rows_sampled") is True and res3["summary"]["trajectories_feasible"] == 60, f"{len(res3.get('rows', []))} {res3.get('rows_total')}")  # 28/11: מדגם
+    v3 = c.post("/ballistics/area/visibility", json={"job_id": r3["job_id"]}).get_json()  # 28/11: צביעה
+    vs3 = wait(v3["job_id"])  # 28/11: המתנה
+    check("צביעה של תוצאה גדולה: מסיכות רק למסלולים שבמפה (10), הסיכום מכולם", len((vs3.get("result") or {}).get("masks", [])) == 10 and vs3["result"]["summary"]["points"] == 60 * area_fire.DRAW_N, str(len((vs3.get("result") or {}).get("masks", []))))  # 28/11: מסיכות לפי המדגם
+    rows3 = list(csv.reader(io.StringIO(c.get(f"/ballistics/area/csv?job_id={r3['job_id']}&vis_job={v3['job_id']}").get_data(as_text=True).lstrip("﻿"))))  # 28/11: CSV
+    check("CSV של תוצאה גדולה: כל 60 המסלולים, עם נראות", len(rows3) == 61 and rows3[1][-1] == "R-test", str(len(rows3)))  # 28/11: CSV מלא
+    ws.AREA_MAP_ROWS_MAX = 20000  # 28/11: החזרה
     r2 = c.post("/ballistics/area/start", json=req).get_json()  # התחלה נוספת
     c.post(f"/ballistics/area/cancel?job_id={r2['job_id']}")  # ביטול מיידי
     st2 = wait(r2["job_id"])  # המתנה

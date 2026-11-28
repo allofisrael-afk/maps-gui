@@ -6068,6 +6068,7 @@
             var rej = Object.keys(s.rejected).filter(function(k) { return s.rejected[k]; }).map(function(k) { return AF_REJECT_NAMES[k] + ': ' + s.rejected[k].toLocaleString(); });  // פסילות
             if (rej.length) lines.push('נפסלו: ' + rej.join(' · '));  // פירוט
             if (v.checked) lines.push('דיוק (מדגם ' + v.checked + ' מסלולים, מסלול אמיתי מכל נקודת שיגור): החטאה מרבית ' + v.miss_max_m + ' מ\', RMS ' + v.miss_rms_m + ' מ\'; שגיאת הגבהה עד ' + v.qe_err_max_mils + ' מיל.');  // אימות (החלטה 1)
+            if (s.met) lines.push((s.met_stale ? '⚠️ ' : '') + 'מטאו: ' + s.met);  // FR-D-299: מקור התחזית, ואזהרה אם היא שמורה (השליפה נכשלה)
             if (_af.vis) { var vs = _af.vis.summary; lines.push('🎨 ' + vs.radars + ' מכ"מים: ' + vs.trajectories_seen_any.toLocaleString() + ' מסלולים נצפים בחלקם, ' + vs.trajectories_seen_full.toLocaleString() + ' במלואם, ' + vs.trajectories_unseen.toLocaleString() + ' לא נצפים כלל.'); }  // נראות
             lines.push('זמן חישוב: ' + _afFmtTime(s.elapsed_s) + '.');  // זמן
             _af.els.info.textContent = lines.join(String.fromCharCode(10));  // שורות

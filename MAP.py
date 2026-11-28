@@ -5957,6 +5957,8 @@ def create_map(target='desktop', api_base='', output_path=None):
         var _afRenderer = null;  // Canvas renderer — אלפי קווים בלי להאט את המפה
         var AF_GREEN = '#1e9e3a', AF_RED = '#d93025', AF_LAUNCH = '#e8710a', AF_TARGET = '#8e44ad';  // צבעים: נצפה / לא נצפה / שיגור / מטרה
         var AF_MAX_DRAW = 2000;  // דילול תצוגה מעל המספר הזה (החלטה 15)
+        var AF_BIG_ETA_S = 600, AF_BIG_TRAJ = 300000;  // 28/11: מעל 10 דקות משוערות או 300,000 מסלולים — אזהרה ואישור לפני ריצה
+        var AF_MAP_ROWS_MAX = 20000;  // 28/11: כמו AREA_MAP_ROWS_MAX בשרת — כמה מסלולים לכל היותר מגיעים למפה
         var AF_REJECT_NAMES = {{out_of_range: 'מחוץ לטווח', qe_limits: 'מחוץ לגבולות ההגבהה', min_range: 'קרוב מטווח מינימלי', max_tof: 'זמן מעוף ארוך', terrain: 'פוגע בשטח (רכס)'}};  // שמות סיבות הפסילה
 
         function _afSites() {{  // חתימה של המכ"מים המוצבים — לזיהוי "הצביעה ישנה" (החלטה 16)
@@ -6026,7 +6028,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _af.els.btnArea = _afBtn(sw, '🗺 מאזור לאזור', 'מצב חדש: אזורי שיגור ואזורי מטרה, ספירת כל המסלולים האפשריים', function() {{ _afSetMode(true); }}, 'flex:1;font-weight:bold;');  // המצב החדש
             var box = _afMk(panelBody, 'div', '', 'display:none;flex-direction:column;gap:3px;');  // מכל הכלי
             _af.els.box = box;  // נשמר
-            _afMk(box, 'div', 'סמן אזורי שיגור (רשת כל 500 מ\\') ואזורי מטרה (כל 200 מ\\'). מהירות הלוע, המטאו והפגז נלקחים מהגדרות הכלי הבליסטי.', 'font-size:9px;color:#555;line-height:1.35;');  // הסבר קצר
+            _afMk(box, 'div', 'סמן אזורי שיגור ואזורי מטרה. רשת הנקודות: כל 500 מ\\' בשיגור וכל 200 מ\\' במטרה, אלא אם שינית ב"אפשרויות". מהירות הלוע, המטאו והפגז נלקחים מהגדרות הכלי הבליסטי.', 'font-size:9px;color:#555;line-height:1.35;');  // הסבר קצר (28/11: הרזולוציה ניתנת לשינוי)
             var drawRow = _afMk(box, 'div', '', 'display:flex;gap:2px;flex-wrap:wrap;');  // כפתורי ציור
             _afBtn(drawRow, '✏️ מצולע שיגור', 'ציור מצולע שיגור: לחיצות על המפה, ואז "סיים"', function() {{ _afStartDraw('launch', 'poly'); }}, 'border-color:' + AF_LAUNCH + ';');  // מצולע שיגור
             _afBtn(drawRow, '▭ מלבן שיגור', 'מלבן שיגור: שתי לחיצות — פינה ופינה נגדית', function() {{ _afStartDraw('launch', 'rect'); }}, 'border-color:' + AF_LAUNCH + ';');  // מלבן שיגור
@@ -6045,6 +6047,10 @@ def create_map(target='desktop', api_base='', output_path=None):
             _afBtn(saveRow, '💾 שמור', 'שמירת האזורים הנוכחיים בשם', _afSaveSet);  // שמירה
             _afBtn(saveRow, '🗑', 'מחיקת הסט שנבחר', _afDeleteSet);  // מחיקה
             _afMk(box, 'div', 'אפשרויות', 'font-size:9px;font-weight:bold;color:#888;border-top:1px solid #eee;padding-top:2px;');  // כותרת
+            _af.els.resL = _afNum(box, 'רזולוציית שיגור [מ\\']', '', 'מרחק בין נקודות השיגור באזור. ריק = 500 (ברירת מחדל). טווח 50–5000');  // 28/11: רזולוציה לאזורי שיגור
+            _af.els.resL.placeholder = '500';  // 28/11: ברירת המחדל מוצגת בשדה הריק
+            _af.els.resT = _afNum(box, 'רזולוציית מטרה [מ\\']', '', 'מרחק בין נקודות המטרה באזור. ריק = 200 (ברירת מחדל). טווח 50–5000');  // 28/11: רזולוציה לאזורי מטרה
+            _af.els.resT.placeholder = '200';  // 28/11: ברירת המחדל מוצגת בשדה הריק
             var gr = _afMk(box, 'div', '', 'display:flex;gap:8px;');  // ענפים
             _af.els.low = _afChk(gr, 'ענף נמוך', true); _af.els.high = _afChk(gr, 'ענף גבוה', true);  // שני הענפים (החלטה 2)
             L.DomEvent.on(_af.els.low, 'change', _afScheduleEstimate); L.DomEvent.on(_af.els.high, 'change', _afScheduleEstimate);  // הערכה מחדש
@@ -6184,7 +6190,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                      target_areas: _af.areas.filter(function(a) {{ return a.kind === 'target'; }}).map(function(a) {{ return {{name: a.name, polygon: a.polygon}}; }}),  // אזורי מטרה
                      mv: c.mv, met: c.met, fitting: c.fitting, dt: c.dt, coriolis: c.coriolis, earth_curvature: c.earth_curvature,  // פרמטרי ירי
                      angle_unit: 'mils', groups: groups, qe_min: v(_af.els.qeMin), qe_max: v(_af.els.qeMax),  // גבולות במילים
-                     min_range_m: v(_af.els.minRange), max_tof_s: v(_af.els.maxTof), crest: _af.els.crest.checked, safety_margin_m: v(_af.els.margin) || 0}};  // סינונים
+                     min_range_m: v(_af.els.minRange), max_tof_s: v(_af.els.maxTof), crest: _af.els.crest.checked, safety_margin_m: v(_af.els.margin) || 0,  // סינונים
+                     launch_res_m: v(_af.els.resL), target_res_m: v(_af.els.resT)}};  // 28/11: רזולוציות (null = ברירת המחדל בשרת)
         }}
         function _afFmtTime(s) {{  // שניות → טקסט קריא
             if (s == null) return '';  // אין
@@ -6192,6 +6199,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
         function _afScheduleEstimate() {{  // הערכה מחדש (debounce) אחרי שינוי
             clearTimeout(_af.estTimer); _af.estTimer = setTimeout(_afEstimate, 400);  // 0.4 שנ'
+            _afResetBigConfirm();  // 28/11: שינוי בבקשה — אישור ריצה גדולה קודם כבר לא תקף
         }}
         function _afEstimate() {{  // הערכה לפני הרצה (החלטה 11: בלי תקרה, אבל עם הערכה)
             var req = _afRequest();  // הבקשה
@@ -6206,6 +6214,25 @@ def create_map(target='desktop', api_base='', output_path=None):
             var req = _afRequest();  // הבקשה
             if (!req.launch_areas.length || !req.target_areas.length) {{ _af.els.info.textContent = 'סמן לפחות אזור שיגור אחד ואזור מטרה אחד.'; return; }}  // חסר
             if (!req.groups.length) {{ _af.els.info.textContent = 'בחר לפחות ענף אחד.'; return; }}  // בלי ענפים
+            var sig = JSON.stringify(req);  // 28/11: חתימת הבקשה — האישור חל רק עליה
+            if (_af.bigOk !== sig) {{  // 28/11: עוד לא אושרה ריצה גדולה לבקשה הזו — בודקים הערכה קודם
+                _af.els.info.textContent = 'בודק את גודל החישוב…';  // 28/11: משוב
+                fetch('http://localhost:5002/ballistics/area/estimate', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: sig}})
+                .then(function(r) {{ return r.json(); }}).then(function(d) {{
+                    if (d.error) {{ _af.els.info.textContent = '⚠️ ' + d.error; return; }}  // 28/11: קלט שגוי (למשל רזולוציה מחוץ לטווח)
+                    if ((d.eta_s || 0) > AF_BIG_ETA_S || (d.trajectories_max || 0) > AF_BIG_TRAJ) {{  // 28/11: ריצה גדולה — אזהרה, בלי חסימה (החלטה 11)
+                        _af.bigOk = sig;  // 28/11: הלחיצה הבאה על אותה בקשה תתחיל
+                        _af.els.run.textContent = '▶ חשב בכל זאת';  // 28/11: הכפתור מבהיר שזו לחיצת אישור
+                        _af.els.info.textContent = '⚠️ חישוב גדול: ' + d.pairs.toLocaleString() + ' זוגות (' + d.trajectories_max.toLocaleString() + ' מסלולים לבדיקה), זמן משוער ' + _afFmtTime(d.eta_s) + '.' + String.fromCharCode(10) +  // 28/11: הגודל והזמן
+                            'תוצאה גדולה דורשת זיכרון רב. במפה יוצג מדגם של עד ' + AF_MAP_ROWS_MAX.toLocaleString() + ' מסלולים; הסיכום, מפות החום וה-CSV יכללו את כולם.' + String.fromCharCode(10) +  // 28/11: מה יוצג
+                            'לחץ שוב "חשב בכל זאת" כדי להתחיל, או הקטן את האזורים / הגדל את הרזולוציה.';  // 28/11: מה לעשות
+                        return;  // 28/11: ממתין לאישור
+                    }}
+                    _af.bigOk = sig; _afRun();  // 28/11: לא גדול — מתחילים מיד
+                }}).catch(function() {{ _af.els.info.textContent = 'השרת לא זמין'; }});  // 28/11: כשל
+                return;  // 28/11: ההמשך אחרי ההערכה
+            }}
+            _afResetBigConfirm();  // 28/11: האישור נוצל — ריצה נוספת תיבדק שוב
             _afCancel(true);  // job קודם
             _af.result = null; _af.vis = null; _af.visJob = null;  // ניקוי תוצאה קודמת
             _afLayers().paths.clearLayers(); _af.els.res.style.display = 'none';  // ניקוי המפה
@@ -6216,6 +6243,10 @@ def create_map(target='desktop', api_base='', output_path=None):
                 _af.jobId = d.job_id; _af.els.cancel.style.display = ''; _af.els.run.disabled = true;  // מצב ריצה
                 _af.timer = setInterval(function() {{ _afPoll(d.job_id, false); }}, 1000);  // polling
             }}).catch(function(e) {{ _af.els.info.textContent = '⚠️ ' + e.message; }});  // כשל
+        }}
+        function _afResetBigConfirm() {{  // 28/11: מבטל אישור ריצה גדולה (אחרי שינוי או אחרי התחלה)
+            _af.bigOk = null;  // 28/11: אין אישור
+            if (_af.els.run) _af.els.run.textContent = '▶ חשב מסלולים';  // 28/11: טקסט רגיל
         }}
         function _afCancel(silent) {{  // ביטול job פעיל
             if (_af.timer) {{ clearInterval(_af.timer); _af.timer = null; }}  // עצירת polling
@@ -6230,7 +6261,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 var el = _af.els.info;  // שורת המצב
                 if (d.status === 'running') {{  // עדיין רץ
                     var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' : '';  // שליפה
-                    el.textContent = (isVis ? '🎨 ' : '⏳ ') + (d.note || 'מחשב…') + prog + (d.eta_s ? ' · נותרו כ-' + _afFmtTime(d.eta_s) : '');  // התקדמות + הערכה
+                    el.textContent = (isVis ? '🎨 ' : '⏳ ') + (d.note || 'מחשב…') + prog + (d.eta_s ? ' · נותרו כ-' + _afFmtTime(d.eta_s) + (isVis ? '' : ' לכל החישוב') : '');  // התקדמות + הערכה (28/11: לכל החישוב, לא רק לשלב)
                     return;  // ממתין
                 }}
                 if (isVis) {{ clearInterval(_af.visTimer); _af.visTimer = null; }} else {{ clearInterval(_af.timer); _af.timer = null; _af.jobId = null; _af.els.cancel.style.display = 'none'; _af.els.run.disabled = false; }}  // עצירה
@@ -6263,6 +6294,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (rej.length) lines.push('נפסלו: ' + rej.join(' · '));  // פירוט
             if (v.checked) lines.push('דיוק (מדגם ' + v.checked + ' מסלולים, מסלול אמיתי מכל נקודת שיגור): החטאה מרבית ' + v.miss_max_m + ' מ\\', RMS ' + v.miss_rms_m + ' מ\\'; שגיאת הגבהה עד ' + v.qe_err_max_mils + ' מיל.');  // אימות (החלטה 1)
             if (s.met) lines.push((s.met_stale ? '⚠️ ' : '') + 'מטאו: ' + s.met);  // FR-D-299: מקור התחזית, ואזהרה אם היא שמורה (השליפה נכשלה)
+            if (r.rows_sampled) lines.push('🗺️ במפה מדגם אחיד של ' + r.rows.length.toLocaleString() + ' מסלולים מתוך ' + r.rows_total.toLocaleString() + '. הסינון, הציור והצביעה במפה הם על המדגם; הסיכום, מפות החום וה-CSV כוללים את כל המסלולים.');  // 28/11: תוצאה גדולה
             if (_af.vis) {{ var vs = _af.vis.summary; lines.push('🎨 ' + vs.radars + ' מכ"מים: ' + vs.trajectories_seen_any.toLocaleString() + ' מסלולים נצפים בחלקם, ' + vs.trajectories_seen_full.toLocaleString() + ' במלואם, ' + vs.trajectories_unseen.toLocaleString() + ' לא נצפים כלל.'); }}  // נראות
             lines.push('זמן חישוב: ' + _afFmtTime(s.elapsed_s) + '.');  // זמן
             _af.els.info.textContent = lines.join(String.fromCharCode(10));  // שורות
