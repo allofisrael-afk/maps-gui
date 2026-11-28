@@ -35,7 +35,10 @@ MOCK = r"""(function(){
             heat: {launch: [{area: 0, lat: 31.2, lon: 34.75, count: n}], target: [{area: 0, lat: 31.3, lon: 34.86, count: 1}]}, rows: rows}; }
   window.__resultFor = function(kind){  // 28/11: תוצאה סינתטית לרדיאלי
     var rays = []; for (var b = 0; b < 4; b++) rays.push({bearing_deg: b * 10, lat: 31.3 + b * 0.01, lon: 34.8 + b * 0.01, blocked: b % 2 === 1});  // 4 קרניים
-    return {range_km: 10, min_range_km: 0, n_bearings: 4, clear_count: 2, span_deg: 30, observer_lat: 31.25, observer_lon: 34.79, rays: rays}; };
+    if (kind === 'D') rays.forEach(function(r, b){ r.radar_lat = r.lat; r.radar_lon = r.lon; r.doppler_ok = b !== 2; });  // 28/11: שדות דופלר
+    return {range_km: 10, min_range_km: 0, n_bearings: 4, clear_count: 2, doppler_blocked_rays: 1, span_deg: 30, observer_lat: 31.25, observer_lon: 34.79, rays: rays,  // רדיאלי/סריקה
+            points: [{lat: 31.3, lng: 34.8, status: 'detected', reason: 'ok', dist_km: 5}, {lat: 31.32, lng: 34.83, status: 'blocked', reason: 'terrain', dist_km: 8}],  // 28/11: הערכת מסלול
+            counts: {detected: 1, doppler_blind: 0, blocked: 1, out_of_range: 0}, points_total: 2}; };
   function resp(d){ return Promise.resolve({ok: true, status: 200, json: function(){ return Promise.resolve(d); }, blob: function(){ return Promise.resolve(new Blob(['x'])); }, clone: function(){ return this; }}); }
   window.fetch = function(u, opt){ u = String(u); window.__calls.push(u.replace('http://localhost:5002', ''));
     if (u.indexOf('/ballistics/area/estimate') >= 0) return resp({launch_points: 1, target_points: 5, pairs: 5, trajectories_max: 10, eta_s: 5, cells_missing: 0, eta_parts_s: {}});
@@ -124,6 +127,7 @@ def run():  # התרחיש
     js("_afRemoveRun(_af.runs[1]); 'ok'")  # הסרת הנבחר
     check("הסרת החישוב הנבחר: יורד מהמפה, אחר נבחר במקומו", wait("_af.runs.length === 2 && _af.cur === _af.runs[0] && _af.els.info.textContent.indexOf('4 מתוך 4') >= 0") and js("document.querySelectorAll('#map *').length > 0") is True)  # הסרה
     run_radial()  # 28/11: שלב 2 — רדיוס ראייה רדיאלי
+    run_doppler()  # 28/11: שלב 3 — דופלר מכ"ם
     errs = js("JSON.stringify(window.__errs || [])")  # שגיאות JS
     check("אין שגיאות JavaScript", errs in ("[]", None), str(errs))  # קונסולה
 
@@ -148,6 +152,26 @@ def run_radial():  # 28/11: רדיוס ראייה — שני חישובים במ
     check("רדיאלי: הסרה מורידה מהמפה ומהרשימה", wait("_radialRuns.length === 2 && _radialRunsEl.children.length === 2"))  # הסרה
     js("toggleRadialLos(); 'ok'")  # כיבוי הכלי
     check("רדיאלי: כיבוי הכלי מנקה את כל החישובים", wait("_radialRuns.length === 0"))  # כיבוי
+
+
+def run_doppler():  # 28/11: דופלר — שתי סריקות והערכת מסלול במקביל, הזזת צופה לא מבטלת, סגירת הפאנל עוצרת בלי למחוק
+    js("""toggleRadarDoppler(); map.fire('click', {latlng: L.latLng(31.25, 34.79), originalEvent: {}}); _runRadarDoppler(); 'ok'""")  # צופה + סריקה ראשונה
+    wait("_radarRuns.length === 1 && _radarRuns[0].status === 'running'")  # רצה
+    js("""map.fire('click', {latlng: L.latLng(31.35, 34.85), originalEvent: {}}); _runRadarDoppler();
+          _lastFlightRouteData = {trail: [{lat: 31.3, lng: 34.8}, {lat: 31.32, lng: 34.83}], aircraft: 'B738', aircraft_icao: 'B738', flight: 'TST1'};
+          _runRouteEvaluation(); 'ok'""")  # סריקה שנייה + הערכת מסלול
+    check("דופלר: סריקה שנייה והערכת מסלול רצות יחד עם הראשונה", wait("_radarRuns.length === 3 && _radarRuns.every(function(r){ return r.status === 'running'; }) && _radarRuns[2].kind === 'route_eval'") and not js("__calls.some(function(c){ return c.indexOf('/radar_doppler/cancel') >= 0; })"), str(js("JSON.stringify(_radarRuns.map(function(r){ return r.kind + ':' + r.status; }))")))  # שלושה רצים
+    js("_radarRuns.forEach(function(r){ __jobs[r.jobId].state = 'done'; }); 'ok'")  # כולם מסתיימים
+    check("דופלר: שלוש התוצאות על המפה יחד (שתי סריקות + מסלול)", wait("_radarRuns.every(function(r){ return r.status === 'done' && map.hasLayer(r.layer) && r.layer.getLayers().length > 0; })"))  # כולן
+    check("דופלר: שורת הסיכום של הערכת המסלול כוללת RCS וכלי טיס", "B738" in (js("_radarRuns[2].note") or ""), str(js("_radarRuns[2].note")))  # פרטי הערכה
+    js("_runRadarDoppler(); 'ok'")  # רביעית
+    wait("_radarRuns.length === 4 && _radarRuns[3].status === 'running'")  # רצה
+    js("toggleRadarDoppler(); 'ok'")  # סגירת הפאנל
+    check("דופלר: סגירת הפאנל עוצרת את מה שרץ ולא מוחקת תוצאות", wait("_radarRuns[3].status === 'cancelled'") and js("_radarRuns.length === 4 && map.hasLayer(_radarRuns[0].layer) && map.hasLayer(_radarRuns[2].layer)") is True)  # עצירה בלי מחיקה
+    js("_clearRouteEvaluation(); 'ok'")  # ניקוי מסלול הטיסה
+    check("דופלר: ניקוי מסלול הטיסה מסיר רק את הערכות המסלול", wait("_radarRuns.length === 3 && _radarRuns.every(function(r){ return r.kind === 'scan'; })"))  # הערכות בלבד
+    js("clearRadarDopplerResult(); 'ok'")  # איפוס
+    check("דופלר: איפוס מנקה את כל החישובים", wait("_radarRuns.length === 0"))  # איפוס
 
 
 def main():  # הפעלה

@@ -314,7 +314,6 @@ def create_map(target='desktop', api_base='', output_path=None):
         var flightPolyline = null;    // קו מסלול הטיסה — null כשאין טיסה מוצגת
         var flightMarker   = null;    // סמן מטוס במיקום הנוכחי
         var _lastFlightRouteData = null;  // routeData המלא (כולל trail עם alt/spd/hd) של הטיסה האחרונה שנטענה — לשימוש בהערכת מסלול מול מכ"ם-דופלר
-        var _routeEvalLayers = [];    // קטעי הפוליליין הצבעוניים של הערכת המסלול האחרונה (לא flightPolyline הרגיל)
         var _routeEvalRcsUsed = null; // ה-RCS שנגזר אוטומטית וששימש בהערכה האחרונה — מוצג ב-radarInfoEl בסיום, לשקיפות
         var elevationLayer  = null;    // שכבת גבהים — null כשכבויה
         var elevationActive = false;  // האם שכבת הגבהים פעילה
@@ -722,25 +721,19 @@ def create_map(target='desktop', api_base='', output_path=None):
 
         // ── מצב כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד מרדיוס-הראייה ──
         // אותו רעיון בדיוק (משקיף, כל הכיוונים, תצוגה מקדימה+ידיות גרירה, job+polling+ביטול),
-        // עם תוצאה בעלת 3 צבעים במקום 2 (ר' _drawRadarDopplerResult) ופאנל גדול הרבה יותר (19 שדות)
+        // עם תוצאה בעלת 3 צבעים במקום 2 (ר' _drawRadarScanRun) ופאנל גדול הרבה יותר (19 שדות)
         var radarActive    = false; // האם מצב הצבת תצפית פעיל (cursor crosshair)
-        var radarLoading   = false; // job רץ כרגע בשרת — מונע הפעלה כפולה
         var radarObs       = null;  // נקודת התצפית הנוכחית (L.LatLng), null אם לא הוצבה עדיין
         var radarObsMk     = null;  // סמן התצפית על המפה
         var radarStartLn   = null;  // קו תצוגה מקדימה לאזימוט ההתחלה
         var radarEndLn     = null;  // קו תצוגה מקדימה לאזימוט הסיום
         var radarStartMk   = null;  // ידית גרירה בקצה קו ההתחלה — קובעת גם זווית וגם טווח משותף
         var radarEndMk     = null;  // ידית גרירה בקצה קו הסיום
-        var radarPolygon   = null;  // L.polygon עם התוצאה המחושבת
-        var radarSpokes    = [];    // קווי "חישור" תלת-צבעוניים (ירוק/כתום/אדום) — אחד-שניים לכל כיוון
-        var radarJobId     = null;  // מזהה ה-job הנוכחי בשרת, לצורך polling/ביטול
-        var radarPollTimer = null;  // מזהה ה-setInterval של ה-polling
-        var _radarJobKind  = null;  // 'sweep' (ברירת מחדל, /radar_doppler/start) או 'route_eval' — קובע מה _pollRadarDopplerStatus מצייר בסיום
+        var _radarRuns = [], _radarRunSeq = 0, _radarRunsEl = null;  // 28/11 (FR-D-301): חישובי דופלר (סריקה / הערכת מסלול) — כמה במקביל, כל תוצאה בשכבה משלה
         var radarInfoEl    = null;  // תיבת הטקסט הקטנה בתוך ה-Control (מציגה מצב/התקדמות/סיכום)
         var _radarProfilePanelEl = null;  // פאנל חתך-הצד לקרן בודדת בלחיצה — נפרד מ-losPanelEl (לא שייך סמנטית ל-losSessions)
         var _radarBtnEl        = null; // הפניה לכפתור 🎯 לצורך שינוי צבעו
         var _radarPanelBodyEl  = null; // גוף הפאנל (שדות+כפתורים) — מוסתר עד שהכלי נבחר
-        var _radarCancelBtnEl  = null; // הפניה לכפתור "בטל" לצורך הצגה/הסתרה
         // קבוצת שדות גיאומטריה — זהה במהות לרדיוס-הראייה
         var _radarRangeInput    = null; // טווח מרחק לבדיקה (ק"מ)
         var _radarMinRangeInput = null; // טווח מינימלי/אזור עיוור (ק"מ)
@@ -2168,8 +2161,7 @@ def create_map(target='desktop', api_base='', output_path=None):
                 _placeRadialLosObserver(e.latlng);  // 28/11: גם בזמן חישוב — אפשר להציב צופה חדש ולהריץ חישוב נוסף במקביל
             }} else if (radarActive) {{
                 // מצב תצפית מכ"ם דופלר — אותה זרימה בדיוק כמו רדיוס-ראייה רדיאלי (לחיצה=משקיף+תצוגה מקדימה בלבד)
-                if (radarLoading) return;  // מתעלם מלחיצות חדשות בזמן שחישוב קודם עדיין רץ
-                _placeRadarObserver(e.latlng);
+                _placeRadarObserver(e.latlng);  // 28/11: גם בזמן חישוב — אפשר להציב צופה חדש ולהריץ חישוב נוסף במקביל
             }} else if (losActive) {{
                 // losActive בודק לפני elevationActive — מצב LOS גובר על כל שכבה פעילה אחרת
                 // מצב LOS פעיל — לחיצה 1 = תצפית, לחיצה 2 = יעד + חישוב + מיד מוכן לצמד הבא
@@ -3247,7 +3239,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         // ── כלי תצפית מכ"ם דופלר (רעיוני/חינוכי) — כלי שלישי, נפרד ──
         // תצוגה מקדימה+גרירת ידיות זהה לרדיוס-הראייה (משתמש באותם _destPointJs/_bearingDeg/_haversineM),
         // בצבע ייחודי (ציאן) כדי לא להתבלבל עם הצהוב של רדיוס-הראייה. ההבדל האמיתי הוא בציור התוצאה
-        // (_drawRadarDopplerResult) — 3 צבעים במקום 2, כי יש עכשיו סיבת-אי-גילוי שלישית (דופלר).
+        // (_drawRadarScanRun) — 3 צבעים במקום 2, כי יש עכשיו סיבת-אי-גילוי שלישית (דופלר).
         function _radarMarkerIcon() {{
             // אייקון סמן התצפית — עיגול מלא בצבע ציאן, לא חופף לצהוב של רדיוס-הראייה או למג'נטה של ה-CTR
             return L.divIcon({{
@@ -3267,7 +3259,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         function _placeRadarObserver(latlng) {{
             // ממקם/מזיז את סמן המשקיף — בשימוש הן ע"י לחיצה על המפה והן ע"י טעינת "עמדה שמורה"
             var _prevRadarObs = radarObs;  // מיקום קודם (או null) — נשמר להיסטוריית Undo לפני הניקוי
-            clearRadarDopplerResult();  // ניקוי תוצאה/תצוגה מקדימה קודמת — משקיף חדש בכל הפעלה
+            _clearRadarObserver();  // ניקוי הצופה והתצוגה המקדימה הקודמים (28/11: התוצאות והחישובים שרצים נשארים)
             radarObs = latlng;
             radarObsMk = L.marker(latlng, {{icon: _radarMarkerIcon(), draggable: true}}).addTo(map);
             radarObsMk.bindTooltip('תצפית מכ"ם דופלר', {{permanent:false, direction:'top'}});
@@ -3289,7 +3281,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _rsOnObserverMoved('radar', latlng);  // FR-D-288: מיקום המכ"ם הפעיל מתעדכן, ושאר הכלים זזים איתו
             if (!_isRestoringUndo) {{
                 _pushUndo('מכ"ם דופלר: מיקום משקיף', _makePlacementRestore(
-                    _placeRadarObserver, clearRadarDopplerResult,
+                    _placeRadarObserver, _clearRadarObserver,  // 28/11: Undo של הצבת צופה מנקה רק את הצופה — לא את התוצאות והחישובים
                     function() {{ return radarObs; }}, _prevRadarObs));
             }}
         }}
@@ -3339,7 +3331,7 @@ def create_map(target='desktop', api_base='', output_path=None):
 
         function _runRadarDoppler() {{
             // מפעיל את החישוב האמיתי בשרת — נקרא רק בלחיצה מפורשת על "הפעל חישוב"
-            if (!radarObs || radarLoading) return;
+            if (!radarObs) return;  // 28/11: בלי חסימה בזמן חישוב — כל "הפעל חישוב" הוא חישוב נוסף ברשימה
             function num(el, def) {{ var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }}
             var rangeKm    = num(_radarRangeInput, 50);
             var minRangeKm = num(_radarMinRangeInput, 1);
@@ -3364,11 +3356,9 @@ def create_map(target='desktop', api_base='', output_path=None):
             var antennaType  = _radarAntennaSelect ? _radarAntennaSelect.value : 'generic';
             var boresightDeg = num(_radarBoresightInput, 0);
             var maxScanDeg   = num(_radarMaxScanInput, 60);
-            radarLoading = true;
-            _radarRunProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל בתחילת החישוב — לשורת התוצאה
+            var rn = _radarNewRun('scan', '#' + (_radarRunSeq + 1) + ' · ' + _jrHhmm() + ' · סריקה ' + rangeKm + ' ק"מ · ' + startDeg + '°–' + endDeg + '°');  // 28/11: חישוב חדש ברשימה
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג
             if (radarInfoEl) radarInfoEl.textContent = 'מתחיל חישוב…';
-            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
             var url = 'http://localhost:5002/radar_doppler/start?lat=' + radarObs.lat + '&lon=' + radarObs.lng +
                       '&range_km=' + rangeKm + '&min_range_km=' + minRangeKm + '&angle_step_deg=' + stepDeg +
                       '&start_bearing_deg=' + startDeg + '&end_bearing_deg=' + endDeg +
@@ -3384,72 +3374,70 @@ def create_map(target='desktop', api_base='', output_path=None):
             .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
             .then(function(data) {{
                 if (data.error) throw new Error(data.error);
-                radarJobId = data.job_id;
-                radarPollTimer = setInterval(_pollRadarDopplerStatus, 1000);  // בדיקת התקדמות כל שנייה
+                rn.jobId = data.job_id; rn.status = 'running'; _radarRow(rn);  // 28/11: מזהה ה-job של החישוב הזה
+                rn.timer = setInterval(function() {{ _pollRadarRun(rn); }}, 1000);  // בדיקת התקדמות כל שנייה (28/11: לכל חישוב בנפרד)
             }})
             .catch(function(err) {{
-                radarLoading = false;
+                rn.status = 'error'; rn.note = err.message; _radarRow(rn);  // 28/11: בשורת החישוב
                 document.title = '__radar_doppler_error__';
                 if (radarInfoEl) radarInfoEl.textContent = '';
-                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
                 alert('שגיאה בהפעלת חישוב תצפית מכ"ם דופלר: ' + err.message);
             }});
         }}
 
-        function _pollRadarDopplerStatus() {{
-            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים
-            if (!radarJobId) return;
-            fetch('http://localhost:5002/radar_doppler/status?job_id=' + radarJobId)
+        var _radarRunH = {{cancel: function(rn) {{ _cancelRadarRun(rn); }}, remove: function(rn) {{ _removeRadarRun(rn); }}}};  // 28/11: פעולות השורה
+        function _radarRow(rn) {{ if (_radarRunsEl) _jrRow(_radarRunsEl, rn, _radarRunH); }}  // 28/11: שורת חישוב ברשימת הפאנל
+        function _radarNewRun(kind, label) {{  // 28/11: רשומת חישוב דופלר חדשה (סריקה או הערכת מסלול)
+            var rn = {{n: ++_radarRunSeq, kind: kind, label: label, jobId: null, timer: null, status: 'starting', note: 'מתחיל…', prog: '', show: true, undone: false, row: null,  // 28/11: מצב
+                      layer: L.layerGroup().addTo(map), profLbl: _rtActiveLabel()}};  // FR-D-286: הפרופיל שהיה פעיל בתחילת החישוב (28/11: לכל חישוב)
+            _radarRuns.push(rn); _radarRow(rn);  // 28/11: לרשימה
+            return rn;  // 28/11: הרשומה
+        }}
+
+        function _pollRadarRun(rn) {{
+            // נקרא כל שנייה בזמן שה-job רץ — בודק התקדמות, מצייר תוצאה סופית כשמסתיים (28/11: לחישוב מסוים; האחרים ממשיכים)
+            if (!rn.jobId || !_jrRunning(rn)) return;  // 28/11: בוטל/הסתיים
+            var isLast = rn === _radarRuns[_radarRuns.length - 1];  // 28/11: שורת המידע מציגה את החישוב האחרון
+            fetch('http://localhost:5002/radar_doppler/status?job_id=' + rn.jobId)
             .then(function(r) {{ return r.json(); }})
             .then(function(data) {{
+                if (!_jrRunning(rn)) return;  // 28/11: בוטל בינתיים
                 if (data.status === 'running') {{
-                    if (radarInfoEl) {{
-                        var total = data.batches_total;
-                        radarInfoEl.textContent = total
-                            ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)'
-                            : 'מתחיל…';
-                    }}
+                    var total = data.batches_total;
+                    rn.prog = total ? data.batches_done + '/' + total : '';  // 28/11: התקדמות בשורה
+                    rn.note = total ? 'מחשב… ' + data.batches_done + '/' + total + ' (עד כמה דקות בטווח ארוך)' : 'מתחיל…';  // 28/11: פירוט
+                    _radarRow(rn);  // 28/11: עדכון השורה
+                    if (radarInfoEl && isLast) radarInfoEl.textContent = rn.note;  // 28/11: שורת המידע — של האחרון
                     return;  // עדיין רץ — ממתין ל-tick הבא
                 }}
-                clearInterval(radarPollTimer);  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling
-                radarPollTimer = null;
-                radarLoading = false;
-                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
-                var jobKind = _radarJobKind;  // נשמר לפני האיפוס — קובע איזו תוצאה זו ואיך לצייר אותה
-                _radarJobKind = null;
+                clearInterval(rn.timer); rn.timer = null;  // ה-job הסתיים (הצליח/נכשל/בוטל) — מפסיק את ה-polling (28/11: של החישוב הזה)
                 if (data.status === 'done') {{
+                    rn.status = 'done';  // 28/11: מצב
                     document.title = '__radar_doppler_loaded__';
-                    if (jobKind === 'route_eval') {{
-                        _drawRouteEvaluation(data.result);
-                        if (radarInfoEl) {{
-                            var c = data.result.counts;
-                            // מציג גם את ה-RCS שנגזר אוטומטית מסוג כלי-הטיס — שקיפות: המשתמש לא הזין אותו ידנית
-                            radarInfoEl.textContent = c.detected + ' מזוהות, ' + c.doppler_blind + ' עיוורות-דופלר, ' +
-                                c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ') — ' +
-                                'RCS משוער: ' + _routeEvalRcsUsed + ' מ"ר (' + (_lastFlightRouteData.aircraft || '?') + ')' +
-                                '\\n📡 ' + _radarRunProfileLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
-                            radarInfoEl.style.whiteSpace = 'pre-line';  // FR-D-286: מכבד את מעבר השורה
-                        }}
+                    if (rn.kind === 'route_eval') {{
+                        _drawRouteEvalRun(rn, data.result);  // 28/11: לשכבה של החישוב הזה
+                        var c = data.result.counts;
+                        // מציג גם את ה-RCS שנגזר אוטומטית מסוג כלי-הטיס — שקיפות: המשתמש לא הזין אותו ידנית
+                        rn.note = c.detected + ' מזוהות, ' + c.doppler_blind + ' עיוורות-דופלר, ' +
+                            c.blocked + ' חסומות, ' + c.out_of_range + ' מחוץ-לטווח (מתוך ' + data.result.points_total + ') — ' +
+                            'RCS משוער: ' + rn.rcsUsed + ' מ"ר (' + (rn.aircraft || '?') + ')' +
+                            '\\n📡 ' + rn.profLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
                     }} else {{
-                        _drawRadarDopplerResult(data.result);
-                        if (radarInfoEl) {{
-                            radarInfoEl.textContent =
-                                data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
-                                data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר' +
-                                '\\n📡 ' + _radarRunProfileLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
-                            radarInfoEl.style.whiteSpace = 'pre-line';  // FR-D-286: מכבד את מעבר השורה
-                        }}
+                        _drawRadarScanRun(rn, data.result);  // 28/11: לשכבה של החישוב הזה — התוצאות הקודמות נשארות
+                        rn.note = data.result.range_km + ' ק"מ, ' + data.result.n_bearings + ' כיוונים, ' +
+                            data.result.clear_count + ' מזוהים לגמרי, ' + data.result.doppler_blocked_rays + ' חסומי-דופלר' +
+                            '\\n📡 ' + rn.profLbl;  // FR-D-286: לפי איזה פרופיל (שורה נפרדת)
                     }}
+                    if (radarInfoEl) {{ radarInfoEl.textContent = rn.label + ': ' + rn.note; radarInfoEl.style.whiteSpace = 'pre-line'; }}  // FR-D-286: מכבד את מעבר השורה (28/11: עם שם החישוב)
                 }} else if (data.status === 'error') {{
+                    rn.status = 'error'; rn.note = data.error || 'לא ידועה';  // 28/11: מצב
                     document.title = '__radar_doppler_error__';
-                    if (radarInfoEl) radarInfoEl.textContent = '';
-                    alert('שגיאה ב' + (jobKind === 'route_eval' ? 'הערכת מסלול טיסה' : 'חישוב תצפית מכ"ם דופלר') +
-                          ': ' + (data.error || 'לא ידועה'));
+                    alert('שגיאה ב' + (rn.kind === 'route_eval' ? 'הערכת מסלול טיסה' : 'חישוב תצפית מכ"ם דופלר') + ' (' + rn.label + '): ' + (data.error || 'לא ידועה'));  // 28/11: עם שם החישוב
                 }} else if (data.status === 'cancelled') {{
+                    rn.status = 'cancelled'; rn.note = 'בוטל';  // 28/11: מצב
                     document.title = '__radar_doppler_cancelled__';
-                    if (radarInfoEl) radarInfoEl.textContent = '';
                 }}
-                radarJobId = null;
+                _radarRow(rn);  // 28/11: עדכון השורה
             }})
             .catch(function() {{
                 // כשל רשת בבדיקת סטטוס בודדת — לא עוצר את ה-polling, ה-tick הבא ינסה שוב
@@ -3483,18 +3471,17 @@ def create_map(target='desktop', api_base='', output_path=None):
 
         function _runRouteEvaluation() {{
             // מפעיל הערכת מסלול טיסה מלא (FR24) מול תצורת המכ"ם הנוכחית — דורש גם משקיף מוצב
-            // וגם מסלול טיסה טעון; משתמש באותם radarLoading/radarJobId/radarPollTimer של הסריקה
-            // הרגילה (שני סוגי החישוב לא יכולים לרוץ בו-זמנית) — _radarJobKind מבדיל ביניהם בסיום.
+            // וגם מסלול טיסה טעון. 28/11: כל הערכה היא חישוב נפרד ברשימה (_radarNewRun), ויכולה לרוץ במקביל לסריקה
+            // ולהערכות אחרות; rn.kind מבדיל בין סריקה להערכה בסיום.
             if (!radarObs) {{ alert('יש להציב תחילה משקיף מכ"ם על המפה'); return; }}
             if (!_lastFlightRouteData || !_lastFlightRouteData.trail || !_lastFlightRouteData.trail.length) {{
                 alert('יש לחפש תחילה מסלול טיסה (FR24)'); return;
             }}
-            if (radarLoading) return;  // חישוב אחר (סריקה או הערכת מסלול) כבר רץ
             function num(el, def) {{ var v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; }}
             // RCS נגזר אוטומטית מסוג כלי-הטיס בפועל (FR24) — לא משדה הקלט הידני, שרלוונטי רק לסריקה
             // הרגילה (שם אין מטרה אמיתית לגזור ממנה). מוצג גם ב-radarInfoEl בסיום, לשקיפות.
             var _rcsUsed = _rcsForAircraftType(_lastFlightRouteData.aircraft_icao);
-            _routeEvalRcsUsed = _rcsUsed;  // נשמר גלובלית — נצרך ב-_pollRadarDopplerStatus בסיום (פונקציה אחרת, אסינכרונית)
+            _routeEvalRcsUsed = _rcsUsed;  // נשמר גלובלית (28/11: גם בחישוב עצמו — rn.rcsUsed, כי כמה הערכות יכולות לרוץ יחד)
             var body = {{
                 lat: radarObs.lat, lon: radarObs.lng,
                 range_km: num(_radarRangeInput, 50), min_range_km: num(_radarMinRangeInput, 1),
@@ -3511,35 +3498,31 @@ def create_map(target='desktop', api_base='', output_path=None):
                 // מסנן נקודות חסרות-קואורדינטות — אותו סינון בדיוק כמו drawFlightRoute עבור path
                 trail: _lastFlightRouteData.trail.filter(function(p) {{ return p.lat != null && p.lng != null; }}),
             }};
-            radarLoading = true;
-            _radarJobKind = 'route_eval';
+            var rn = _radarNewRun('route_eval', '#' + (_radarRunSeq + 1) + ' · ' + _jrHhmm() + ' · מסלול ' + (_lastFlightRouteData.flight || _lastFlightRouteData.aircraft || 'טיסה'));  // 28/11: חישוב חדש ברשימה
+            rn.rcsUsed = _rcsUsed; rn.aircraft = _lastFlightRouteData.aircraft;  // 28/11: לשורת הסיכום בסיום
             document.title = '__radar_doppler_loading__';  // איתות ל-Python — שורת לוג, אותו איתות כמו סריקה רגילה
-            _radarRunProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל בתחילת ההערכה
             if (radarInfoEl) radarInfoEl.textContent = 'מעריך מסלול טיסה מול המכ"ם…';
-            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'block';
             fetch('http://localhost:5002/radar_doppler/evaluate_route/start', {{
                 method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body)
             }})
             .then(function(r) {{ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
             .then(function(data) {{
                 if (data.error) throw new Error(data.error);
-                radarJobId = data.job_id;
-                radarPollTimer = setInterval(_pollRadarDopplerStatus, 1000);  // אותו polling בדיוק כמו סריקה רגילה
+                rn.jobId = data.job_id; rn.status = 'running'; _radarRow(rn);  // 28/11: מזהה ה-job של ההערכה הזו
+                rn.timer = setInterval(function() {{ _pollRadarRun(rn); }}, 1000);  // אותו polling בדיוק כמו סריקה רגילה (28/11: לכל חישוב בנפרד)
             }})
             .catch(function(err) {{
-                radarLoading = false;
-                _radarJobKind = null;
+                rn.status = 'error'; rn.note = err.message; _radarRow(rn);  // 28/11: בשורת החישוב
                 document.title = '__radar_doppler_error__';
                 if (radarInfoEl) radarInfoEl.textContent = '';
-                if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
                 alert('שגיאה בהערכת מסלול טיסה: ' + err.message);
             }});
         }}
 
-        function _drawRouteEvaluation(result) {{
+        function _drawRouteEvalRun(rn, result) {{
             // מצייר את המסלול כסדרת קטעים צבעוניים (במקום flightPolyline החד-צבעי הרגיל) —
             // צבע כל קטע נקבע לפי סטטוס הנקודה בקצהו (לא ממוצע/אינטרפולציה בין שתי הנקודות)
-            _clearRouteEvaluation();  // מנקה הערכה קודמת, אם הייתה
+            rn.layer.clearLayers();  // 28/11: רק השכבה של ההערכה הזו — הערכות אחרות נשארות
             var pts = result.points;
             if (!pts || pts.length === 0) {{
                 alert('לא התקבלו נתוני הערכה עבור מסלול הטיסה'); return;
@@ -3564,16 +3547,14 @@ def create_map(target='desktop', api_base='', output_path=None):
                 // מציג סמן עגול צבעוני יחיד במקום להיכשל בשקט כמו קודם (pts.length<2 היה פשוט מדלג על הכל)
                 var p0 = pts[0];
                 var color0 = statusColor[p0.status] || '#6c7086';
-                var mk = L.circleMarker([p0.lat, p0.lng], {{radius: 9, color: '#fff', weight: 2, fillColor: color0, fillOpacity: 0.95}}).addTo(map);
+                var mk = L.circleMarker([p0.lat, p0.lng], {{radius: 9, color: '#fff', weight: 2, fillColor: color0, fillOpacity: 0.95}}).addTo(rn.layer);  // 28/11: לשכבת ההערכה
                 mk.bindPopup(popupFor(p0)).openPopup();  // פתיחה מיידית — עם קטע יחיד המשתמש עלול לא לשים לב אחרת
-                _routeEvalLayers.push(mk);
             }} else {{
                 for (var i = 1; i < pts.length; i++) {{
                     var p0 = pts[i - 1], p1 = pts[i];
                     var color = statusColor[p1.status] || '#6c7086';
-                    var seg = L.polyline([[p0.lat, p0.lng], [p1.lat, p1.lng]], {{color: color, weight: 4, opacity: 0.9}}).addTo(map);
+                    var seg = L.polyline([[p0.lat, p0.lng], [p1.lat, p1.lng]], {{color: color, weight: 4, opacity: 0.9}}).addTo(rn.layer);  // 28/11: לשכבת ההערכה
                     seg.bindPopup(popupFor(p1));
-                    _routeEvalLayers.push(seg);
                 }}
             }}
             if (flightPolyline && map.hasLayer(flightPolyline)) {{ map.removeLayer(flightPolyline); }}  // מסתיר את הקו הרגיל — לא מוחק אותו, רק חבוי מאחורי ההערכה
@@ -3582,8 +3563,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         function _clearRouteEvaluation() {{
             // מסיר את קטעי ההערכה הצבעוניים ומחזיר את flightPolyline הרגיל לתצוגה, אם קיים —
             // נקרא גם מ-clearFlightRoute (מסלול חדש/ניקוי) וגם לפני ציור הערכה חדשה
-            _routeEvalLayers.forEach(function(l) {{ map.removeLayer(l); }});
-            _routeEvalLayers = [];
+            _radarRuns.filter(function(rn) {{ return rn.kind === 'route_eval'; }}).forEach(_removeRadarRun);  // 28/11: כל הערכות המסלול (הן שייכות למסלול שנוקה)
             if (flightPolyline && !map.hasLayer(flightPolyline)) {{ flightPolyline.addTo(map); }}
         }}
 
@@ -3605,7 +3585,6 @@ def create_map(target='desktop', api_base='', output_path=None):
         var _radarTrackLastResult = null; // התוצאה האחרונה — למניפה, לגרף הצד ולייצוא
         var _radarTrackLastOpts = null;   // שלב א4: מקור המסלול שנבדק לאחרונה ({{source, alt_ref, rcs_m2, label}})
         var _radarTrackProfileLbl = '';   // FR-D-286: תווית הפרופיל שהיה פעיל כשהבדיקה האחרונה התחילה
-        var _radarRunProfileLbl = '';     // FR-D-286: אותו דבר לכיסוי הדופלר ולהערכת מסלול הטיסה (פאנל המכ"ם)
         function _escapeHtmlRt(s) {{
             // FR-D-286: מנטרל HTML בשם פרופיל לפני הכנסה לפופאפ — שם של "הפרופילים שלי" הוא טקסט חופשי של המשתמש
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');  // התווים המסוכנים
@@ -4933,68 +4912,48 @@ def create_map(target='desktop', api_base='', output_path=None):
             el.appendChild(note);  // הוספה
         }}
 
-        var _radarLastResult = null;  // תוצאת החישוב האחרונה שצוירה — נשמרת כדי לאפשר Redo בלי קריאה חוזרת לשרת
-
-        function _clearRadarResultOnly() {{
-            // מנקה רק את ציור התוצאה (פוליגון+חישורים) בלי לגעת במשקיף עצמו — בשימוש ע"י Undo של "הפעל חישוב"
-            if (radarPolygon) {{ map.removeLayer(radarPolygon); radarPolygon = null; }}
-            radarSpokes.forEach(function(s) {{ map.removeLayer(s); }});
-            radarSpokes = [];
-            _radarLastResult = null;
-            _updateRadarDopplerPreview();  // מחזיר את הידיות למיקומן לפי השדות הנוכחיים, לא לפי קצוות הקרניים האחרונות
-        }}
-
-        function _drawRadarDopplerResult(result) {{
+        function _drawRadarScanRun(rn, result) {{
             // מצייר את הפוליגון הסופי + קטע/שני קטעים צבעוניים לכל כיוון — 3 מצבים אפשריים:
             // ירוק בלבד עד סוף הטווח = מזוהה לגמרי. ירוק+אדום = מזוהה חלקית (נחסם שטח/טווח מכ"ם בהמשך).
             // כתום (במקום ירוק) = הכיוון הזה כולו "עיוור" לדופלר (מהירות המטרה המשוערת לא מתגלה בזווית
             // הזו כלל) — גם אם השטח/טווח המכ"ם היו מאפשרים גילוי, ואז ממשיך אדום עד סוף הטווח אם נחסם.
-            var _prevRadarResult = _radarLastResult;  // תוצאה קודמת (או null) — נשמרת להיסטוריית Undo
-            if (radarPolygon) {{ map.removeLayer(radarPolygon); radarPolygon = null; }}
-            radarSpokes.forEach(function(s) {{ map.removeLayer(s); }});  // ניקוי חישורים מחישוב קודם
-            radarSpokes = [];
+            // 28/11: לשכבה של החישוב (rn.layer) — תוצאות של חישובים אחרים נשארות על המפה
+            rn.layer.clearLayers();  // 28/11: רק השכבה של החישוב הזה
             var pts = result.rays.map(function(r) {{ return [r.radar_lat, r.radar_lon]; }});
             if (result.span_deg < 360) {{
                 pts.unshift([result.observer_lat, result.observer_lon]);  // פרוסת-פיצה — כולל נקודת המשקיף כקודקוד
             }}
             if (pts.length >= 3) {{
-                radarPolygon = L.polygon(pts, {{
-                    color: '#22d3ee', weight: 1.5, fillColor: '#22d3ee', fillOpacity: 0.10
-                }}).addTo(map);
+                L.polygon(pts, {{color: '#22d3ee', weight: 1.5, fillColor: '#22d3ee', fillOpacity: 0.10}}).bindTooltip(rn.label).addTo(rn.layer);  // רקע (28/11: עם שם החישוב)
             }}
             var obsLatLng = L.latLng(result.observer_lat, result.observer_lon);
             var minRangeM = (result.min_range_km || 0) * 1000;
             var rangeM    = result.range_km * 1000;
+            L.circleMarker(obsLatLng, {{radius: 4, color: '#333', weight: 1, fillColor: '#22d3ee', fillOpacity: 1}}).bindTooltip(rn.label).addTo(rn.layer);  // 28/11: נקודת הצופה של החישוב (גם אחרי שהצופה הוזז)
             result.rays.forEach(function(r) {{
                 var nearPt   = _destPointJs(obsLatLng, r.bearing_deg, minRangeM);  // תחילת הדגימה בפועל — גבול אזור העיוור
                 var radarPt  = L.latLng(r.radar_lat, r.radar_lon);  // הנקודה הרחוקה ביותר בטווח המכ"ם (בלי קשר לדופלר)
                 var nearColor = r.doppler_ok ? '#00cc44' : '#ff9500';  // ירוק אם הכיוון "נראה" לדופלר, כתום אם כל הכיוון עיוור לו
-                var seg1 = L.polyline([nearPt, radarPt], {{color: nearColor, weight: 3}}).addTo(map);
+                var seg1 = L.polyline([nearPt, radarPt], {{color: nearColor, weight: 3}}).addTo(rn.layer);  // 28/11: לשכבת החישוב
                 seg1.bindTooltip('לחץ לחתך-צד', {{sticky:true}});
                 // L.DomEvent.stopPropagation(e) חיוני כאן — בלעדיו הלחיצה "מבעבעת" גם ל-map.on('click', ...)
-                // הרגיל, שרואה radarActive===true ומפרש את זה כהצבת משקיף חדש (מוחק את כל החישורים!) —
-                // בדיוק התקלה שדווחה: לחיצה על דגימה אחת מחקה את כל הדגימות מהמסך.
+                // הרגיל, שרואה radarActive===true ומפרש את זה כהצבת משקיף חדש.
                 seg1.on('click', (function(ray) {{ return function(e) {{ L.DomEvent.stopPropagation(e); _showRadarRayProfile(ray); }}; }})(r));
-                radarSpokes.push(seg1);
                 if (r.blocked) {{
                     // אדום — ממשיך מהנקודה הרחוקה ביותר בטווח המכ"ם עד סוף הטווח המבוקש (שטח/טווח מכ"ם לא הספיקו)
                     var farPt = _destPointJs(obsLatLng, r.bearing_deg, rangeM);
-                    var seg2 = L.polyline([radarPt, farPt], {{color: '#ff3300', weight: 3}}).addTo(map);
+                    var seg2 = L.polyline([radarPt, farPt], {{color: '#ff3300', weight: 3}}).addTo(rn.layer);  // 28/11: לשכבת החישוב
                     seg2.bindTooltip('לחץ לחתך-צד', {{sticky:true}});
                     seg2.on('click', (function(ray) {{ return function(e) {{ L.DomEvent.stopPropagation(e); _showRadarRayProfile(ray); }}; }})(r));
-                    radarSpokes.push(seg2);
                 }}
             }});
-            if (result.rays.length > 0) {{  // הזזת הידיות לקצוות הקשת האמיתיים
+            if (result.rays.length > 0 && radarObs && radarObs.distanceTo(obsLatLng) < 1) {{  // הזזת הידיות לקצוות הקשת (28/11: רק אם הצופה לא הוזז מאז)
                 var firstRay = result.rays[0], lastRay = result.rays[result.rays.length - 1];
                 if (radarStartMk) radarStartMk.setLatLng([firstRay.radar_lat, firstRay.radar_lon]);
                 if (radarEndMk)   radarEndMk.setLatLng([lastRay.radar_lat, lastRay.radar_lon]);
             }}
-            _radarLastResult = result;  // שמירת התוצאה הנוכחית — משמשת גם ל-Redo וגם כ"ערך קודם" בהרצה הבאה
             if (!_isRestoringUndo) {{
-                _pushUndo('מכ"ם דופלר: הפעלת חישוב', _makePlacementRestore(
-                    _drawRadarDopplerResult, _clearRadarResultOnly,
-                    function() {{ return _radarLastResult; }}, _prevRadarResult));
+                _pushUndo('מכ"ם דופלר: הפעלת חישוב', _jrUndoRestore(rn, true, _radarRunsEl, _radarRunH));  // 28/11: Undo מסתיר את התוצאה של החישוב הזה בלבד
             }}
         }}
 
@@ -5054,31 +5013,36 @@ def create_map(target='desktop', api_base='', output_path=None):
             setTimeout(function() {{ _drawProfileSingle(canvas, {{color: '#22d3ee', data: data}}); }}, 0);
         }}
 
+        function _cancelRadarRun(rn) {{  // 28/11: ביטול חישוב אחד — האחרים ממשיכים
+            if (rn.timer) {{ clearInterval(rn.timer); rn.timer = null; }}  // 28/11: עצירת polling
+            if (rn.jobId && _jrRunning(rn)) fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + rn.jobId, {{method:'POST'}}).catch(function() {{}});  // 28/11: ביטול בשרת
+            if (_jrRunning(rn)) {{ rn.status = 'cancelled'; rn.note = 'בוטל'; }}  // 28/11: מצב
+            _radarRow(rn);  // 28/11: השורה
+        }}
+        function _removeRadarRun(rn) {{  // 28/11: הסרת חישוב מהרשימה ומהמפה
+            _cancelRadarRun(rn); rn.layer.clearLayers(); map.removeLayer(rn.layer);  // 28/11: ביטול אם רץ, ניקוי מהמפה
+            if (rn.row) rn.row.el.remove();  // 28/11: מהפאנל
+            _radarRuns.splice(_radarRuns.indexOf(rn), 1);  // 28/11: מהרשימה
+            if (rn.kind === 'route_eval' && !_radarRuns.some(function(x) {{ return x.kind === 'route_eval'; }}) && flightPolyline && !map.hasLayer(flightPolyline)) flightPolyline.addTo(map);  // 28/11: אין יותר הערכות — הקו הרגיל חוזר
+        }}
         function _cancelRadarDoppler() {{
-            // כפתור "בטל" — עוצר מיד בצד הלקוח, ומודיע גם לשרת שיפסיק
-            if (radarPollTimer) {{ clearInterval(radarPollTimer); radarPollTimer = null; }}
-            if (radarJobId) {{
-                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + radarJobId, {{method:'POST'}});
-            }}
-            radarJobId = null;
-            radarLoading = false;
-            if (_radarCancelBtnEl) _radarCancelBtnEl.style.display = 'none';
+            // כיבוי הפאנל — עוצר את כל החישובים שעדיין רצים (28/11: כולם), בלי למחוק תוצאות מהמפה
+            _radarRuns.forEach(function(rn) {{ if (_jrRunning(rn)) _cancelRadarRun(rn); }});  // 28/11: רק מה שרץ
             if (radarInfoEl) radarInfoEl.textContent = '';
         }}
 
         function clearRadarDopplerResult() {{
-            // ניקוי מלא — נקרא מ-resetMapState וגם בהצבת משקיף חדש
-            _cancelRadarDoppler();  // עוצר polling + מבטל job בשרת אם עדיין רץ
+            // ניקוי מלא — נקרא מ-resetMapState (28/11: הצבת צופה חדש מנקה רק את הצופה — _clearRadarObserver)
+            _radarRuns.slice().forEach(_removeRadarRun);  // 28/11: כל החישובים — ביטול והסרה מהמפה
+            _clearRadarObserver();  // 28/11: צופה וידיות
+        }}
+        function _clearRadarObserver() {{  // 28/11: מנקה את הצופה, הידיות והתצוגה המקדימה — בלי לגעת בחישובים ובתוצאות
             if (radarObsMk)   {{ map.removeLayer(radarObsMk);   radarObsMk   = null; }}
             if (radarStartLn) {{ map.removeLayer(radarStartLn); radarStartLn = null; }}
             if (radarEndLn)   {{ map.removeLayer(radarEndLn);   radarEndLn   = null; }}
             if (radarStartMk) {{ map.removeLayer(radarStartMk); radarStartMk = null; }}
             if (radarEndMk)   {{ map.removeLayer(radarEndMk);   radarEndMk   = null; }}
-            if (radarPolygon) {{ map.removeLayer(radarPolygon); radarPolygon = null; }}
-            radarSpokes.forEach(function(s) {{ map.removeLayer(s); }});
-            radarSpokes = [];
-            radarObs = null;
-            _radarLastResult = null;  // אין יותר תוצאה מצוירת — מונע היסטוריית Undo "רפאים" מתוצאה שכבר לא קיימת
+            radarObs = null;  // אין צופה (28/11: התוצאות בשכבות החישובים — לא כאן)
             if (_radarProfilePanelEl) {{ _radarProfilePanelEl.remove(); _radarProfilePanelEl = null; }}  // סוגר גם חתך-צד פתוח, אם יש — לא רלוונטי לתוצאה שנמחקת
         }}
 
@@ -5262,12 +5226,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 runBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#22d3ee;cursor:pointer;margin-top:3px;';
                 L.DomEvent.on(runBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _runRadarDoppler(); }});
 
-                var cancelBtn = L.DomUtil.create('button', '', panelBody);
-                cancelBtn.textContent = 'בטל';
-                cancelBtn.setAttribute('aria-label', 'בטל חישוב תצפית מכם דופלר');  // נגישות (F-027, Q-1)
-                cancelBtn.style.cssText = 'font-size:11px;padding:3px;border-radius:3px;border:1px solid #ccc;background:#ff8888;cursor:pointer;display:none;';
-                L.DomEvent.on(cancelBtn, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _cancelRadarDoppler(); }});
-                _radarCancelBtnEl = cancelBtn;
+                _radarRunsEl = L.DomUtil.create('div', '', panelBody);  // 28/11: רשימת החישובים — כמה במקביל, לכל אחד ביטול/הסרה משלו
+                _radarRunsEl.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:110px;overflow:auto;';  // 28/11: עיצוב
 
                 var routeEvalBtn = L.DomUtil.create('button', '', panelBody);
                 routeEvalBtn.textContent = 'הערך מסלול טיסה מול המכ"ם';
