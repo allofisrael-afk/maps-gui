@@ -152,6 +152,8 @@ powershell -ExecutionPolicy Bypass -File build_apk.ps1
 - **גבהים:** מקור ראשון — `srtm_dem.py` (משבצות SRTM מ-AWS, מקומיות); Open-Meteo רק לחורים/ים/מחוץ לכיסוי (FR-D-298). Open-Meteo סופר **כל נקודה** כקריאה (נמדד 26/11) — לכן המכסה נגמרה. בבדיקות: `MAPS_GUI_DEM=off` + שטח סינתטי.
 - **מטאו חי:** דרך `met_cache.py` (FR-D-299): תשובת 168 שעות נשמרת לאזור 0.1° לשעה; בכשל — שמורה עד 48 שעות עם גיל. השעה = הקרובה לעכשיו (Open-Meteo מתחיל ב-00:00). בקשה ≈ 8 קריאות מכסה (80 שדות).
 - **מאזור לאזור (FR-D-300):** רזולוציה `launch_res_m`/`target_res_m` (ריק=500/200, 50–5000); אימות ≤ `VERIFY_MAX`=2000; `eta_total_s` מהמנוע; אזהרה בממשק מעל 600 שנ'/300k מסלולים; מעל `AREA_MAP_ROWS_MAX`=20000 המפה מקבלת מדגם (CSV מלא). דסקטופ בלבד בממשק.
+- **חישובים במקביל (FR-D-301):** מאזור לאזור (`_af.runs`, `_af.cur` + proxies), רדיאלי (`_radialRuns`), דופלר (`_radarRuns`), בדיקת מעקב (`_rtRuns`, `_rtCur`); עזרים משותפים `_jrRow/_jrApplyShow/_jrUndoRestore`. בדיקת ממשק: `tests/ui_area_multi_runs.py` (שרת מדומה, לא נוגע ב-5002).
+- **בדיקה מלאה במאזור לאזור (FR-D-302):** `area_track.py` — תכנון שטח אחד לכל מכ"ם; path[k][3] = זמן מטבלת הירי; `/ballistics/area/visibility` mode=full.
 
 ### 📍 מצב נוכחי (16/08/2026)
 פיצ'רים פעילים ב-**Android**:

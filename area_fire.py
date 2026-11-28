@@ -177,7 +177,7 @@ def _sim(atmo, fp_base, qe_rad, az_rad, target_alt, gun):  # מסלול בודד
     gd = [math.hypot(x, z) for x, z in zip(res.x, res.z)]  # מרחק קרקעי לאורך המסלול
     alt = [gun["alt_m"] + y + (x * x + z * z) / (2.0 * R_EARTH) for x, y, z in zip(res.x, res.y, res.z)]  # גובה MSL (כמו _path_points)
     rng = imp["ground_range_m"]  # הטווח
-    prof, j = [], 0  # פרופיל בשברי טווח
+    prof, tprof, j = [], [], 0  # פרופיל גובה ופרופיל זמן בשברי טווח (28/11: הזמן — לבדיקת מעקב מכ"ם מלאה)
     for k in range(PROFILE_N):  # כל שבר
         d = rng * k / (PROFILE_N - 1)  # המרחק הקרקעי
         while j < len(gd) - 2 and gd[j + 1] < d:  # מתקדמים לקטע הנכון
@@ -185,8 +185,9 @@ def _sim(atmo, fp_base, qe_rad, az_rad, target_alt, gun):  # מסלול בודד
         span = (gd[j + 1] - gd[j]) or 1e-9  # אורך הקטע
         t = min(1.0, max(0.0, (d - gd[j]) / span))  # מיקום בקטע
         prof.append(alt[j] + t * (alt[j + 1] - alt[j]))  # גובה באינטרפולציה
+        tprof.append(res.t[j] + t * (res.t[j + 1] - res.t[j]))  # 28/11: זמן מהשיגור באותה נקודה (אותה אינטרפולציה)
     return {"range": rng, "drift": imp["drift_z_m"], "tof": imp["time_of_flight_s"],  # טווח, סחיפה, זמן מעוף
-            "apex": imp["max_ordinate_msl_m"], "prof": prof}  # קודקוד, פרופיל
+            "apex": imp["max_ordinate_msl_m"], "prof": prof, "tprof": tprof}  # קודקוד, פרופיל גובה, פרופיל זמן
 
 
 def _branches(samples):  # מפצל סריקה (לפי הגבהה עולה) לענף נמוך (טווח עולה) וענף גבוה (טווח יורד)
@@ -249,9 +250,11 @@ def _invert(branch, rng):  # טווח → פתרון באינטרפולציה ב
             pick = lambda key: quad([branch[i]["d"][key] for i in tri], qe)  # noqa: E731  # ערך שדה בהגבהה הזו
             slope = dquad(rv, qe)  # dR/dqe מדויק יותר
             return {"qe": qe, "drift": pick("drift"), "tof": pick("tof"), "apex": pick("apex"),  # הגבהה, סחיפה, זמן, קודקוד
-                    "prof": [lerp(p, r) for p, r in zip(da["prof"], db["prof"])], "slope": slope}  # פרופיל (לינארי מספיק לרכס) + שיפוע
+                    "prof": [lerp(p, r) for p, r in zip(da["prof"], db["prof"])], "slope": slope,  # פרופיל (לינארי מספיק לרכס) + שיפוע
+                    "tprof": [lerp(p, r) for p, r in zip(da["tprof"], db["tprof"])]}  # 28/11: פרופיל זמן — אותה אינטרפולציה
     return {"qe": qe, "drift": lerp(da["drift"], db["drift"]), "tof": lerp(da["tof"], db["tof"]),  # הגבהה, סחיפה, זמן
             "apex": lerp(da["apex"], db["apex"]), "prof": [lerp(p, q2) for p, q2 in zip(da["prof"], db["prof"])],  # קודקוד, פרופיל
+            "tprof": [lerp(p, q2) for p, q2 in zip(da["tprof"], db["tprof"])],  # 28/11: פרופיל זמן
             "slope": (b["d"]["range"] - a["d"]["range"]) / ((b["qe"] - a["qe"]) or 1e-9)}  # dR/dqe (מ' למיל) — להערכת שגיאת הגבהה
 
 
@@ -448,11 +451,12 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
                                 break  # יציאה
                             w = w1 * w2 * w3  # משקל
                             if acc is None:  # ראשון
-                                acc = {"qe": 0.0, "drift": 0.0, "tof": 0.0, "apex": 0.0, "slope": 0.0, "prof": [0.0] * PROFILE_N}  # אפסים
+                                acc = {"qe": 0.0, "drift": 0.0, "tof": 0.0, "apex": 0.0, "slope": 0.0, "prof": [0.0] * PROFILE_N, "tprof": [0.0] * PROFILE_N}  # אפסים (28/11: גם פרופיל זמן)
                             for key in ("qe", "drift", "tof", "apex", "slope"):  # שדות סקלריים
                                 acc[key] += w * s[key]  # צבירה
                             shift = g_alt - ga_nodes[ig]  # הפרופיל של הצומת מחושב מגובה הצומת — מזיזים לגובה השיגור האמיתי
                             acc["prof"] = [a + w * (b + shift) for a, b in zip(acc["prof"], s["prof"])]  # פרופיל
+                            acc["tprof"] = [a + w * b for a, b in zip(acc["tprof"], s["tprof"])]  # 28/11: פרופיל זמן (בלי הזזה — הזמן לא תלוי בגובה השיגור)
                             wsum += w  # סכום משקלים
                         if not ok:  # כבר נפסל
                             break  # יציאה
@@ -461,7 +465,7 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
                 if not ok or acc is None:  # לא בר השגה
                     rejects["out_of_range"] += 1  # פסילה
                     continue  # הענף הבא
-                sol = {key: (v / wsum if key != "prof" else [x / wsum for x in v]) for key, v in acc.items()}  # נרמול
+                sol = {key: ([x / wsum for x in v] if isinstance(v, list) else v / wsum) for key, v in acc.items()}  # נרמול (28/11: כל שדה רשימה — פרופיל גובה וזמן)
                 reason = None  # סיבת פסילה
                 if p["qe_min_mils"] is not None and sol["qe"] < p["qe_min_mils"] or p["qe_max_mils"] is not None and sol["qe"] > p["qe_max_mils"]:  # גבולות הגבהה
                     reason = "qe_limits"  # מחוץ לגבולות
@@ -526,7 +530,8 @@ def run(req, fetch_cells, met_fetch=None, progress=None, cancelled=None, map_fn=
                 pos = f * (PROFILE_N - 1)  # מיקום בפרופיל
                 j = min(PROFILE_N - 2, int(pos))  # אינדקס
                 h = sol["prof"][j] + (pos - j) * (sol["prof"][j + 1] - sol["prof"][j])  # גובה
-                draw.append([round(g[0] + f * (t[0] - g[0]), 6), round(g[1] + f * (t[1] - g[1]), 6), round(h, 1)])  # נקודה
+                tt = sol["tprof"][j] + (pos - j) * (sol["tprof"][j + 1] - sol["tprof"][j])  # 28/11: זמן מהשיגור בנקודה
+                draw.append([round(g[0] + f * (t[0] - g[0]), 6), round(g[1] + f * (t[1] - g[1]), 6), round(h, 1), round(tt, 2)])  # נקודה: רוחב, אורך, גובה, זמן (28/11)
             rows.append({"la": li, "lp": gi, "ta": tgt_flat[ti][0], "tp": ti, "group": grp,  # מזהים
                          "launch": [g[0], g[1], round(elev[g], 1)], "target": [t[0], t[1], round(elev[t], 1)],  # קצוות + גבהים
                          "range_m": round(rng, 1), "qe": both(mils_to_rad(sol["qe"])), "fire_azimuth": both(fire_az % (2 * math.pi)),  # פתרון
@@ -668,7 +673,8 @@ def visibility(rows, radars, fetch_cells, progress=None, cancelled=None):  # ל�
         margin = math.tan(math.radians(rd["margin_deg"]))  # מרווח רכס כשיפוע (כמו /los)
         cand = {}  # קרן → [(row, idx, dist, alt)]
         for ri, r in enumerate(rows):  # כל מסלול
-            for k, (plat, plon, palt) in enumerate(r["path"]):  # כל נקודה
+            for k, pt in enumerate(r["path"]):  # כל נקודה (28/11: [רוחב, אורך, גובה, זמן])
+                plat, plon, palt = pt[0], pt[1], pt[2]  # 28/11: הזמן לא נדרש לקו ראייה
                 d, az = _haversine_az(rd["lat"], rd["lon"], plat, plon)  # מרחק ואזימוט מהמכ"ם
                 if d < 1.0 or d > r_max or not _in_sector(az, rd["start"], rd["end"]):  # מחוץ לטווח/לגזרה
                     continue  # לא נראה ע"י המכ"ם הזה

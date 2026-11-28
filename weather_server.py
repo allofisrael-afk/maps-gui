@@ -472,6 +472,7 @@ NET_ERROR_MSG = 'אין חיבור לשירות הגבהים (Open-Meteo) — ב
 
 
 import srtm_dem  # noqa: E402  # גבהים מקומיים מ-SRTM (AWS) — מקור ראשון; Open-Meteo רק לחורים ומחוץ לכיסוי (החלטת המשתמש 27/11/2026)
+import area_track  # noqa: E402  # FR-D-302: בדיקת מעקב מכ"ם מלאה לכל המסלולים של מאזור לאזור
 import met_cache  # noqa: E402  # FR-D-299: מטמון לתחזית מזג האוויר החי (שעה טרייה, עד 48 שעות כשהשליפה נכשלת)
 
 
@@ -2425,6 +2426,17 @@ def _area_vis_worker(job_id, rows, radars):  # A4: צביעת ירוק/אדום 
         _area_finish(job_id, 'error', error=str(e))  # A4: לממשק
 
 
+def _area_track_worker(job_id, rows, radars):  # FR-D-302: בדיקת מעקב מלאה (דופלר, משוואת מכ"ם, מעקב) לכל המסלולים — רץ ב-thread
+    try:
+        out = area_track.track_check(rows, radars, _job_fetch(job_id), progress=_area_progress(job_id), cancelled=_area_cancelled(job_id))  # המנוע
+        _area_finish(job_id, 'done', result=out)  # הצלחה
+    except (area_fire.Aborted, _rs.Aborted):  # בוטל/מכסה
+        _area_finish(job_id, 'cancelled')  # סיום
+    except Exception as e:  # noqa: BLE001  # רשת ביטחון, כמו _area_vis_worker
+        logging.error(f"שגיאה בבדיקת מעקב מלאה (job {job_id}): {e}")  # לוג
+        _area_finish(job_id, 'error', error=str(e))  # לממשק
+
+
 def _area_get(job_id, kind):  # A4: job שהסתיים בהצלחה מסוג מסוים, או None
     with _radar_jobs_lock:  # A4: נעילה
         job = _radar_jobs.get(job_id or '')  # A4: ה-job
@@ -2462,16 +2474,20 @@ def ballistics_area_visibility():  # A4: צביעת ירוק/אדום מול כ�
     res = _area_get(body.get('job_id'), 'area')  # A4: תוצאת החישוב
     if res is None:  # A4: אין תוצאה
         return jsonify({'error': 'אין תוצאת חישוב מאזור לאזור (אולי נוקתה) — הרץ שוב'}), 404  # A4: הודעה
-    with _STATIONS_LOCK:  # A4: המכ"מים המוצבים — מקור האמת הוא קובץ העמדות
-        sites = _load_stations().get('radar_sites', [])  # A4: הרשימה
-    radars = area_fire.radar_list(sites)  # A4: המרה
+    full_mode = body.get('mode') == 'full'  # FR-D-302: בדיקת מעקב מלאה (ברירת מחדל: קו ראייה בלבד, כמו קודם)
+    if full_mode:  # FR-D-302: הלקוח שולח לכל מכ"ם מוצב גוף מלא (סוג + הצבה + טאב המעקב), כמו בבדיקת מסלול בודד
+        radars = area_track.parse_radars(body.get('radars'))  # FR-D-302: קליטה וצמידה לטווחים
+    else:  # קו ראייה בלבד
+        with _STATIONS_LOCK:  # A4: המכ"מים המוצבים — מקור האמת הוא קובץ העמדות
+            sites = _load_stations().get('radar_sites', [])  # A4: הרשימה
+        radars = area_fire.radar_list(sites)  # A4: המרה
     full = _jobs_full_response()  # T9 (F-043): תקרת jobs פעילים
     if full:  # T9: מלא
         return full  # T9: 429
     job_id = _area_new_job('area_vis')  # A4: job חדש
     with _radar_jobs_lock:  # 28/11: נעילה
         _radar_jobs[job_id]['src'] = body.get('job_id')  # 28/11: איזה חישוב נצבע — כדי להחזיר למפה רק את המסיכות של המסלולים שנשלחו אליה
-    _start_job(_area_vis_worker, (res['rows'], radars), _radar_jobs, _radar_jobs_lock, job_id)  # A4: ברקע; T9: דרך התור
+    _start_job(_area_track_worker if full_mode else _area_vis_worker, (res['rows'], radars), _radar_jobs, _radar_jobs_lock, job_id)  # A4: ברקע; T9: דרך התור (FR-D-302: בדיקה מלאה או קו ראייה)
     return jsonify({'job_id': job_id, 'radars': [r['name'] for r in radars]})  # A4: המזהה + אילו מכ"מים
 
 
@@ -2509,7 +2525,11 @@ def _area_map_view(job):  # 28/11: התוצאה כפי שנשלחת למפה —
         return dict(res, rows=[res['rows'][i] for i in idx], rows_total=len(res['rows']), rows_sampled=True)  # מדגם + סך הכול
     src = _radar_jobs.get(job.get('src') or '')  # צביעה — החישוב שהיא שייכת אליו
     idx = _area_map_idx(src) if src and src.get('kind') == 'area' and src.get('status') == 'done' else None  # המדגם שלו
-    if idx is None or 'masks' not in res:  # בלי מדגם
+    if idx is None:  # בלי מדגם
+        return res  # כמו שהיא
+    if res.get('mode') == 'full':  # FR-D-302: בדיקה מלאה — מצבים ומדדי מסלול של המסלולים שבמפה בלבד
+        return dict(res, states=[res['states'][i] for i in idx], rows=[res['rows'][i] for i in idx])  # הסיכום — מכולם
+    if 'masks' not in res:  # בלי מסיכות
         return res  # כמו שהיא
     return dict(res, masks=[res['masks'][i] for i in idx])  # המסיכות של המסלולים שבמפה בלבד (הסיכום — מכולם)
 
@@ -2540,12 +2560,20 @@ def ballistics_area_csv():  # A4: ייצוא כל המסלולים האפשרי�
     w = csv.writer(out)  # A4: כותב CSV
     w.writerow(['launch_area', 'launch_lat', 'launch_lon', 'launch_alt_m', 'target_area', 'target_lat', 'target_lon', 'target_alt_m',  # A4: כותרות
                 'branch', 'range_m', 'qe_mils', 'qe_deg', 'fire_az_mils', 'fire_az_deg', 'tof_s', 'apex_msl_m', 'min_terrain_margin_m',
+                'tracked', 'first_track_t_s', 'warning_time_s',  # FR-D-302: בדיקת מעקב מלאה (ריק בצביעת קו ראייה)
                 'seen_fraction', 'seen_by'])  # A4: נראות
     names_l, names_t = res['areas']['launch'], res['areas']['target']  # A4: שמות האזורים
-    radar_names = [r['name'] for r in (vis or {}).get('radars', [])]  # A4: שמות המכ"מים לפי הביט
+    radar_names = [r['name'] for r in (vis or {}).get('radars', [])]  # A4: שמות המכ"מים לפי הביט (FR-D-302: גם בבדיקה המלאה)
     for i, r in enumerate(res['rows']):  # A4: כל מסלול
-        frac, by = '', ''  # A4: נראות
-        if vis:  # A4: חושבה צביעה
+        frac, by, tk, ft, ws = '', '', '', '', ''  # A4: נראות (FR-D-302: + מעקב)
+        if vis and vis.get('mode') == 'full':  # FR-D-302: בדיקה מלאה — "נצפה" = מזוהה (קוד 3 ומעלה)
+            st, pr = vis['states'][i], vis['rows'][i]  # מצבי הנקודות ומדדי המסלול
+            frac = round(sum(1 for c in st if c >= 3) / len(st), 3)  # FR-D-302: חלק הנקודות שבהן המטרה מזוהה
+            tk = 'כן' if pr['tk'] else 'לא'  # FR-D-302: נפתח מעקב (במצב גילוי — זוהה)
+            ft = '' if pr['ft'] is None else pr['ft']  # FR-D-302: זמן מעקב ראשון
+            ws = '' if pr['ws'] is None else pr['ws']  # FR-D-302: זמן התרעה
+            by = ';'.join(n for b, n in enumerate(radar_names) if pr['by'] & (1 << b))  # FR-D-302: מי זיהה
+        elif vis:  # A4: חושבה צביעה
             m = vis['masks'][i]  # A4: המסיכה
             frac = round(sum(1 for x in m if x) / len(m), 3)  # A4: חלק הנקודות הנצפות
             bits = 0  # A4: איחוד
@@ -2555,6 +2583,7 @@ def ballistics_area_csv():  # A4: ייצוא כל המסלולים האפשרי�
         w.writerow([_csv_safe(names_l[r['la']]), *r['launch'], _csv_safe(names_t[r['ta']]), *r['target'],  # A4: קצוות
                     'נמוך' if r['group'] == 'low' else 'גבוה', r['range_m'], r['qe']['mils'], r['qe']['deg'],  # A4: פתרון
                     r['fire_azimuth']['mils'], r['fire_azimuth']['deg'], r['tof_s'], r['apex_msl_m'], r['min_terrain_margin_m'],  # A4: מדדים
+                    tk, ft, ws,  # FR-D-302: מעקב
                     frac, _csv_safe(by)])  # A4: נראות
     data = '﻿' + out.getvalue()  # A4: BOM כדי ש-Excel יציג עברית נכון
     return app.response_class(data, mimetype='text/csv; charset=utf-8',  # A4: התשובה

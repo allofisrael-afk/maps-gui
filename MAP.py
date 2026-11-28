@@ -371,7 +371,8 @@ def create_map(target='desktop', api_base='', output_path=None):
                 L.DomEvent.on(chk, 'click', L.DomEvent.stopPropagation);  // 28/11: לא ללחיצה על המפה
                 L.DomEvent.on(chk, 'change', function() {{ rn.show = chk.checked; _jrApplyShow(rn); }});  // 28/11: הצגה/הסתרה
                 var lbl = L.DomUtil.create('span', '', row); lbl.textContent = rn.label;  // 28/11: שם
-                lbl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';  // 28/11: עיצוב
+                lbl.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' + (h.select ? 'cursor:pointer;text-decoration:underline dotted;' : '');  // 28/11: עיצוב (לחיץ כשיש בחירה)
+                if (h.select) {{ lbl.title = 'הצג את הסיכום והגרפים של ' + rn.label; L.DomEvent.on(lbl, 'click', function(e) {{ L.DomEvent.stopPropagation(e); h.select(rn); }}); }}  // 28/11: בחירת חישוב (בדיקת מעקב)
                 var st = L.DomUtil.create('span', '', row); st.style.cssText = 'color:#555;white-space:nowrap;';  // 28/11: מצב
                 function mk(txt, tip, fn) {{  // 28/11: כפתור קטן
                     var b = L.DomUtil.create('button', '', row); b.textContent = txt; b.title = tip; b.setAttribute('aria-label', tip);  // 28/11: טקסט ונגישות
@@ -387,6 +388,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             rn.row.stop.style.display = run ? '' : 'none';  // 28/11: ביטול רק בזמן ריצה
             rn.row.del.style.display = run ? 'none' : '';  // 28/11: הסרה אחרי סיום
             rn.row.el.style.display = rn.undone ? 'none' : '';  // 28/11: חישוב שבוטל ב-Undo — מוסתר
+            rn.row.el.style.background = rn.selected ? '#fff3e0' : '';  // 28/11: הדגשת החישוב הנבחר (בדיקת מעקב)
         }}
         function _jrApplyShow(rn) {{  // 28/11: שכבת החישוב על המפה לפי "הצג" ו-Undo
             if (rn.show && !rn.undone) {{ if (!map.hasLayer(rn.layer)) rn.layer.addTo(map); }} else map.removeLayer(rn.layer);  // 28/11: הצגה/הסתרה
@@ -3573,11 +3575,9 @@ def create_map(target='desktop', api_base='', output_path=None):
         // (ballisticsLastPath — מסלול בודד או פתרון ירי). החישוב בשרת (/radar_track/start), ה-polling
         // דרך /radar_doppler/status הקיים. job נפרד מזה של כלי הדופלר — שני הכלים לא מפריעים זה לזה.
         // ══════════════════════════════════════════════════════════════════
-        var _radarTrackLayers    = [];    // קטעי המסלול הצבועים לפי סטטוס
+        var _rtRuns = [], _rtRunSeq = 0, _rtRunsEl = null, _rtCur = null;  // 28/11 (FR-D-301): בדיקות מעקב — כמה במקביל, כל תוצאה בשכבה משלה; _rtCur = הנבחרת (סיכום, מניפה, גרפים, CSV)
         var _radarTrackLastPath  = null;  // המסלול שנבדק לאחרונה — לחישוב מחדש בגרירת המכ"ם
         var _radarTrackInfoEl    = null;  // אלמנט הסיכום בפאנל (נקבע ע"י מי שהפעיל את הבדיקה)
-        var _radarTrackJobId     = null;  // ה-job הפעיל בשרת (null = אין)
-        var _radarTrackPollTimer = null;  // טיימר ה-polling
         var _radarTrackTimelineEl = null; // ה-canvas של ציר הזמן (שלב א2)
         var _rtScanInputs = {{}};          // שדות הגדרות הסריקה והמעקב בטאב הבליסטי (שלב א2) — שם -> אלמנט
         var _rtViewEls = {{}};             // שלב א3: מתג המניפה, גרף הצד, פרופיל השטח וכותרתו (נקבעים בבניית הטאב)
@@ -3787,47 +3787,86 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
 
         function _clearRadarTrack() {{
-            // מסיר את ציור הבדיקה ועוצר job פעיל — נקרא לפני בדיקה חדשה ובכל חישוב מסלול חדש
-            _radarTrackLayers.forEach(function(l) {{ map.removeLayer(l); }});  // הסרת הקטעים
-            _radarTrackLayers = [];  // איפוס
+            // 28/11: מסיר את כל בדיקות המעקב (ביטול מה שרץ + הסרה מהמפה) ואת המניפה והגרפים — ניקוי מלא בלבד
+            _rtRuns.slice().forEach(_rtRemoveRun);  // 28/11: כל החישובים
             _radarTrackLastResult = null;  // שלב א3: אין תוצאה תקפה
             _radarTrackDrawFan(null);  // מסיר את מניפת ה-LOS
             ['side', 'profile'].forEach(function(k) {{ if (_rtViewEls[k]) _rtViewEls[k].style.display = 'none'; }});  // מסתיר גרפים ישנים
             if (_rtViewEls.profInfo) _rtViewEls.profInfo.textContent = '';  // מנקה את כותרת הפרופיל
-            if (_radarTrackPollTimer) {{ clearInterval(_radarTrackPollTimer); _radarTrackPollTimer = null; }}  // עצירת polling
-            if (_radarTrackJobId) {{  // job שעדיין רץ בשרת — מבקשים ביטול כדי לא לבזבז מכסת גבהים
-                fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + _radarTrackJobId, {{method: 'POST'}}).catch(function() {{}});
-                _radarTrackJobId = null;  // כבר לא פעיל
+        }}
+        var _rtRunH = {{cancel: function(rn) {{ _rtCancelRun(rn); }}, remove: function(rn) {{ _rtRemoveRun(rn); }}, select: function(rn) {{ _rtSelectRun(rn); }}}};  // 28/11: פעולות השורה
+        function _rtRow(rn) {{ if (_rtRunsEl) _jrRow(_rtRunsEl, rn, _rtRunH); }}  // 28/11: שורת בדיקה ברשימה
+        function _rtEnsureList(infoEl) {{  // 28/11: רשימת הבדיקות — נוצרת פעם אחת, ממש מעל שורת הסיכום של הטאב
+            if (_rtRunsEl || !infoEl || !infoEl.parentNode) return;  // כבר קיימת / אין איפה
+            _rtRunsEl = L.DomUtil.create('div', '');  // 28/11: המיכל
+            _rtRunsEl.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:110px;overflow:auto;';  // 28/11: עיצוב
+            infoEl.parentNode.insertBefore(_rtRunsEl, infoEl);  // 28/11: מעל הסיכום
+        }}
+        function _rtCancelRun(rn) {{  // 28/11: ביטול בדיקה אחת — האחרות ממשיכות
+            if (rn.timer) {{ clearInterval(rn.timer); rn.timer = null; }}  // 28/11: עצירת polling
+            if (rn.jobId && _jrRunning(rn)) fetch('http://localhost:5002/radar_doppler/cancel?job_id=' + rn.jobId, {{method: 'POST'}}).catch(function() {{}});  // 28/11: ביטול בשרת (חוסך מכסת גבהים)
+            if (_jrRunning(rn)) {{ rn.status = 'cancelled'; rn.note = 'בוטל'; }}  // 28/11: מצב
+            _rtRow(rn);  // 28/11: השורה
+        }}
+        function _rtRemoveRun(rn) {{  // 28/11: הסרת בדיקה מהרשימה ומהמפה
+            _rtCancelRun(rn); rn.layer.clearLayers(); map.removeLayer(rn.layer);  // 28/11: ביטול אם רצה, ניקוי מהמפה
+            if (rn.row) rn.row.el.remove();  // 28/11: מהפאנל
+            _rtRuns.splice(_rtRuns.indexOf(rn), 1);  // 28/11: מהרשימה
+            if (_rtCur === rn) {{  // 28/11: הוסרה הנבחרת
+                _rtCur = null; _radarTrackLastResult = null; _radarTrackDrawFan(null);  // 28/11: אין תוצאה נבחרת
+                var next = _rtRuns.filter(function(x) {{ return x.result; }}).pop();  // 28/11: האחרונה עם תוצאה
+                if (next) _rtSelectRun(next); else if (_radarTrackInfoEl) _radarTrackInfoEl.textContent = '';  // 28/11: נבחרת במקומה / ניקוי
             }}
         }}
+        function _rtSelectRun(rn) {{  // 28/11: בדיקה נבחרת — הסיכום, ציר הזמן, המניפה, גרף הצד וה-CSV עוברים אליה
+            if (!rn.result) return;  // 28/11: עוד אין תוצאה
+            if (_rtCur && _rtCur !== rn) {{ _rtCur.selected = false; _rtRow(_rtCur); }}  // 28/11: הקודמת — בלי הדגשה
+            _rtCur = rn; rn.selected = true; _rtRow(rn);  // 28/11: הנבחרת
+            _radarTrackLastResult = rn.result; _radarTrackLastOpts = rn.opts; _radarTrackProfileLbl = rn.profLbl; _radarTrackLastPath = rn.path;  // 28/11: המצב ה"גלובלי" שהגרפים, ה-CSV, הצעת המיקום והגרירה משתמשים בו
+            var el = _radarTrackInfoEl;  // אלמנט הסיכום
+            if (el) el.textContent = rn.label + ': ' + _radarTrackSummaryText(rn.result);  // סיכום (28/11: עם שם הבדיקה)
+            _radarTrackDrawTimeline(_radarTrackTimelineEl, rn.result);  // ציר הזמן (רק במצב מעקב)
+            _radarTrackDrawFan(rn.result);  // מניפת LOS (אם המתג פעיל)
+            _radarTrackDrawSide(_rtViewEls.side, rn.result);  // גרף הצד
+        }}
 
-        function _radarTrackRun(path, infoEl, timelineEl, opts) {{
+        function _radarTrackRun(path, infoEl, timelineEl, opts, reuse) {{
             // מפעיל בדיקת מעקב מכ"ם על מסלול נתון — דורש מכ"ם מוצב (כלי 🎯) ומסלול עם זמן.
             // opts (שלב א4): source/alt_ref/rcs_m2/label — מקור המסלול, ייחוס הגובה, RCS מיוחד ותווית לסיכום
+            // 28/11 (FR-D-301): כל הפעלה היא בדיקה נוספת ברשימה — הקודמות ממשיכות לרוץ ונשארות על המפה.
+            // reuse = בדיקה קיימת שמחושבת מחדש (גרירת המכ"ם) — אותה שורה ואותה שכבה, במקום בדיקה חדשה.
             if (!radarObs) {{ alert('הצב קודם מכ"ם על המפה עם כלי "תצפית מכ\\"ם דופלר" (🎯) — הפרמטרים שלו ישמשו לבדיקה'); return; }}
             if (!path || path.length < 2) {{ alert('אין מסלול לבדיקה — בחר מקור מסלול בטאב "מעקב מכ\\"ם"'); return; }}
-            _clearRadarTrack();  // בדיקה קודמת (אם יש) מבוטלת ונמחקת
-            _radarTrackLastPath = path;  // לחישוב מחדש בגרירה
-            _radarTrackLastOpts = opts || {{source: 'ballistic', alt_ref: 'msl'}};  // המקור — לגרירה, לסיכום ולניקוי
-            _radarTrackProfileLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל כשהבדיקה התחילה — לסיכום, לפופאפ ול-CSV
+            var o = opts || {{source: 'ballistic', alt_ref: 'msl'}};  // המקור — לגרירה, לסיכום ולניקוי
+            _radarTrackLastPath = path; _radarTrackLastOpts = o;  // לחישוב מחדש בגרירה ולהצעת מיקום
             _radarTrackInfoEl = infoEl;  // לשם נכתוב את הסיכום
             _radarTrackTimelineEl = timelineEl || _radarTrackTimelineEl;  // ציר הזמן (שלב א2) — נשמר גם לחישוב מחדש בגרירה
+            _rtEnsureList(infoEl);  // 28/11: רשימת הבדיקות בטאב
+            var rn = reuse;  // 28/11: בדיקה קיימת (גרירה) או חדשה
+            if (rn) {{ _rtCancelRun(rn); rn.layer.clearLayers(); }}  // 28/11: גרירה — הבדיקה הזו בלבד מבוטלת ומחושבת מחדש
+            else {{ rn = {{n: ++_rtRunSeq, show: true, undone: false, selected: false, row: null, layer: L.layerGroup().addTo(map)}}; _rtRuns.push(rn); }}  // 28/11: בדיקה חדשה
+            rn.path = path; rn.opts = o; rn.profLbl = _rtActiveLabel();  // FR-D-286: הפרופיל שהיה פעיל כשהבדיקה התחילה (28/11: לכל בדיקה)
+            rn.status = 'starting'; rn.note = 'מתחיל…'; rn.prog = ''; rn.result = null; rn.jobId = null; rn.timer = null;  // 28/11: מצב התחלתי
+            rn.label = '#' + rn.n + ' · ' + _jrHhmm() + ' · ' + (o.label || 'מסלול בליסטי');  // 28/11: שם
+            if (rn.row) rn.row.el.querySelector('span').textContent = rn.label;  // 28/11: שם מעודכן בשורה קיימת
+            _rtRow(rn);  // 28/11: השורה
             var body = Object.assign(_radarCommonBody(), _radarTrackScanBody(), _rtEnvBody(), {{  // פרמטרי המכ"ם + סריקה ומעקב + RCS וגשם (א5) + מיקום + מסלול
                 lat: radarObs.lat, lon: radarObs.lng,  // מיקום המכ"ם
                 trajectory: path.map(function(p) {{ return {{t: p.t, lat: p.lat, lon: p.lon, alt: (p.alt != null ? p.alt : p.alt_msl)}}; }}),  // רק השדות הדרושים; הגובה לפי alt_ref
-                alt_ref: _radarTrackLastOpts.alt_ref || 'msl',  // שלב א4: מעל פני הים / מעל הקרקע
+                alt_ref: o.alt_ref || 'msl',  // שלב א4: מעל פני הים / מעל הקרקע
             }});
-            if (_radarTrackLastOpts.rcs_m2) body.rcs_m2 = _radarTrackLastOpts.rcs_m2;  // שלב א4: RCS לפי סוג המטוס (FR24) גובר על השדה הידני
-            if (infoEl) infoEl.textContent = '🎯 בודק מעקב מכ"ם…';  // משוב מיידי
+            if (o.rcs_m2) body.rcs_m2 = o.rcs_m2;  // שלב א4: RCS לפי סוג המטוס (FR24) גובר על השדה הידני
+            if (infoEl) infoEl.textContent = '🎯 בודק מעקב מכ"ם… (' + rn.label + ')';  // משוב מיידי (28/11: עם שם הבדיקה)
             fetch('http://localhost:5002/radar_track/start', {{
                 method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body)
             }})
             .then(function(r) {{ return r.json().then(function(d) {{ if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }}); }})  // שגיאת קלט מגיעה עם הסבר
             .then(function(d) {{
-                _radarTrackJobId = d.job_id;  // ה-job החדש
-                _radarTrackPollTimer = setInterval(_radarTrackPoll, 1000);  // בדיקת סטטוס כל שנייה
+                if (!_jrRunning(rn)) return;  // 28/11: בוטלה בינתיים
+                rn.jobId = d.job_id; rn.status = 'running'; _rtRow(rn);  // ה-job החדש (28/11: של הבדיקה הזו)
+                rn.timer = setInterval(function() {{ _radarTrackPoll(rn); }}, 1000);  // בדיקת סטטוס כל שנייה (28/11: לכל בדיקה בנפרד)
             }})
-            .catch(function(e) {{ if (infoEl) infoEl.textContent = '🎯 שגיאה: ' + e.message; }});  // הודעה בפאנל
+            .catch(function(e) {{ rn.status = 'error'; rn.note = e.message; _rtRow(rn); if (infoEl) infoEl.textContent = '🎯 שגיאה: ' + e.message; }});  // הודעה בפאנל (28/11: וגם בשורה)
         }}
 
         function _rtEtaText(d) {{  // T23 (F-055): " · נותרו כ-X" לפי הערכת השרת (eta_s), או '' כשאין
@@ -3839,35 +3878,37 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (el && el.scrollIntoView) el.scrollIntoView({{block: 'nearest', behavior: 'smooth'}});  // רק כמה שצריך
         }}
 
-        function _radarTrackPoll() {{
-            // בודק את מצב ה-job; מצייר ומסכם בסיום
-            if (!_radarTrackJobId) return;  // אין job פעיל
-            var jobId = _radarTrackJobId;  // נשמר — אם בינתיים התחילה בדיקה חדשה, מתעלמים מתשובה ישנה
+        function _radarTrackPoll(rn) {{
+            // בודק את מצב ה-job; מצייר ומסכם בסיום (28/11: של בדיקה מסוימת — האחרות ממשיכות)
+            if (!rn.jobId || !_jrRunning(rn)) return;  // אין job פעיל
+            var jobId = rn.jobId;  // נשמר — אם בינתיים הבדיקה חושבה מחדש (גרירה), מתעלמים מתשובה ישנה
             fetch('http://localhost:5002/radar_doppler/status?job_id=' + jobId)
             .then(function(r) {{ return r.json(); }})
             .then(function(d) {{
-                if (jobId !== _radarTrackJobId) return;  // תשובה ל-job שכבר הוחלף
-                var el = _radarTrackInfoEl;  // אלמנט הסיכום
+                if (jobId !== rn.jobId || !_jrRunning(rn)) return;  // תשובה ל-job שכבר הוחלף/בוטל
+                var el = _radarTrackInfoEl, isLast = rn === _rtRuns[_rtRuns.length - 1];  // אלמנט הסיכום; 28/11: ההתקדמות מוצגת לבדיקה האחרונה
                 if (d.status === 'running') {{  // עדיין רץ — מציג התקדמות
-                    if (el) el.textContent = '🎯 ' + (d.note || (d.batches_total ? ('שולף גבהי שטח… ' + d.batches_done + '/' + d.batches_total + _rtEtaText(d)) : 'מחשב…'));  // T23: + הערכת זמן
+                    rn.prog = d.batches_total ? d.batches_done + '/' + d.batches_total : '';  // 28/11: התקדמות בשורה
+                    rn.note = '🎯 ' + (d.note || (d.batches_total ? ('שולף גבהי שטח… ' + d.batches_done + '/' + d.batches_total + _rtEtaText(d)) : 'מחשב…'));  // T23: הערכת זמן
+                    _rtRow(rn);  // 28/11: השורה
+                    if (el && isLast) el.textContent = rn.note;  // 28/11: שורת הסיכום — של האחרונה
                     return;  // ממתין ל-tick הבא
                 }}
-                clearInterval(_radarTrackPollTimer); _radarTrackPollTimer = null;  // הסתיים — עוצרים polling
-                _radarTrackJobId = null;  // אין job פעיל
+                clearInterval(rn.timer); rn.timer = null;  // הסתיים — עוצרים polling (28/11: של הבדיקה הזו)
                 if (d.status === 'done') {{  // הצליח
-                    _radarTrackDraw(d.result);  // ציור
-                    if (el) el.textContent = _radarTrackSummaryText(d.result);  // סיכום
-                    _radarTrackDrawTimeline(_radarTrackTimelineEl, d.result);  // ציר הזמן (רק במצב מעקב)
-                    _radarTrackLastResult = d.result;  // שלב א3: למניפה, לגרף הצד ולייצוא
-                    _radarTrackDrawFan(d.result);  // מניפת LOS (אם המתג פעיל)
-                    _radarTrackDrawSide(_rtViewEls.side, d.result);  // גרף הצד
+                    rn.status = 'done'; rn.result = d.result; rn.note = '';  // 28/11: נשמר בבדיקה
+                    _radarTrackProfileLbl = rn.profLbl;  // FR-D-286: לפופאפים של הציור
+                    _radarTrackDraw(d.result, rn.layer);  // ציור (28/11: לשכבה של הבדיקה — הקודמות נשארות)
+                    _rtSelectRun(rn);  // 28/11: הבדיקה שהסתיימה נבחרת — סיכום, ציר זמן, מניפה וגרף צד
                     _rtRevealResult(el);  // T23 (F-055): גלילה לסיכום — גם בחישוב הבליסטי
                 }} else if (d.status === 'error') {{  // נכשל
-                    if (el) el.textContent = '🎯 שגיאה: ' + (d.error || 'לא ידועה');  // הסיבה
+                    rn.status = 'error'; rn.note = d.error || 'לא ידועה';  // 28/11: מצב
+                    if (el) el.textContent = '🎯 שגיאה (' + rn.label + '): ' + (d.error || 'לא ידועה');  // הסיבה (28/11: עם שם הבדיקה)
                     _rtRevealResult(el);  // T23: גם שגיאה צריכה להיראות
-                }} else if (el) {{  // בוטל
-                    el.textContent = '';  // מנקה
+                }} else {{  // בוטל
+                    rn.status = 'cancelled'; rn.note = 'בוטל';  // 28/11: מצב
                 }}
+                _rtRow(rn);  // 28/11: השורה
             }})
             .catch(function() {{}});  // כשל רשת בבדיקה בודדת — ה-tick הבא ינסה שוב
         }}
@@ -3909,10 +3950,9 @@ def create_map(target='desktop', api_base='', output_path=None):
             return lines.join('\\n');  // הטקסט המלא
         }}
 
-        function _radarTrackDraw(res) {{
-            // מצייר את המסלול בקטעים צבועים לפי סטטוס הנקודה בקצה כל קטע, עם פופאפ מפורט
-            _radarTrackLayers.forEach(function(l) {{ map.removeLayer(l); }});  // ניקוי ציור קודם
-            _radarTrackLayers = [];  // איפוס
+        function _radarTrackDraw(res, layer) {{
+            // מצייר את המסלול בקטעים צבועים לפי סטטוס הנקודה בקצה כל קטע, עם פופאפ מפורט (28/11: לשכבה של הבדיקה)
+            layer.clearLayers();  // ניקוי ציור קודם של הבדיקה הזו בלבד
             var pts = res.points;  // נקודות ההערכה
             function popupFor(p) {{  // תוכן הפופאפ לנקודה
                 return '<div style="direction:rtl;font-family:Arial;font-size:12px;min-width:170px;">' +
@@ -3932,17 +3972,17 @@ def create_map(target='desktop', api_base='', output_path=None):
                 var a = pts[i - 1], b = pts[i];  // קצוות הקטע
                 var key = b.track_state || b.status;  // במצב מעקב — לפי מצב המעקב; אחרת לפי הסטטוס הפיזיקלי
                 var seg = L.polyline([[a.lat, a.lon], [b.lat, b.lon]],
-                    {{color: _RADAR_TRACK_COLORS[key] || '#6c7086', weight: 6, opacity: 0.9}}).addTo(map);  // מעל קו המסלול הכתום
+                    {{color: _RADAR_TRACK_COLORS[key] || '#6c7086', weight: 6, opacity: 0.9}}).addTo(layer);  // מעל קו המסלול הכתום (28/11: בשכבת הבדיקה)
                 seg.bindPopup(popupFor(b));  // פופאפ לפי הנקודה בקצה
                 (function(pt) {{ seg.on('click', function() {{ _radarTrackShowProfile(pt); }}); }})(b);  // שלב א3: לחיצה גם מציירת פרופיל שטח לנקודה
-                _radarTrackLayers.push(seg);  // לניקוי
             }}
         }}
 
         function _radarTrackOnRadarMoved() {{
             // נקרא כשהמכ"ם זז (גרירה/הצבה מחדש): אם יש בדיקה מוצגת או רצה — מריצים אותה מחדש מהמיקום החדש
-            if (_radarTrackLastPath && (_radarTrackLayers.length || _radarTrackJobId)) {{  // יש מה לעדכן
-                _radarTrackRun(_radarTrackLastPath, _radarTrackInfoEl, _radarTrackTimelineEl, _radarTrackLastOpts);  // אותו מסלול ואותו מקור, מיקום מכ"ם חדש
+            var rn = _rtCur || _rtRuns[_rtRuns.length - 1];  // 28/11: הבדיקה הנבחרת (או האחרונה)
+            if (_radarTrackLastPath && rn && rn.path && (rn.status === 'done' || _jrRunning(rn))) {{  // יש מה לעדכן (28/11: לא אחרי חישוב בליסטי חדש — כמו קודם)
+                _radarTrackRun(rn.path, _radarTrackInfoEl, _radarTrackTimelineEl, rn.opts, rn);  // אותו מסלול ואותו מקור, מיקום מכ"ם חדש (28/11: רק הבדיקה הזו, באותה שורה)
             }}
         }}
 
@@ -5800,11 +5840,8 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (ballisticsApexMk)   {{ map.removeLayer(ballisticsApexMk);   ballisticsApexMk   = null; }}
             if (ballisticsCollMk)   {{ map.removeLayer(ballisticsCollMk);   ballisticsCollMk   = null; }}
             ballisticsLastPath = null;
-            if (!_radarTrackLastOpts || _radarTrackLastOpts.source === 'ballistic') {{  // שלב א4: רק בדיקה של מסלול בליסטי שייכת למסלול הקודם
-                _clearRadarTrack();  // בדיקת מעקב מכ"ם שייכת למסלול הקודם — לא רלוונטית יותר
-                _radarTrackLastPath = null;  // גרירת המכ"ם לא תריץ אותה מחדש
-                if (_radarTrackInfoEl) _radarTrackInfoEl.textContent = '';  // מנקה את הסיכום הישן
-                if (_radarTrackTimelineEl) _radarTrackTimelineEl.style.display = 'none';  // מסתיר את ציר הזמן הישן
+            if (!_radarTrackLastOpts || _radarTrackLastOpts.source === 'ballistic') {{  // שלב א4: בדיקה של מסלול בליסטי שייכת למסלול הקודם
+                _radarTrackLastPath = null;  // גרירת המכ"ם לא תריץ אותה מחדש (28/11: הבדיקות עצמן ממשיכות לרוץ ונשארות על המפה — כמה חישובים במקביל)
             }}
         }}
 
@@ -6055,9 +6092,13 @@ def create_map(target='desktop', api_base='', output_path=None):
             var res = _afMk(box, 'div', '', 'display:none;flex-direction:column;gap:3px;border-top:1px solid #eee;padding-top:3px;');  // אזור התוצאות
             _af.els.res = res;  // נשמר
             var vrow = _afMk(res, 'div', '', 'display:flex;gap:3px;align-items:center;flex-wrap:wrap;');  // צביעה
-            _af.els.recolor = _afBtn(vrow, '🎨 עדכן צביעה', 'צביעה מחדש לפי כל המכ"מים המוצבים: ירוק = נצפה, אדום = לא נצפה', _afRecolor, 'background:#e8f5e9;');  // עדכן צביעה (החלטה 16)
+            _af.els.recolor = _afBtn(vrow, '🎨 עדכן צביעה', 'צביעה מחדש לפי כל המכ"מים המוצבים', _afRecolor, 'background:#e8f5e9;');  // עדכן צביעה (החלטה 16)
+            _af.els.visMode = _afMk(vrow, 'select', '', 'font-size:10px;min-height:24px;max-width:150px;');  // FR-D-302: סוג הבדיקה לצביעה
+            [['full', 'בדיקת מעקב מלאה (דופלר + משוואת מכ"ם + מעקב)'], ['los', 'קו ראייה בלבד (מהיר, קירוב)']].forEach(function(o) {{ var op = _afMk(_af.els.visMode, 'option', o[1]); op.value = o[0]; }});  // FR-D-302: ברירת מחדל — בדיקה מלאה
+            _af.els.visMode.setAttribute('aria-label', 'סוג הבדיקה לצביעה'); _af.els.visMode.title = 'בדיקה מלאה: אותו מנוע כמו "בדוק מעקב מכ"ם" לכל מסלול, לפי כל מכ"ם מוצב והגדרות טאב "מעקב מכ"ם". קו ראייה: רק טווח, גזרה והסתרת שטח';  // FR-D-302: הסבר
             _af.els.stale = _afMk(vrow, 'span', '', 'font-size:9px;color:#b00020;');  // הודעת "ישנה"
-            _afMk(res, 'div', '🟩 ירוק = לפחות מכ"ם מוצב אחד רואה את הקטע · 🟥 אדום = אף מכ"ם לא רואה. "רואה" = בטווח, בגזרה ולא מוסתר ע"י השטח (קו ראייה — קירוב; בדיקת מעקב מלאה למסלול שנבחר).', 'font-size:8.5px;color:#555;line-height:1.35;');  // מקרא (טקסט + אייקון, לא רק צבע)
+            _af.els.legend = _afMk(res, 'div', '', 'font-size:8.5px;color:#555;line-height:1.35;');  // מקרא (טקסט + אייקון, לא רק צבע) — FR-D-302: לפי סוג הבדיקה
+            _afLegend();  // FR-D-302: הטקסט הראשוני
             var lrow = _afMk(res, 'div', '', 'display:flex;gap:8px;flex-wrap:wrap;');  // שכבות
             _af.els.showPaths = _afChk(lrow, 'מסלולים', true); _af.els.showHeatL = _afChk(lrow, 'מפת חום שיגור', false); _af.els.showHeatT = _afChk(lrow, 'מפת חום מטרה', false);  // מתגי שכבות
             [_af.els.showPaths, _af.els.showHeatL, _af.els.showHeatT].forEach(function(c) {{ L.DomEvent.on(c, 'change', _afApplyLayerToggles); }});  // החלפה
@@ -6358,12 +6399,38 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (v.checked) lines.push('דיוק (מדגם ' + v.checked + ' מסלולים, מסלול אמיתי מכל נקודת שיגור): החטאה מרבית ' + v.miss_max_m + ' מ\\', RMS ' + v.miss_rms_m + ' מ\\'; שגיאת הגבהה עד ' + v.qe_err_max_mils + ' מיל.');  // אימות (החלטה 1)
             if (s.met) lines.push((s.met_stale ? '⚠️ ' : '') + 'מטאו: ' + s.met);  // FR-D-299: מקור התחזית, ואזהרה אם היא שמורה (השליפה נכשלה)
             if (r.rows_sampled) lines.push('🗺️ במפה מדגם אחיד של ' + r.rows.length.toLocaleString() + ' מסלולים מתוך ' + r.rows_total.toLocaleString() + '. הסינון, הציור והצביעה במפה הם על המדגם; הסיכום, מפות החום וה-CSV כוללים את כל המסלולים.');  // 28/11: תוצאה גדולה
-            if (_af.vis) {{ var vs = _af.vis.summary; lines.push('🎨 ' + vs.radars + ' מכ"מים: ' + vs.trajectories_seen_any.toLocaleString() + ' מסלולים נצפים בחלקם, ' + vs.trajectories_seen_full.toLocaleString() + ' במלואם, ' + vs.trajectories_unseen.toLocaleString() + ' לא נצפים כלל.'); }}  // נראות
+            if (_afFull()) {{ var fs = _af.vis.summary, pb = fs.points_by_state || {{}}, ptot = Object.keys(pb).reduce(function(a, k) {{ return a + pb[k]; }}, 0) || 1;  // FR-D-302: סיכום הבדיקה המלאה
+                lines.push('🎯 בדיקת מעקב מלאה מול ' + fs.radars + ' מכ"מים (' + (_af.vis.track_mode === 'track' ? 'מצב מעקב' : 'מצב גילוי') + '): ' + fs.trajectories_tracked.toLocaleString() + (_af.vis.track_mode === 'track' ? ' במעקב, ' : ' זוהו, ') + (fs.trajectories_detected - (_af.vis.track_mode === 'track' ? fs.trajectories_tracked : fs.trajectories_detected)).toLocaleString() + ' זוהו בלי מעקב, ' + fs.trajectories_unseen.toLocaleString() + ' לא זוהו כלל.');  // FR-D-302: מסלולים
+                lines.push('נקודות: עיוור לדופלר ' + Math.round(100 * (pb.doppler_blind || 0) / ptot) + '% · חסום ' + Math.round(100 * (pb.blocked || 0) / ptot) + '% · מחוץ לטווח ' + Math.round(100 * (pb.out_of_range || 0) / ptot) + '%.' + (_af.vis.radars || []).filter(function(r) {{ return r.error; }}).map(function(r) {{ return ' ⚠️ ' + r.name + ': ' + r.error; }}).join(''));  // FR-D-302: למה לא נצפה, ושגיאות מכ"ם
+            }} else if (_af.vis) {{ var vs = _af.vis.summary; lines.push('🎨 ' + vs.radars + ' מכ"מים: ' + vs.trajectories_seen_any.toLocaleString() + ' מסלולים נצפים בחלקם, ' + vs.trajectories_seen_full.toLocaleString() + ' במלואם, ' + vs.trajectories_unseen.toLocaleString() + ' לא נצפים כלל.'); }}  // נראות (קו ראייה)
+            _afLegend();  // FR-D-302: המקרא לפי סוג הצביעה
             lines.push('זמן חישוב: ' + _afFmtTime(s.elapsed_s) + '.');  // זמן
             _af.els.info.textContent = lines.join(String.fromCharCode(10));  // שורות
         }}
+        function _afTrackLine(i) {{  // FR-D-302: שורת המעקב בפרטי מסלול שנבחר
+            if (!_afFull()) return '';  // רק בבדיקה מלאה
+            var pr = _af.vis.rows[i];  // מדדי המסלול
+            if (_af.vis.track_mode !== 'track') return String.fromCharCode(10) + (pr.dt ? 'זוהה' + (pr.ft != null ? " לראשונה בשנ' " + pr.ft : '') : 'לא זוהה כלל');  // מצב גילוי
+            return String.fromCharCode(10) + (pr.tk ? "🎯 מעקב נפתח בשנ' " + pr.ft + (pr.ws != null ? " — זמן התרעה " + pr.ws + " שנ'" : '') : (pr.dt ? 'זוהה, אבל מעקב לא נפתח' : 'לא זוהה כלל'));  // מצב מעקב
+        }}
+        function _afFull() {{ return !!(_af.vis && _af.vis.mode === 'full'); }}  // FR-D-302: האם הצביעה הנוכחית היא בדיקת מעקב מלאה
         function _afMask(i) {{  // מסיכת הנראות של מסלול (או null אם לא חושבה)
+            if (_afFull()) {{ var st = _af.vis.states[i], by = _af.vis.rows[i].by || 1; return st ? st.map(function(c) {{ return c >= 3 ? by : 0; }}) : null; }}  // FR-D-302: "נצפה" = מזוהה (קוד 3+), עם ביטי המכ"מים שזיהו — כך הסינון, הטבלה ופרטי המסלול עובדים כמו קודם
             return _af.vis && _af.vis.masks ? _af.vis.masks[i] : null;  // המסיכה
+        }}
+        function _afCodeKey(c) {{  // FR-D-302: קוד מצב → מפתח הצבע/הטקסט של בדיקת המעקב
+            if (c === 3) return _af.vis && _af.vis.track_mode === 'track' ? 'detected_untracked' : 'detected';  // מזוהה: במצב מעקב — "גילוי בלי מעקב"
+            return ['out_of_range', 'blocked', 'doppler_blind', 'detected', 'coasting', 'tracked'][c] || 'out_of_range';  // שאר המצבים
+        }}
+        function _afPointColor(i, m, k) {{  // FR-D-302: צבע נקודה k במסלול i — לפי בדיקת המעקב המלאה, או ירוק/אדום של קו ראייה
+            if (_afFull()) {{ var st = _af.vis.states[i]; return _RADAR_TRACK_COLORS[_afCodeKey(st ? st[k] : 0)] || '#6c7086'; }}  // אותם צבעים כמו בבדיקת המעקב
+            return (m && m[k]) ? AF_GREEN : AF_RED;  // קו ראייה
+        }}
+        function _afLegend() {{  // FR-D-302: מקרא לפי סוג הצביעה
+            if (!_af.els.legend) return;  // עוד לא נבנה
+            _af.els.legend.textContent = _afFull()
+                ? '🟢 במעקב · 🟩 דעיכה · 🔵 גילוי בלי מעקב · 🟧 עיוור לדופלר (מהירות רדיאלית מתחת לסף — למשל מסלול משיק למכ"ם) · 🟥 חסום (שטח / תקרת מכ"ם / שדה ראייה) · ⬜ מחוץ לטווח. בדיקה מלאה: אותו מנוע כמו "בדוק מעקב מכ"ם", הטוב מכל המכ"מים בכל נקודה.'
+                : '🟩 ירוק = לפחות מכ"ם מוצב אחד רואה את הקטע · 🟥 אדום = אף מכ"ם לא רואה. "רואה" = בטווח, בגזרה ולא מוסתר ע"י השטח (קו ראייה — קירוב, בלי דופלר ומשוואת מכ"ם).';  // המקרא
         }}
         function _afFiltered() {{  // אינדקסים של מסלולים אחרי הסינון
             var r = _af.result, out = [];  // התוצאה
@@ -6386,10 +6453,10 @@ def create_map(target='desktop', api_base='', output_path=None):
             _af.els.drawNote.textContent = idx.length > AF_MAX_DRAW ? 'מוצגים ' + AF_MAX_DRAW.toLocaleString() + ' מתוך ' + idx.length.toLocaleString() + ' מסלולים (דילול תצוגה — כולם נספרים). צמצם בסינון כדי לראות הכול.' : idx.length.toLocaleString() + ' מסלולים מוצגים.';  // הודעה
             if (_af.els.showPaths.checked) shown.forEach(function(i) {{  // ציור
                 var row = r.rows[i], m = _afMask(i), p = row.path;  // המסלול
-                var seg = [p[0]], cur = m ? !!m[0] : false;  // קטע נוכחי וצבעו
-                function flush() {{ if (seg.length > 1) L.polyline(seg.map(function(q) {{ return [q[0], q[1]]; }}), {{renderer: _afRenderer, color: cur ? AF_GREEN : AF_RED, weight: 2, opacity: 0.75}}).on('click', function() {{ if (_af.cur !== rnDraw) _afSelectRun(rnDraw); _afSelect(i); }}).addTo(ly.paths); }}  // קטע בצבע אחד
+                var seg = [p[0]], cur = _afPointColor(i, m, 0);  // קטע נוכחי וצבעו (FR-D-302: צבע לפי סוג הבדיקה)
+                function flush() {{ if (seg.length > 1) L.polyline(seg.map(function(q) {{ return [q[0], q[1]]; }}), {{renderer: _afRenderer, color: cur, weight: 2, opacity: 0.75}}).on('click', function() {{ if (_af.cur !== rnDraw) _afSelectRun(rnDraw); _afSelect(i); }}).addTo(ly.paths); }}  // קטע בצבע אחד
                 for (var k = 1; k < p.length; k++) {{  // כל נקודה
-                    var vis = m ? !!m[k] : false;  // נראות הנקודה
+                    var vis = _afPointColor(i, m, k);  // צבע הנקודה (FR-D-302: מצב בדיקת המעקב או נראות קו ראייה)
                     if (vis !== cur) {{ seg.push(p[k]); flush(); seg = [p[k]]; cur = vis; }}  // מעבר צבע — סוגרים קטע
                     else seg.push(p[k]);  // ממשיכים
                 }}
@@ -6404,7 +6471,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             ['שיגור', 'מטרה', 'ענף', 'הגבהה [מיל]', 'אזימוט [מיל]', 'מעוף [ש\\']', 'נצפה'].forEach(function(h) {{ _afMk(hr, 'th', h, 'position:sticky;top:0;background:#f5f5f5;padding:1px 3px;border-bottom:1px solid #ddd;'); }});  // עמודות
             idx.slice(0, 200).forEach(function(i) {{  // שורות
                 var row = r.rows[i], m = _afMask(i);  // המסלול
-                var seen = m ? Math.round(100 * m.filter(function(x) {{ return x; }}).length / m.length) + '%' : '—';  // אחוז נצפה
+                var seen = m ? (_afFull() && _af.vis.rows[i].tk ? '🎯 ' : '') + Math.round(100 * m.filter(function(x) {{ return x; }}).length / m.length) + '%' : '—';  // אחוז נצפה (FR-D-302: 🎯 = נפתח מעקב)
                 var tr = _afMk(tbl, 'tr', '', 'cursor:pointer;');  // שורה
                 [r.areas.launch[row.la] + ' #' + (row.lp + 1), r.areas.target[row.ta] + ' #' + (row.tp + 1), row.group === 'low' ? 'נמוך' : 'גבוה', row.qe.mils, row.fire_azimuth.mils, row.tof_s, seen].forEach(function(v) {{ _afMk(tr, 'td', String(v), 'padding:1px 3px;border-bottom:1px solid #f0f0f0;white-space:nowrap;'); }});  // תאים
                 L.DomEvent.on(tr, 'click', function() {{ _afSelect(i); }});  // בחירה
@@ -6419,7 +6486,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _af.els.selInfo.innerHTML = '';  // ניקוי
             _afMk(_af.els.selInfo, 'div', '🔵 ' + r.areas.launch[row.la] + ' #' + (row.lp + 1) + ' → ' + r.areas.target[row.ta] + ' #' + (row.tp + 1) + ' · ענף ' + (row.group === 'low' ? 'נמוך' : 'גבוה') + String.fromCharCode(10) +
                 'טווח ' + Math.round(row.range_m).toLocaleString() + ' מ\\' · הגבהה ' + row.qe.mils + ' מיל · אזימוט ירי ' + row.fire_azimuth.mils + ' מיל · מעוף ' + row.tof_s + ' ש\\' · קודקוד ' + Math.round(row.apex_msl_m) + ' מ\\'' + String.fromCharCode(10) +
-                (m ? 'נצפה ע"י: ' + (who.length ? who.join(', ') : 'אף מכ"ם') : 'הצביעה עוד לא חושבה'));  // הפרטים
+                (m ? 'נצפה ע"י: ' + (who.length ? who.join(', ') : 'אף מכ"ם') : 'הצביעה עוד לא חושבה') + _afTrackLine(i));  // הפרטים (FR-D-302: + שורת מעקב)
             _afBtn(_af.els.selInfo, '🔍 פתח במסלול בודד (חישוב מדויק + מעקב מכ"ם)', 'מציב את התותח והמטרה של המסלול הזה בכלי הבודד, לחישוב מדויק ובדיקת מעקב מכ"ם מלאה', function() {{  // מעבר לכלי הבודד
                 _afSetMode(false);  // מצב בודד
                 ballisticsEditing = 'gun'; _placeBallisticsPoint(L.latLng(row.launch[0], row.launch[1]));  // תותח (הגובה נשלף מחדש — T21)
@@ -6447,7 +6514,12 @@ def create_map(target='desktop', api_base='', output_path=None):
             var rn = _af.cur; if (!rn || !rn.resultJob) return;  // אין תוצאה בשרת (28/11: של החישוב הנבחר)
             rn.visSigPending = _afSites();  // המכ"מים ברגע הבקשה
             _af.els.stale.textContent = '';  // מנקים הודעה
-            fetch('http://localhost:5002/ballistics/area/visibility', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{job_id: _af.resultJob}})}})
+            var vreq = {{job_id: rn.resultJob, mode: _af.els.visMode ? _af.els.visMode.value : 'los'}};  // FR-D-302: סוג הבדיקה
+            if (vreq.mode === 'full') vreq.radars = (_rs.sites || []).map(function(s) {{  // FR-D-302: לכל מכ"ם מוצב — סוג + הצבה + טאב "מעקב מכ"ם", כמו בבדיקת מסלול בודד
+                var tp = (_rsTypeOf(s.params.type_key) || {{}}).params || {{}};  // פרמטרי הסוג
+                return {{name: s.name, body: Object.assign({{}}, tp, s.params, {{rcs_m2: _radarCommonBody().rcs_m2}}, _radarTrackScanBody(), _rtEnvBody())}};  // RCS כמו בבדיקת המעקב; סריקה, מעקב, RCS לפי זווית וגשם מהטאב
+            }});
+            fetch('http://localhost:5002/ballistics/area/visibility', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(vreq)}})
             .then(function(rsp) {{ return rsp.json(); }}).then(function(d) {{
                 if (d.error || !d.job_id) {{ _af.els.stale.textContent = '⚠️ ' + (d.error || 'שגיאה'); return; }}  // שגיאה
                 rn.visJob = d.job_id;  // ה-job (28/11: של החישוב הזה, גם אם בינתיים נבחר אחר)

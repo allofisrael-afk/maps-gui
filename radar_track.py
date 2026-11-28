@@ -201,7 +201,7 @@ def _ray_distances(max_d, frac):
     return out  # כל המרחקים
 
 
-def plan_terrain_samples(radar, traj, range_m, budget=MAX_TERRAIN_POINTS):
+def plan_terrain_samples(radar, traj, range_m, budget=MAX_TERRAIN_POINTS, max_bins=MAX_AZ_BINS):  # 28/11: max_bins — מאזור לאזור (area_track) מבקש פחים של רבע מעלה גם בגזרה רחבה; ברירת המחדל לא השתנתה
     """
     מתכנן את דגימות הגובה: קרן לכל "פח" אזימוט שבו יש נקודות-מסלול בטווח, עד המרחק הרחוק ביותר
     שנדרש באותו פח. במקום קרן נפרדת לכל נקודה (כמו הערכת המסלול הקיימת, כל 5 ק"מ):
@@ -219,7 +219,7 @@ def plan_terrain_samples(radar, traj, range_m, budget=MAX_TERRAIN_POINTS):
     if not need:  # אין שום נקודה בטווח — אין צורך בשטח
         return plan  # תוכנית ריקה
     start, span = _azimuth_span([b for b, _d in need])  # התחום הזוויתי שהמסלול תופס מנקודת המכ"ם
-    bin_deg = max(AZ_BIN_MIN_DEG, span / MAX_AZ_BINS)  # רבע מעלה, או רחב יותר אם התחום רחב מאוד
+    bin_deg = max(AZ_BIN_MIN_DEG, span / max_bins)  # רבע מעלה, או רחב יותר אם התחום רחב מאוד (28/11: תקרת הפחים כפרמטר)
     n_bins = int(span / bin_deg) + 1  # מספר הפחים
     bins = {}  # אינדקס פח -> המרחק הרחוק ביותר שנדרש בו
     for b, d in need:  # כל נקודה בטווח

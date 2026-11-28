@@ -92,6 +92,21 @@ def main():  # הכול בתוך main — חובה עם ProcessPoolExecutor ב-W
     check("צביעה של תוצאה גדולה: מסיכות רק למסלולים שבמפה (10), הסיכום מכולם", len((vs3.get("result") or {}).get("masks", [])) == 10 and vs3["result"]["summary"]["points"] == 60 * area_fire.DRAW_N, str(len((vs3.get("result") or {}).get("masks", []))))  # 28/11: מסיכות לפי המדגם
     rows3 = list(csv.reader(io.StringIO(c.get(f"/ballistics/area/csv?job_id={r3['job_id']}&vis_job={v3['job_id']}").get_data(as_text=True).lstrip("﻿"))))  # 28/11: CSV
     check("CSV של תוצאה גדולה: כל 60 המסלולים, עם נראות", len(rows3) == 61 and rows3[1][-1] == "R-test", str(len(rows3)))  # 28/11: CSV מלא
+    # ── FR-D-302: בדיקת מעקב מלאה (דופלר + משוואת מכ"ם + מעקב) לכל המסלולים ──
+    rb = {"lat": gun[0], "lon": gun[1], "h_antenna": 5, "range_km": 100, "rcs_m2": 5, "power_kw": 500, "mdv_kt": 5,  # מכ"ם חזק ליד אזור השיגור
+          "vertical_center_deg": 45, "vertical_width_deg": 90, "track_mode": "track", "scan_mode": "phased", "revisit_s": 0.5}  # כמו בבדיקות radar_service
+    vf = c.post("/ballistics/area/visibility", json={"job_id": r3["job_id"], "mode": "full", "radars": [{"name": "R-full", "body": rb}]}).get_json()  # בדיקה מלאה
+    check("בדיקה מלאה: ה-job התחיל עם המכ\"ם שנשלח", vf.get("radars") == ["R-full"], str(vf))  # התחלה
+    vfs = wait(vf["job_id"])  # המתנה
+    vfr = vfs.get("result") or {}  # התוצאה (מדגם — AREA_MAP_ROWS_MAX עדיין 10)
+    check("בדיקה מלאה: mode=full, מצבים לכל נקודה (מדגם 10), מדדי מסלול", vfs.get("status") == "done" and vfr.get("mode") == "full" and len(vfr.get("states", [])) == 10 and len(vfr["states"][0]) == area_fire.DRAW_N and len(vfr.get("rows", [])) == 10, str(vfs.get("error")))  # מבנה
+    check("בדיקה מלאה: הסיכום מכל 60 המסלולים, חלק במעקב", vfr.get("summary", {}).get("trajectories") == 60 and vfr["summary"]["trajectories_tracked"] > 0, str(vfr.get("summary")))  # סיכום
+    rows4 = list(csv.reader(io.StringIO(c.get(f"/ballistics/area/csv?job_id={r3['job_id']}&vis_job={vf['job_id']}").get_data(as_text=True).lstrip("﻿"))))  # CSV
+    hdr = rows4[0]  # כותרת
+    check("CSV של בדיקה מלאה: עמודות מעקב, 60 שורות, מי זיהה", len(rows4) == 61 and hdr[-5:] == ["tracked", "first_track_t_s", "warning_time_s", "seen_fraction", "seen_by"] and any(r_[-5] == "כן" for r_ in rows4[1:]) and any(r_[-1] == "R-full" for r_ in rows4[1:]), str(hdr[-5:]))  # CSV
+    vl = c.post("/ballistics/area/visibility", json={"job_id": r3["job_id"]}).get_json()  # בלי mode — קו ראייה כמו קודם
+    vls = wait(vl["job_id"])  # המתנה
+    check("בלי mode — צביעת קו ראייה כמו קודם (masks)", "masks" in (vls.get("result") or {}) and (vls.get("result") or {}).get("mode") != "full")  # תאימות
     ws.AREA_MAP_ROWS_MAX = 20000  # 28/11: החזרה
     r2 = c.post("/ballistics/area/start", json=req).get_json()  # התחלה נוספת
     c.post(f"/ballistics/area/cancel?job_id={r2['job_id']}")  # ביטול מיידי
