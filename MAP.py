@@ -5952,8 +5952,11 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
 
         // ═══════════════ A5: ירי מאזור לאזור (docs/PLAN_BALLISTICS_AREA_FIRE.md) ═══════════════
-        var _af = {{mode: false, areas: [], draw: null, drawPts: [], drawLayer: null, jobId: null, timer: null,  // מצב הכלי
-                   result: null, resultJob: null, visJob: null, vis: null, visSig: null, layers: null, estTimer: null, els: {{}}}};  // תוצאות ושכבות
+        var _af = {{mode: false, areas: [], draw: null, drawPts: [], drawLayer: null,  // מצב הכלי
+                   runs: [], cur: null, runSeq: 0, layers: null, estTimer: null, els: {{}}}};  // 28/11: רשימת חישובים (כמה במקביל), החישוב הנבחר בפאנל, מונה, שכבות
+        ['result', 'resultJob', 'vis', 'visJob', 'visSig', 'visSigPending', 'visTimer'].forEach(function(k) {{  // 28/11: השדות של "התוצאה" מצביעים לחישוב הנבחר — כך הסיכום, הסינון, הצביעה וה-CSV עובדים עליו בלי שינוי
+            Object.defineProperty(_af, k, {{get: function() {{ return _af.cur ? _af.cur[k] : null; }}, set: function(v) {{ if (_af.cur) _af.cur[k] = v; }}}});  // 28/11: קריאה/כתיבה לחישוב הנבחר
+        }});
         var _afRenderer = null;  // Canvas renderer — אלפי קווים בלי להאט את המפה
         var AF_GREEN = '#1e9e3a', AF_RED = '#d93025', AF_LAUNCH = '#e8710a', AF_TARGET = '#8e44ad';  // צבעים: נצפה / לא נצפה / שיגור / מטרה
         var AF_MAX_DRAW = 2000;  // דילול תצוגה מעל המספר הזה (החלטה 15)
@@ -5965,12 +5968,23 @@ def create_map(target='desktop', api_base='', output_path=None):
             return JSON.stringify((_rs.sites || []).map(function(s) {{ var p = s.params || {{}}; return [s.name, p.lat, p.lon, p.h_antenna, p.range_km, p.start_bearing_deg, p.end_bearing_deg, p.ridge_margin_deg]; }}));  // שם, מיקום, אנטנה, טווח, גזרה, מרווח
         }}
 
-        function _afLayers() {{  // שכבות המפה של הכלי (נוצרות פעם אחת)
+        function _afLayers() {{  // שכבות המפה: אזורים (משותף) + שכבות החישוב הנבחר (28/11: לכל חישוב שכבות משלו)
             if (!_af.layers) {{  // עוד לא נוצרו
                 _afRenderer = L.canvas({{padding: 0.5}});  // ציור על canvas
-                _af.layers = {{areas: L.layerGroup().addTo(map), paths: L.layerGroup().addTo(map), heatL: L.layerGroup(), heatT: L.layerGroup(), sel: L.layerGroup().addTo(map)}};  // אזורים, מסלולים, מפות חום, בחירה
+                _af.layers = {{areas: L.layerGroup().addTo(map), scratch: _afNewLayers()}};  // 28/11: אזורים, ושכבות ריקות כשאין חישוב נבחר
             }}
-            return _af.layers;  // השכבות
+            var c = _af.cur ? _af.cur.layers : _af.layers.scratch;  // 28/11: השכבות של החישוב הנבחר
+            return {{areas: _af.layers.areas, paths: c.paths, heatL: c.heatL, heatT: c.heatT, sel: c.sel}};  // 28/11: אותו מבנה כמו קודם
+        }}
+        function _afNewLayers() {{  // 28/11: שכבות לחישוב אחד — מסלולים, מפות חום, הדגשת בחירה
+            return {{paths: L.layerGroup(), heatL: L.layerGroup(), heatT: L.layerGroup(), sel: L.layerGroup()}};  // 28/11: נוספות למפה לפי _afShowRunLayers
+        }}
+        function _afShowRunLayers(rn, on) {{  // 28/11: שכבות חישוב על המפה — מסלולים לכל חישוב מסומן; מפות חום רק לחישוב הנבחר
+            var vis = on && rn.show;  // 28/11: במצב "מאזור לאזור" והחישוב מסומן "הצג"
+            [rn.layers.paths, rn.layers.sel].forEach(function(l) {{ if (vis) {{ if (!map.hasLayer(l)) l.addTo(map); }} else map.removeLayer(l); }});  // 28/11: מסלולים והדגשה
+            var heat = vis && rn === _af.cur && _af.els.showHeatL;  // 28/11: מפות חום — רק של הנבחר (כמה מפות חום יחד לא קריאות)
+            if (heat && _af.els.showHeatL.checked) {{ if (!map.hasLayer(rn.layers.heatL)) rn.layers.heatL.addTo(map); }} else map.removeLayer(rn.layers.heatL);  // 28/11: חום שיגור
+            if (heat && _af.els.showHeatT.checked) {{ if (!map.hasLayer(rn.layers.heatT)) rn.layers.heatT.addTo(map); }} else map.removeLayer(rn.layers.heatT);  // 28/11: חום מטרה
         }}
 
         function _afSetMode(on) {{  // מתג "מסלול בודד | מאזור לאזור"
@@ -5985,8 +5999,9 @@ def create_map(target='desktop', api_base='', output_path=None):
             _af.els.btnSingle.style.background = on ? '#f5f5f5' : '#fab387';  // הדגשת המצב
             _af.els.btnArea.style.background = on ? '#fab387' : '#f5f5f5';  // כנ"ל
             var ly = _afLayers();  // השכבות
-            [ly.areas, ly.paths, ly.sel].forEach(function(l) {{ if (on) {{ if (!map.hasLayer(l)) l.addTo(map); }} else map.removeLayer(l); }});  // השכבות גלויות רק במצב הזה
-            if (!on) {{ map.removeLayer(ly.heatL); map.removeLayer(ly.heatT); _afCancelDraw(); }}  // יציאה מהמצב — מפות חום וציור
+            if (on) {{ if (!map.hasLayer(ly.areas)) ly.areas.addTo(map); }} else map.removeLayer(ly.areas);  // 28/11: האזורים גלויים רק במצב הזה
+            _af.runs.forEach(function(rn) {{ _afShowRunLayers(rn, on); }});  // 28/11: השכבות של כל החישובים
+            if (!on) {{ _afCancelDraw(); }}  // יציאה מהמצב — ציור
             else {{ _afApplyLayerToggles(); _afCheckStale(); }}  // חזרה — השכבות לפי הבחירה, ובדיקת צביעה ישנה
         }}
 
@@ -6064,8 +6079,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             _af.els.est = _afMk(box, 'div', 'סמן לפחות אזור שיגור אחד ואזור מטרה אחד.', 'font-size:9px;color:#555;');  // הערכה
             var runRow = _afMk(box, 'div', '', 'display:flex;gap:3px;');  // הרצה
             _af.els.run = _afBtn(runRow, '▶ חשב מסלולים', 'חישוב כל המסלולים האפשריים מכל נקודת שיגור לכל נקודת מטרה', _afRun, 'flex:1;background:#f9e2af;font-weight:bold;');  // הרצה
-            _af.els.cancel = _afBtn(runRow, '⏹ בטל', 'ביטול החישוב', _afCancel);  // ביטול
-            _af.els.cancel.style.display = 'none';  // רק בזמן ריצה
+            _af.els.runs = _afMk(box, 'div', '', 'display:flex;flex-direction:column;gap:2px;max-height:130px;overflow:auto;');  // 28/11: רשימת החישובים — כמה במקביל, לכל אחד ביטול/הסרה משלו
             _af.els.info = _afMk(box, 'div', '', 'font-size:9.5px;color:#222;white-space:pre-line;line-height:1.35;');  // התקדמות וסיכום
             _af.els.info.setAttribute('role', 'status');  // קוראי מסך מכריזים
             var res = _afMk(box, 'div', '', 'display:none;flex-direction:column;gap:3px;border-top:1px solid #eee;padding-top:3px;');  // אזור התוצאות
@@ -6233,58 +6247,137 @@ def create_map(target='desktop', api_base='', output_path=None):
                 return;  // 28/11: ההמשך אחרי ההערכה
             }}
             _afResetBigConfirm();  // 28/11: האישור נוצל — ריצה נוספת תיבדק שוב
-            _afCancel(true);  // job קודם
-            _af.result = null; _af.vis = null; _af.visJob = null;  // ניקוי תוצאה קודמת
-            _afLayers().paths.clearLayers(); _af.els.res.style.display = 'none';  // ניקוי המפה
-            _af.els.info.textContent = 'מתחיל…';  // משוב
+            var rn = _afNewRun(req);  // 28/11: חישוב חדש ברשימה — החישובים הקודמים ממשיכים לרוץ ונשארים על המפה
             fetch('http://localhost:5002/ballistics/area/start', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(req)}})
             .then(function(r) {{ return r.json(); }}).then(function(d) {{
-                if (d.error || !d.job_id) {{ _af.els.info.textContent = '⚠️ ' + (d.error || 'שגיאה'); return; }}  // שגיאה
-                _af.jobId = d.job_id; _af.els.cancel.style.display = ''; _af.els.run.disabled = true;  // מצב ריצה
-                _af.timer = setInterval(function() {{ _afPoll(d.job_id, false); }}, 1000);  // polling
-            }}).catch(function(e) {{ _af.els.info.textContent = '⚠️ ' + e.message; }});  // כשל
+                if (d.error || !d.job_id) {{ _afRunFailed(rn, '⚠️ ' + (d.error || 'שגיאה')); return; }}  // 28/11: שגיאה — בשורת החישוב
+                rn.jobId = d.job_id; rn.status = 'running'; _afRunRow(rn);  // 28/11: רץ
+                rn.timer = setInterval(function() {{ _afPoll(rn, false); }}, 1000);  // 28/11: polling לחישוב הזה
+            }}).catch(function(e) {{ _afRunFailed(rn, '⚠️ ' + e.message); }});  // 28/11: כשל
         }}
         function _afResetBigConfirm() {{  // 28/11: מבטל אישור ריצה גדולה (אחרי שינוי או אחרי התחלה)
             _af.bigOk = null;  // 28/11: אין אישור
             if (_af.els.run) _af.els.run.textContent = '▶ חשב מסלולים';  // 28/11: טקסט רגיל
         }}
-        function _afCancel(silent) {{  // ביטול job פעיל
-            if (_af.timer) {{ clearInterval(_af.timer); _af.timer = null; }}  // עצירת polling
-            var id = _af.jobId; _af.jobId = null;  // ה-job
-            if (id) fetch('http://localhost:5002/ballistics/area/cancel?job_id=' + id, {{method: 'POST'}}).catch(function() {{}});  // ביטול בשרת
-            _af.els.cancel.style.display = 'none'; _af.els.run.disabled = false;  // מצב רגיל
-            if (id && silent !== true) _af.els.info.textContent = 'בוטל.';  // משוב
+        function _afNewRun(req) {{  // 28/11: רשומת חישוב חדשה ברשימה
+            _af.runSeq += 1;  // 28/11: מספר רץ
+            var d = new Date(), hh = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);  // 28/11: שעת ההתחלה
+            var rn = {{n: _af.runSeq, label: '#' + _af.runSeq + ' · ' + hh + ' · ' + req.launch_areas.length + ' שיגור × ' + req.target_areas.length + ' מטרה', status: 'starting', note: 'מתחיל…', eta: null,  // 28/11: תיאור ומצב
+                      jobId: null, timer: null, result: null, resultJob: null, vis: null, visJob: null, visSig: null, visSigPending: null, visTimer: null,  // 28/11: אותם שדות כמו "התוצאה" הישנה
+                      show: true, layers: _afNewLayers(), row: null}};  // 28/11: מוצג במפה, שכבות, שורה בפאנל
+            _af.runs.push(rn);  // 28/11: לרשימה
+            _afShowRunLayers(rn, _af.mode);  // 28/11: השכבות שלו
+            if (!_af.cur || !_af.cur.result) _afSelectRun(rn);  // 28/11: אין תוצאה מוצגת — החדש נבחר; אחרת התוצאה המוצגת נשארת
+            else _afRunRow(rn);  // 28/11: רק השורה ברשימה
+            return rn;  // 28/11: הרשומה
         }}
-        function _afPoll(jobId, isVis) {{  // מצב job (חישוב או צביעה)
+        function _afRunRow(rn) {{  // 28/11: שורת חישוב ברשימה — מצב, זמן שנותר, הצג/הסתר, ביטול, הסרה
+            if (!rn.row) {{  // 28/11: יצירה בפעם הראשונה
+                var row = _afMk(_af.els.runs, 'div', '', 'display:flex;align-items:center;gap:3px;font-size:9px;border:1px solid #eee;border-radius:3px;padding:1px 3px;');  // 28/11: השורה
+                var chk = _afMk(row, 'input'); chk.type = 'checkbox'; chk.checked = true;  // 28/11: הצג במפה
+                chk.title = 'הצג במפה'; chk.setAttribute('aria-label', 'הצג במפה: ' + rn.label);  // 28/11: נגישות
+                L.DomEvent.on(chk, 'click', L.DomEvent.stopPropagation);  // 28/11: לא ללחיצה על המפה
+                L.DomEvent.on(chk, 'change', function() {{ rn.show = chk.checked; _afShowRunLayers(rn, _af.mode); }});  // 28/11: הצגה/הסתרה
+                var lbl = _afMk(row, 'button', rn.label, 'flex:1;min-width:0;min-height:20px;text-align:right;font-size:9px;border:none;background:none;cursor:pointer;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;');  // 28/11: שם — לחיצה בוחרת
+                lbl.title = 'הצג את הסיכום, הסינון, הצביעה והייצוא של החישוב הזה'; lbl.setAttribute('aria-label', 'בחר את ' + rn.label);  // 28/11: נגישות
+                L.DomEvent.on(lbl, 'click', function(e) {{ L.DomEvent.stopPropagation(e); _afSelectRun(rn); }});  // 28/11: בחירה
+                var st = _afMk(row, 'span', '', 'color:#555;white-space:nowrap;');  // 28/11: מצב
+                var stop = _afBtn(row, '⏹', 'ביטול החישוב ' + rn.label, function() {{ _afCancelRun(rn); }}, 'min-height:20px;padding:0 4px;');  // 28/11: ביטול רק של החישוב הזה
+                var del = _afBtn(row, '🗑', 'הסרת ' + rn.label + ' מהרשימה ומהמפה', function() {{ _afRemoveRun(rn); }}, 'min-height:20px;padding:0 4px;');  // 28/11: הסרה
+                rn.row = {{el: row, lbl: lbl, st: st, stop: stop, del: del}};  // 28/11: נשמר
+            }}
+            var running = rn.status === 'running' || rn.status === 'starting';  // 28/11: עדיין רץ
+            rn.row.st.textContent = running ? '⏳ ' + (rn.eta ? _afFmtTime(rn.eta) : '…') : (rn.status === 'done' ? '✅ ' + rn.result.summary.trajectories_feasible.toLocaleString() + ' מסלולים' : (rn.status === 'error' ? '⚠️ שגיאה' : 'בוטל'));  // 28/11: מצב קצר
+            rn.row.st.title = rn.note || '';  // 28/11: פירוט במעבר עכבר
+            rn.row.stop.style.display = running ? '' : 'none';  // 28/11: ביטול רק בזמן ריצה
+            rn.row.del.style.display = running ? 'none' : '';  // 28/11: הסרה אחרי סיום
+            rn.row.el.style.background = rn === _af.cur ? '#fff3e0' : '';  // 28/11: הדגשת הנבחר
+            rn.row.lbl.style.fontWeight = rn === _af.cur ? 'bold' : 'normal';  // 28/11: כנ"ל
+        }}
+        function _afSelectRun(rn) {{  // 28/11: בחירת חישוב — הסיכום, הסינון, הטבלה, הצביעה וה-CSV עוברים אליו
+            var prev = _af.cur; _af.cur = rn;  // 28/11: החלפה
+            if (prev && prev !== rn) {{ prev.layers.sel.clearLayers(); if (prev.row) _afRunRow(prev); }}  // 28/11: הקודם — בלי הדגשה
+            _af.runs.forEach(function(x) {{ _afShowRunLayers(x, _af.mode); }});  // 28/11: מפות החום — של הנבחר בלבד
+            _afRunRow(rn);  // 28/11: הדגשה ברשימה
+            if (_af.els.selInfo) _af.els.selInfo.innerHTML = '';  // 28/11: פרטי מסלול שנבחר — של הקודם
+            if (rn.result) {{ _af.els.res.style.display = 'flex'; _afFillFilters(); _afRender(); _afSummary(); _afCheckStale(); }}  // 28/11: יש תוצאה — מציגים אותה
+            else {{ _af.els.res.style.display = 'none'; _af.els.info.textContent = rn.note || ''; }}  // 28/11: עדיין רץ / נכשל
+        }}
+        function _afRunFailed(rn, msg) {{  // 28/11: כשל בהתחלת חישוב
+            rn.status = 'error'; rn.note = msg; _afRunRow(rn);  // 28/11: בשורה
+            if (rn === _af.cur) _af.els.info.textContent = msg;  // 28/11: ובשורת המצב אם הוא הנבחר
+        }}
+        function _afCancelRun(rn) {{  // 28/11: ביטול חישוב אחד — האחרים ממשיכים
+            if (rn.timer) {{ clearInterval(rn.timer); rn.timer = null; }}  // 28/11: עצירת polling
+            if (rn.jobId && (rn.status === 'running' || rn.status === 'starting')) fetch('http://localhost:5002/ballistics/area/cancel?job_id=' + rn.jobId, {{method: 'POST'}}).catch(function() {{}});  // 28/11: ביטול בשרת
+            if (rn.status === 'running' || rn.status === 'starting') {{ rn.status = 'cancelled'; rn.note = 'בוטל.'; rn.eta = null; }}  // 28/11: מצב
+            _afRunRow(rn);  // 28/11: השורה
+            if (rn === _af.cur && !rn.result) _af.els.info.textContent = 'בוטל.';  // 28/11: משוב
+        }}
+        function _afRemoveRun(rn) {{  // 28/11: הסרת חישוב מהרשימה ומהמפה
+            _afCancelRun(rn);  // 28/11: אם עדיין רץ
+            if (rn.visTimer) {{ clearInterval(rn.visTimer); rn.visTimer = null; }}  // 28/11: צביעה שרצה
+            [rn.layers.paths, rn.layers.sel, rn.layers.heatL, rn.layers.heatT].forEach(function(l) {{ l.clearLayers(); map.removeLayer(l); }});  // 28/11: ניקוי מהמפה
+            if (rn.row) rn.row.el.remove();  // 28/11: מהפאנל
+            _af.runs.splice(_af.runs.indexOf(rn), 1);  // 28/11: מהרשימה
+            if (_af.cur === rn) {{  // 28/11: הוסר החישוב הנבחר
+                _af.cur = null;  // 28/11: אין נבחר
+                var next = _af.runs.filter(function(x) {{ return x.result; }}).pop() || _af.runs[_af.runs.length - 1];  // 28/11: האחרון עם תוצאה, או האחרון
+                if (next) _afSelectRun(next);  // 28/11: נבחר במקומו
+                else {{ _af.els.res.style.display = 'none'; _af.els.info.textContent = ''; }}  // 28/11: הרשימה ריקה
+            }}
+        }}
+        function _afPoll(rn, isVis) {{  // מצב job של חישוב מסוים (חישוב או צביעה) — 28/11: לכל חישוב polling משלו
+            var jobId = isVis ? rn.visJob : rn.jobId; if (!jobId) return;  // 28/11: ה-job
             fetch('http://localhost:5002/ballistics/area/status?job_id=' + jobId).then(function(r) {{ return r.json(); }}).then(function(d) {{
-                if (isVis ? jobId !== _af.visJob : jobId !== _af.jobId) return;  // job שהוחלף
-                var el = _af.els.info;  // שורת המצב
+                if ((isVis ? rn.visJob : rn.jobId) !== jobId || _af.runs.indexOf(rn) < 0) return;  // 28/11: הוחלף או הוסר
+                var isCur = rn === _af.cur, el = _af.els.info;  // 28/11: האם מוצג בפאנל
                 if (d.status === 'running') {{  // עדיין רץ
                     var prog = d.batches_total ? ' (' + d.batches_done + '/' + d.batches_total + ')' : '';  // שליפה
-                    el.textContent = (isVis ? '🎨 ' : '⏳ ') + (d.note || 'מחשב…') + prog + (d.eta_s ? ' · נותרו כ-' + _afFmtTime(d.eta_s) + (isVis ? '' : ' לכל החישוב') : '');  // התקדמות + הערכה (28/11: לכל החישוב, לא רק לשלב)
+                    var txt = (isVis ? '🎨 ' : '⏳ ') + (d.note || 'מחשב…') + prog + (d.eta_s ? ' · נותרו כ-' + _afFmtTime(d.eta_s) + (isVis ? '' : ' לכל החישוב') : '');  // התקדמות + הערכה (28/11: לכל החישוב, לא רק לשלב)
+                    if (!isVis) {{ rn.note = txt; rn.eta = d.eta_s; _afRunRow(rn); }}  // 28/11: בשורת החישוב
+                    if (isCur) el.textContent = txt;  // 28/11: ובשורת המצב אם הוא הנבחר
                     return;  // ממתין
                 }}
-                if (isVis) {{ clearInterval(_af.visTimer); _af.visTimer = null; }} else {{ clearInterval(_af.timer); _af.timer = null; _af.jobId = null; _af.els.cancel.style.display = 'none'; _af.els.run.disabled = false; }}  // עצירה
+                if (isVis) {{ clearInterval(rn.visTimer); rn.visTimer = null; }} else {{ clearInterval(rn.timer); rn.timer = null; rn.eta = null; }}  // עצירה (28/11: של החישוב הזה בלבד)
                 if (d.status === 'done') {{  // הצליח
-                    if (isVis) {{ _af.vis = d.result; _af.visSig = _af.visSigPending; _afCheckStale(); _afRender(); _afSummary(); }}  // צביעה
-                    else {{ _af.result = d.result; _af.resultJob = jobId; _af.visJob = _af.vis = null; _af.visSig = null; _afShowResult(); }}  // תוצאה חדשה (מזהה ה-job נשמר — לצביעה ול-CSV)
-                }} else el.textContent = d.status === 'error' ? '⚠️ ' + (d.error || 'שגיאה') : (isVis ? 'הצביעה בוטלה.' : 'בוטל.');  // שגיאה/ביטול
-                if (el.scrollIntoView) el.scrollIntoView({{block: 'nearest', behavior: 'smooth'}});  // T23: גלילה לתוצאה
+                    if (isVis) {{  // צביעה
+                        rn.vis = d.result; rn.visSig = rn.visSigPending;  // 28/11: נשמר בחישוב
+                        if (isCur) {{ _afCheckStale(); _afRender(); _afSummary(); }}  // 28/11: הנבחר — ציור מחדש וסיכום
+                        else {{ var keep = _af.cur; _af.cur = rn; _afRender(); _af.cur = keep; if (keep && keep.result) _afRender(); }}  // 28/11: חישוב אחר — צובעים את המסלולים שלו במפה, ומחזירים את הפאנל לנבחר
+                    }} else {{  // תוצאה חדשה
+                        rn.status = 'done'; rn.note = ''; rn.result = d.result; rn.resultJob = jobId; rn.visJob = rn.vis = null; rn.visSig = null;  // 28/11: נשמר בחישוב (מזהה ה-job — לצביעה ול-CSV)
+                        var prev = _af.cur; _af.cur = rn;  // 28/11: התוצאה החדשה נבחרת ומוצגת
+                        if (prev && prev !== rn) {{ prev.layers.sel.clearLayers(); if (prev.row) _afRunRow(prev); }}  // 28/11: הקודם — בלי הדגשה
+                        _af.runs.forEach(function(x) {{ _afShowRunLayers(x, _af.mode); }});  // 28/11: מפות חום של הנבחר
+                        _afRunRow(rn); if (_af.els.selInfo) _af.els.selInfo.innerHTML = '';  // 28/11: השורה, ניקוי פרטי בחירה
+                        _afShowResult();  // ציור, סיכום וצביעה ראשונה
+                        isCur = true;  // 28/11: לגלילה
+                    }}
+                }} else {{  // שגיאה/ביטול
+                    var msg = d.status === 'error' ? '⚠️ ' + (d.error || 'שגיאה') : (isVis ? 'הצביעה בוטלה.' : 'בוטל.');  // 28/11: ההודעה
+                    if (!isVis) {{ rn.status = d.status === 'error' ? 'error' : 'cancelled'; rn.note = msg; _afRunRow(rn); }}  // 28/11: בשורת החישוב
+                    if (isCur) el.textContent = msg;  // 28/11: בשורת המצב אם הוא הנבחר
+                }}
+                if (isCur && el.scrollIntoView) el.scrollIntoView({{block: 'nearest', behavior: 'smooth'}});  // T23: גלילה לתוצאה
             }}).catch(function() {{}});  // כשל רשת — ה-tick הבא
         }}
 
         // ── תוצאות ──
         function _afShowResult() {{  // אחרי חישוב: מילוי מסננים, ציור, סיכום, וצביעה ראשונה אוטומטית
-            var r = _af.result;  // התוצאה
             _af.els.res.style.display = 'flex';  // אזור התוצאות
+            _afFillFilters();  // 28/11: מסנני האזורים (פונקציה נפרדת — גם בבחירת חישוב מהרשימה)
+            _afDrawHeat(); _afRender(); _afSummary();  // ציור וסיכום
+            if ((_rs.sites || []).length) _afRecolor();  // יש מכ"מים — צביעה ראשונה אוטומטית
+            else {{ _af.visSig = _afSites(); _afCheckStale(); }}  // אין מכ"מים — הכול אדום (החלטה 14)
+        }}
+        function _afFillFilters() {{  // 28/11: מסנני אזור שיגור/מטרה לפי החישוב הנבחר
+            var r = _af.result;  // התוצאה
             [['fLaunch', r.areas.launch, 'כל אזורי השיגור'], ['fTarget', r.areas.target, 'כל אזורי המטרה']].forEach(function(x) {{  // מסנני אזורים
                 var sel = _af.els[x[0]]; sel.innerHTML = '';  // ניקוי
                 var o = _afMk(sel, 'option', x[2]); o.value = '-1';  // הכול
                 x[1].forEach(function(nm, i) {{ var op = _afMk(sel, 'option', nm); op.value = String(i); }});  // כל אזור
             }});
-            _afDrawHeat(); _afRender(); _afSummary();  // ציור וסיכום
-            if ((_rs.sites || []).length) _afRecolor();  // יש מכ"מים — צביעה ראשונה אוטומטית
-            else {{ _af.visSig = _afSites(); _afCheckStale(); }}  // אין מכ"מים — הכול אדום (החלטה 14)
         }}
         function _afSummary() {{  // טקסט הסיכום
             var r = _af.result; if (!r) return;  // אין
@@ -6316,6 +6409,7 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
         function _afRender() {{  // ציור המסלולים (ירוק/אדום לפי קטע) + טבלה
             var r = _af.result; if (!r) return;  // אין
+            var rnDraw = _af.cur;  // 28/11: החישוב שמצויר — לחיצה על מסלול שלו בוחרת אותו
             var ly = _afLayers(); ly.paths.clearLayers(); ly.sel.clearLayers();  // ניקוי
             var idx = _afFiltered(), shown = idx;  // אחרי סינון
             if (idx.length > AF_MAX_DRAW) {{ var step = idx.length / AF_MAX_DRAW; shown = []; for (var k = 0; k < AF_MAX_DRAW; k++) shown.push(idx[Math.floor(k * step)]); }}  // דילול שווה (החלטה 15)
@@ -6323,7 +6417,7 @@ def create_map(target='desktop', api_base='', output_path=None):
             if (_af.els.showPaths.checked) shown.forEach(function(i) {{  // ציור
                 var row = r.rows[i], m = _afMask(i), p = row.path;  // המסלול
                 var seg = [p[0]], cur = m ? !!m[0] : false;  // קטע נוכחי וצבעו
-                function flush() {{ if (seg.length > 1) L.polyline(seg.map(function(q) {{ return [q[0], q[1]]; }}), {{renderer: _afRenderer, color: cur ? AF_GREEN : AF_RED, weight: 2, opacity: 0.75}}).on('click', function() {{ _afSelect(i); }}).addTo(ly.paths); }}  // קטע בצבע אחד
+                function flush() {{ if (seg.length > 1) L.polyline(seg.map(function(q) {{ return [q[0], q[1]]; }}), {{renderer: _afRenderer, color: cur ? AF_GREEN : AF_RED, weight: 2, opacity: 0.75}}).on('click', function() {{ if (_af.cur !== rnDraw) _afSelectRun(rnDraw); _afSelect(i); }}).addTo(ly.paths); }}  // קטע בצבע אחד
                 for (var k = 1; k < p.length; k++) {{  // כל נקודה
                     var vis = m ? !!m[k] : false;  // נראות הנקודה
                     if (vis !== cur) {{ seg.push(p[k]); flush(); seg = [p[k]]; cur = vis; }}  // מעבר צבע — סוגרים קטע
@@ -6376,21 +6470,19 @@ def create_map(target='desktop', api_base='', output_path=None):
         }}
         function _afApplyLayerToggles() {{  // הצגת/הסתרת השכבות לפי המתגים
             if (!_af.els.showPaths || !_af.mode) return;  // לא במצב
-            var ly = _afLayers();  // השכבות
-            if (_af.els.showHeatL.checked) ly.heatL.addTo(map); else map.removeLayer(ly.heatL);  // חום שיגור
-            if (_af.els.showHeatT.checked) ly.heatT.addTo(map); else map.removeLayer(ly.heatT);  // חום מטרה
+            _af.runs.forEach(function(rn) {{ _afShowRunLayers(rn, true); }});  // 28/11: מפות חום — של החישוב הנבחר בלבד
             _afRender();  // מסלולים
         }}
         function _afRecolor() {{  // "עדכן צביעה" — נראות מול כל המכ"מים המוצבים
-            if (!_af.resultJob) return;  // אין תוצאה בשרת
-            _af.visSigPending = _afSites();  // המכ"מים ברגע הבקשה
+            var rn = _af.cur; if (!rn || !rn.resultJob) return;  // אין תוצאה בשרת (28/11: של החישוב הנבחר)
+            rn.visSigPending = _afSites();  // המכ"מים ברגע הבקשה
             _af.els.stale.textContent = '';  // מנקים הודעה
             fetch('http://localhost:5002/ballistics/area/visibility', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{job_id: _af.resultJob}})}})
             .then(function(rsp) {{ return rsp.json(); }}).then(function(d) {{
                 if (d.error || !d.job_id) {{ _af.els.stale.textContent = '⚠️ ' + (d.error || 'שגיאה'); return; }}  // שגיאה
-                _af.visJob = d.job_id;  // ה-job
-                if (_af.visTimer) clearInterval(_af.visTimer);  // קודם
-                _af.visTimer = setInterval(function() {{ _afPoll(d.job_id, true); }}, 1000);  // polling
+                rn.visJob = d.job_id;  // ה-job (28/11: של החישוב הזה, גם אם בינתיים נבחר אחר)
+                if (rn.visTimer) clearInterval(rn.visTimer);  // קודם
+                rn.visTimer = setInterval(function() {{ _afPoll(rn, true); }}, 1000);  // polling
             }}).catch(function(e) {{ _af.els.stale.textContent = '⚠️ ' + e.message; }});  // כשל
         }}
         function _afCheckStale() {{  // האם המכ"מים השתנו מאז הצביעה (החלטה 16: הודעה + כפתור, בלי עדכון אוטומטי)
